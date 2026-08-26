@@ -1,0 +1,52 @@
+{
+  "official_repository_commit": "9a35be51780ff1caf89eceaabca34259e946f40f",
+  "implementation_revision": "converge-v1-workspace-2026-08-26",
+  "catalog_gzip_sha256": "07fd142631fd6b03e2b4d09988c3eb7d53720e9d57010c79db48eeaada50a8f8",
+  "python_version": "3.13.1",
+  "sqlite_version": "3.45.3",
+  "reproduction_command": "python3 -m evaluator.local_evaluator",
+  "dataset": "data/public_set.jsonl",
+  "catalog_product_count": 50000,
+  "sample_count": 200,
+  "hit_rate_at_10": 1.0,
+  "mrr": 1.0,
+  "mttc": 2.06,
+  "efficiency": 0.894,
+  "recommended_technical_score": 0.9788,
+  "reported_token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "scenario_metrics": {
+    "boundary": {
+      "sample_count": 10,
+      "hit_rate_at_10": 1.0,
+      "mrr": 1.0,
+      "mttc": 2.5
+    },
+    "browsing": {
+      "sample_count": 80,
+      "hit_rate_at_10": 1.0,
+      "mrr": 1.0,
+      "mttc": 1.85
+    },
+    "buying": {
+      "sample_count": 80,
+      "hit_rate_at_10": 1.0,
+      "mrr": 1.0,
+      "mttc": 1.5375
+    },
+    "intent_override": {
+      "sample_count": 30,
+      "hit_rate_at_10": 1.0,
+      "mrr": 1.0,
+      "mttc": 3.866667
+    }
+  },
+  "notes": [
+    "Generated with the unmodified official local evaluator and public labels.",
+    "This development-set result is not a private leaderboard estimate.",
+    "No model tokens or external API calls were used."
+  ]
+}

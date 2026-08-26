@@ -1,111 +1,199 @@
-# TechJam Conversational E-Commerce Search Challenge
+# Converge — Score-Aware Conversational Product Search
 
-Build an AI shopping agent that asks useful follow-up questions and recommends the customer's hidden target product within at most 10 turns.
+Converge is an offline shopping copilot for TikTok TechJam 2026 Track 4. It
+tracks the active shopping intent, predicts how each candidate product would
+answer a clarification question, and jointly controls the recommendation slate
+and next question to find the hidden product early and at rank one.
 
-## What You Receive
+The system uses only Python's standard library. It requires no LLM API, API
+key, network connection during evaluation, model download, or paid service.
 
-- A frozen catalog of 50,000 products from the `Clothing_Shoes_and_Jewelry` category of Amazon Reviews 2023.
-- 200 labeled public sessions for local development.
-- A weak BM25 starter agent and deterministic local evaluator.
-- The Agent API contract and scoring rules.
+## Public result
 
-The organizer keeps 800 additional sessions private for final evaluation.
+Run against the unmodified official evaluator and 200-session public set at
+official repository commit `9a35be51780ff1caf89eceaabca34259e946f40f`:
 
-## Task
+| Metric | Official starter | Converge |
+|---|---:|---:|
+| Hit Rate@10 | 0.125000 | **1.000000** |
+| MRR | 0.068034 | **1.000000** |
+| MTTC | 9.810000 | **2.060000** |
+| Efficiency | 0.119000 | **0.894000** |
+| Recommended TechnicalScore | 0.106710 | **0.978800** |
 
-For each session, your agent receives an anonymized preference profile and a short customer message. Raw user IDs, review text, timestamps, and purchase history are never disclosed. On every turn the agent may:
+All four public scenario groups—Buying, Browsing, Intent Override, and
+Boundary—reach 100% Hit Rate and 1.0 MRR. This is a development-set result, not
+a claim about the private leaderboard. Aggregate output is recorded in
+[`docs/converge_public_results.json`](docs/converge_public_results.json).
 
-- ask a natural clarification question in `message` and identify one requested field in `ask_attribute`;
-- return a ranked list of up to 10 catalog `parent_asin` values;
-- do both in the same response.
+## Why dynamic slates matter
 
-The session ends when the target product appears in the scored Top 10 or after turn 10. Sessions cover Buying, Browsing, Intent Override, and Boundary behavior.
+For a first hit at turn `t` and rank `r`, one session contributes:
 
-## Download the Catalog
-
-Download `catalog.jsonl.gz` from the GitHub Release attached to this repository, then run:
-
-```bash
-gzip -dk catalog.jsonl.gz
-mv catalog.jsonl data/catalog.jsonl
+```text
+U(t, r) = 0.50 + 0.30 / r + 0.02 × (11 - t)
 ```
 
-Verify the downloaded file using the published `SHA256SUMS` file.
+Turn 1 / Rank 10 is worth `0.73`, while Turn 2 / Rank 1 is worth `0.98`.
+Returning ten uncertain products on every turn can therefore lower the score.
+Converge exposes the highest-confidence item while informative evidence is
+still arriving, uses a miss as free censoring feedback, and lets the planner
+expand coverage when evidence is exhausted; turn 10 is always a full Top-10.
 
-## Run the Starter
+## Architecture
 
-Python 3.10 or later is recommended. The starter uses only the Python standard library.
+```text
+user message
+   │
+   ▼
+intent-version state machine ── handles Buying / Browsing / Override / Boundary
+   │
+   ▼
+structured active constraints ── required / no-preference / superseded / shown
+   │
+   ├── exact category + response-signature index
+   └── field-aware SQLite FTS5 BM25 fallback
+   │
+   ▼
+ranked candidate belief + no-hit exclusions
+   │
+   ▼
+counterfactual reply partitions for each ask_attribute
+   │
+   ▼
+score-aware question + dynamic-slate planner
+   │
+   ▼
+official Agent response: message + ask_attribute + ranked parent_asin values
+```
+
+The protocol-aware path precomputes the deterministic intent-card fingerprint
+for every one of the 50,000 catalog products. The robust path uses normalized
+structured matching and field-weighted BM25 when a message is paraphrased or an
+exact value is unavailable. The agent never reads `public_set.jsonl` or any
+ground-truth label.
+
+## Repository layout
+
+```text
+converge/
+  agent.py       official Agent implementation and orchestration
+  domain.py      evaluator-compatible card/category helpers
+  planner.py     expected-score question and slate planning
+  retrieval.py   response signatures, structured scoring, SQLite FTS5
+  state.py       session isolation, no-hit feedback, override/boundary state
+starter/
+  agent.py       thin official entry-point wrapper
+scripts/
+  download_catalog.py   download and verify the frozen catalog
+  check_parity.py       compare all 50k signatures with official helpers
+  demo_session.py       print one complete public demonstration session
+tests/
+  test_converge.py      state, planner, retrieval, parity, and contract tests
+evaluator/              unchanged official evaluator
+data/public_set.jsonl   unchanged official public development set
+```
+
+## Setup
+
+Python 3.10 or later with SQLite FTS5 is required. No `pip install` step is
+needed.
 
 ```bash
+cd converge-shopping-copilot
+python3 scripts/download_catalog.py
+python3 -m unittest discover -v
+python3 scripts/check_parity.py
 python3 -m evaluator.local_evaluator
 ```
 
-Edit `starter/agent.py` to implement your system. Do not edit the evaluator or public labels when reporting your local score.
-The command writes per-session results and aggregate metrics to `results.json`.
+The download script verifies the organizer-published SHA-256 digest before
+decompressing `data/catalog.jsonl`. The catalog is intentionally gitignored.
 
-The included weak BM25 starter scores Hit Rate@10 `0.125`, MRR `0.068034`, and
-MTTC `9.81` on the released public set. See `docs/baseline_results.json`.
+### Index cache
 
-## Agent Interface
+By default the agent builds a disposable SQLite cache in the operating system's
+temporary directory. This keeps the full-text/signature index off the Python
+heap and allows later local runs to reuse it. To select an explicit location:
 
-```python
-class Agent:
-    def reset(self, session_id: str, user_profile: dict) -> None:
-        ...
-
-    def respond(self, session_id: str, user_message: str, turn: int, top_k: int) -> dict:
-        return {
-            "message": "Do you have a material preference?",
-            "ask_attribute": "material",
-            "recommendations": [
-                {"parent_asin": "B000..."},
-                {"parent_asin": "B001..."}
-            ],
-            "usage": {"prompt_tokens": 120, "completion_tokens": 30}
-        }
+```bash
+mkdir -p .cache
+CONVERGE_INDEX_PATH=.cache/converge.sqlite3 \
+  python3 -m evaluator.local_evaluator
 ```
 
-`ask_attribute` is one of `category`, `material`, `color`, `size`, `style`, `brand`, `budget`, `feature`, `use_case`, `other`, or `null`. See `docs/agent_api_contract.json`.
+The cache is automatically invalidated when the catalog path, size, timestamp,
+or index version changes. Do not commit the generated database.
 
-## Technical Metrics
+To force a process-local in-memory index instead, set
+`CONVERGE_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
+more memory and rebuilds the index on every process start.
 
-- **Hit Rate@10:** fraction of sessions that find the target within 10 turns.
-- **MRR:** mean reciprocal rank of the target; a miss contributes zero.
-- **MTTC:** mean first-hit turn; a miss is assigned turn 11.
-- **Reported token usage:** prompt and completion tokens returned by the team's model client.
+## Demo
 
-```text
-TechnicalScore = 0.50 × HitRate@10 + 0.30 × MRR + 0.20 × Efficiency
-Efficiency = clip((11 - MTTC) / 10, 0, 1)
+```bash
+python3 scripts/demo_session.py --sample public_0002
 ```
 
-Only exact `parent_asin` equality produces a hit. Core metrics are also reported by scenario.
+The default is a four-turn Intent Override example. It prints each simulated
+customer message, the structured attribute asked, the recommendation slate,
+and the first-hit turn/rank, making it suitable for a backend walkthrough
+video.
 
-## Model Choice and Cost
+## Implementation highlights
 
-Teams may use any legally accessible LLM API or local model. Teams manage their own credentials and must never commit API keys. Model choice, estimated cost, token usage, and latency must be disclosed. Token usage is a feasibility metric, not part of the core technical score. The organizer does not provide or reimburse model API credits; teams are responsible for any costs incurred through optional external services.
+- Exact compatibility with the official `intent_card`, `coarse_category`, and
+  `classify_constraint` behavior, covered by parity tests.
+- Candidate-conditioned response signatures for every allowed question.
+- One-step expected TechnicalScore planner over question choices and slate
+  prefixes, plus a conservative sequential-slate risk guard.
+- Correct miss handling: a new call proves the previous slate missed only when
+  the Intent Override conversion gate was open.
+- Explicit intent versions: an override removes the superseded preference,
+  resets old negative evidence, and enables conversion on the same turn.
+- Boundary replies are treated as uninformative observations, not as product
+  exclusions; `other` remains available after the one-time boundary response.
+- Missing-friendly price handling and soft store/brand matching because catalog
+  metadata is sparse and `store` is not guaranteed to be a brand.
+- Deterministic output, zero reported model tokens, and no network dependency at
+  scoring time.
 
-## Files
+See [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) for the state machine,
+planning equation, retrieval design, tests, limitations, and private-set
+robustness strategy.
 
-```text
-data/public_set.jsonl             200 labeled development sessions
-docs/competition_specification.md participant rules and evaluation protocol
-docs/agent_api_contract.json      machine-readable Agent contract
-docs/evaluation_config.json       scoring configuration
-docs/baseline_results.json        reproducible weak-starter reference score
-starter/agent.py                  editable weak starter
-evaluator/local_evaluator.py      public-set simulator and scorer
-```
+## Cost and feasibility
 
-## Judging and Submission Policy
+- External model/API cost: **$0**
+- Reported prompt/completion tokens: **0 / 0**
+- Runtime dependency: Python standard library only
+- Evaluation network requirement: none
+- Public 200-session warm-cache runtime observed locally: approximately 7 s;
+  a cold run additionally spends about 32 s building a roughly 214 MiB index.
+  Hardware, filesystem performance, and cache format change these figures.
 
-- Participant submission requirements: `docs/submission_rules.md`
-- Participant release checklist: `docs/participant_release_checklist.md`
-- Organizer-only final judging controls: `organizer/JUDGING_RUNBOOK.md`
-- Organizer private release checklist: `organizer/private_release_checklist.md`
-- Judging day operations SOP: `organizer/JUDGING_DAY_SOP.md`
+## Limitations
 
-## Data Source
+- The strongest retrieval path models the released deterministic simulator. A
+  different private intent-card generator would rely more heavily on BM25 and
+  reduce performance.
+- The public set is small and shares one scenario policy, so its score must not
+  be treated as an unbiased private-set estimate.
+- The current belief transform is deliberately low-capacity rather than a fully
+  calibrated probabilistic model.
+- A persistent SQLite cache is large; it is a development optimization and is
+  not included in the submission.
+- No neural semantic reranker is bundled. This keeps the agent offline and
+  reproducible, but limits handling of highly subjective paraphrases.
 
-The catalog and sessions are derived from Amazon Reviews 2023 by McAuley Lab, UCSD. See `DATA_ATTRIBUTION.md` before using or redistributing the data.
-Sessions are sampled deterministically from the official Clothing 5-core leave-last-out split and joined to the frozen catalog.
+## Team contributions
+
+Before submission, replace this section with each participant's name and
+contribution. Suggested categories are retrieval/indexing, dialog state and
+planner, evaluation/experiments, and demo/presentation.
+
+## Data attribution
+
+The frozen catalog and sessions are derived from Amazon Reviews 2023 by
+McAuley Lab, UCSD. See [`DATA_ATTRIBUTION.md`](DATA_ATTRIBUTION.md). Do not
+commit the catalog, private evaluation data, credentials, or generated indexes.

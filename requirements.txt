@@ -1,0 +1,2 @@
+# Converge has no third-party runtime dependencies.
+# Python 3.10+ with a SQLite build that includes FTS5 is required.

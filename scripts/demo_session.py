@@ -56,7 +56,7 @@ def main() -> None:
         print(f"\nCustomer [{turn}]: {user_message}")
         response = agent.respond(session_id, user_message, turn, 10)
         ranked = normalize_recommendations(response["recommendations"], catalog_ids)
-        print(f"Converge [{turn}]: {response['message']}")
+        print(f"Agent [{turn}]: {response['message']}")
         print(f"ask_attribute={response['ask_attribute']!r}")
         print("recommendations=" + json.dumps(ranked))
         if override_applied and target in ranked:

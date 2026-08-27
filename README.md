@@ -1,6 +1,6 @@
-# Converge — Score-Aware Conversational Product Search
+# Shopping Agent — Score-Aware Conversational Product Search
 
-Converge is an offline shopping copilot for TikTok TechJam 2026 Track 4. It
+This agent is an offline shopping copilot for TikTok TechJam 2026 Track 4. It
 tracks the active shopping intent, predicts how each candidate product would
 answer a clarification question, and jointly controls the recommendation slate
 and next question to find the hidden product early and at rank one.
@@ -13,18 +13,20 @@ key, network connection during evaluation, model download, or paid service.
 Run against the unmodified official evaluator and 200-session public set at
 official repository commit `9a35be51780ff1caf89eceaabca34259e946f40f`:
 
-| Metric | Official starter | Converge |
-|---|---:|---:|
-| Hit Rate@10 | 0.125000 | **1.000000** |
-| MRR | 0.068034 | **1.000000** |
-| MTTC | 9.810000 | **2.060000** |
-| Efficiency | 0.119000 | **0.894000** |
-| Recommended TechnicalScore | 0.106710 | **0.978800** |
+
+| Metric                     | Official starter | This agent   |
+| -------------------------- | ---------------- | ------------ |
+| Hit Rate@10                | 0.125000         | **1.000000** |
+| MRR                        | 0.068034         | **1.000000** |
+| MTTC                       | 9.810000         | **2.060000** |
+| Efficiency                 | 0.119000         | **0.894000** |
+| Recommended TechnicalScore | 0.106710         | **0.978800** |
+
 
 All four public scenario groups—Buying, Browsing, Intent Override, and
 Boundary—reach 100% Hit Rate and 1.0 MRR. This is a development-set result, not
 a claim about the private leaderboard. Aggregate output is recorded in
-[`docs/converge_public_results.json`](docs/converge_public_results.json).
+`[docs/agent_public_results.json](docs/agent_public_results.json)`.
 
 ## Why dynamic slates matter
 
@@ -36,7 +38,7 @@ U(t, r) = 0.50 + 0.30 / r + 0.02 × (11 - t)
 
 Turn 1 / Rank 10 is worth `0.73`, while Turn 2 / Rank 1 is worth `0.98`.
 Returning ten uncertain products on every turn can therefore lower the score.
-Converge exposes the highest-confidence item while informative evidence is
+The agent exposes the highest-confidence item while informative evidence is
 still arriving, uses a miss as free censoring feedback, and lets the planner
 expand coverage when evidence is exhausted; turn 10 is always a full Top-10.
 
@@ -76,23 +78,27 @@ ground-truth label.
 ## Repository layout
 
 ```text
-converge/
-  agent.py       official Agent implementation and orchestration
-  domain.py      evaluator-compatible card/category helpers
-  planner.py     expected-score question and slate planning
-  retrieval.py   response signatures, structured scoring, SQLite FTS5
-  state.py       session isolation, no-hit feedback, override/boundary state
+agent/
+  README.md         package map
+  orchestrator.py   reset / respond → TurnPipeline
+  pipeline.py       single-turn loop
+  domain.py         evaluator-compatible helpers
+  understand/       message → SessionState          (layer + submodule READMEs)
+  retrieve/         SessionState → SearchHit        (layer + submodule READMEs)
+  decide/           SearchHit → official response   (layer + submodule READMEs)
 starter/
-  agent.py       thin official entry-point wrapper
+  agent.py          from agent import Agent
 scripts/
-  download_catalog.py   download and verify the frozen catalog
-  check_parity.py       compare all 50k signatures with official helpers
-  demo_session.py       print one complete public demonstration session
+  download_catalog.py
+  check_parity.py
+  demo_session.py
 tests/
-  test_converge.py      state, planner, retrieval, parity, and contract tests
-evaluator/              unchanged official evaluator
-data/public_set.jsonl   unchanged official public development set
+  test_agent.py
+evaluator/          unchanged official evaluator
+data/public_set.jsonl
 ```
+
+
 
 ## Setup
 
@@ -100,7 +106,6 @@ Python 3.10 or later with SQLite FTS5 is required. No `pip install` step is
 needed.
 
 ```bash
-cd converge-shopping-copilot
 python3 scripts/download_catalog.py
 python3 -m unittest discover -v
 python3 scripts/check_parity.py
@@ -118,7 +123,7 @@ heap and allows later local runs to reuse it. To select an explicit location:
 
 ```bash
 mkdir -p .cache
-CONVERGE_INDEX_PATH=.cache/converge.sqlite3 \
+AGENT_INDEX_PATH=.cache/agent.sqlite3 \
   python3 -m evaluator.local_evaluator
 ```
 
@@ -126,7 +131,7 @@ The cache is automatically invalidated when the catalog path, size, timestamp,
 or index version changes. Do not commit the generated database.
 
 To force a process-local in-memory index instead, set
-`CONVERGE_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
+`AGENT_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
 more memory and rebuilds the index on every process start.
 
 ## Demo
@@ -143,22 +148,22 @@ video.
 ## Implementation highlights
 
 - Exact compatibility with the official `intent_card`, `coarse_category`, and
-  `classify_constraint` behavior, covered by parity tests.
+`classify_constraint` behavior, covered by parity tests.
 - Candidate-conditioned response signatures for every allowed question.
 - One-step expected TechnicalScore planner over question choices and slate
-  prefixes, plus a conservative sequential-slate risk guard.
+prefixes, plus a conservative sequential-slate risk guard.
 - Correct miss handling: a new call proves the previous slate missed only when
-  the Intent Override conversion gate was open.
+the Intent Override conversion gate was open.
 - Explicit intent versions: an override removes the superseded preference,
-  resets old negative evidence, and enables conversion on the same turn.
+resets old negative evidence, and enables conversion on the same turn.
 - Boundary replies are treated as uninformative observations, not as product
-  exclusions; `other` remains available after the one-time boundary response.
+exclusions; `other` remains available after the one-time boundary response.
 - Missing-friendly price handling and soft store/brand matching because catalog
-  metadata is sparse and `store` is not guaranteed to be a brand.
+metadata is sparse and `store` is not guaranteed to be a brand.
 - Deterministic output, zero reported model tokens, and no network dependency at
-  scoring time.
+scoring time.
 
-See [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) for the state machine,
+See `[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)` for the state machine,
 planning equation, retrieval design, tests, limitations, and private-set
 robustness strategy.
 
@@ -169,22 +174,26 @@ robustness strategy.
 - Runtime dependency: Python standard library only
 - Evaluation network requirement: none
 - Public 200-session warm-cache runtime observed locally: approximately 7 s;
-  a cold run additionally spends about 32 s building a roughly 214 MiB index.
-  Hardware, filesystem performance, and cache format change these figures.
+a cold run additionally spends about 32 s building a roughly 214 MiB index.
+Hardware, filesystem performance, and cache format change these figures.
+
+
 
 ## Limitations
 
 - The strongest retrieval path models the released deterministic simulator. A
-  different private intent-card generator would rely more heavily on BM25 and
-  reduce performance.
+different private intent-card generator would rely more heavily on BM25 and
+reduce performance.
 - The public set is small and shares one scenario policy, so its score must not
-  be treated as an unbiased private-set estimate.
+be treated as an unbiased private-set estimate.
 - The current belief transform is deliberately low-capacity rather than a fully
-  calibrated probabilistic model.
+calibrated probabilistic model.
 - A persistent SQLite cache is large; it is a development optimization and is
-  not included in the submission.
+not included in the submission.
 - No neural semantic reranker is bundled. This keeps the agent offline and
-  reproducible, but limits handling of highly subjective paraphrases.
+reproducible, but limits handling of highly subjective paraphrases.
+
+
 
 ## Team contributions
 
@@ -195,5 +204,5 @@ planner, evaluation/experiments, and demo/presentation.
 ## Data attribution
 
 The frozen catalog and sessions are derived from Amazon Reviews 2023 by
-McAuley Lab, UCSD. See [`DATA_ATTRIBUTION.md`](DATA_ATTRIBUTION.md). Do not
+McAuley Lab, UCSD. See `[DATA_ATTRIBUTION.md](DATA_ATTRIBUTION.md)`. Do not
 commit the catalog, private evaluation data, credentials, or generated indexes.

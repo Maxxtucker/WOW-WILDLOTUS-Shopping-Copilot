@@ -1,6 +1,6 @@
 {
   "official_repository_commit": "9a35be51780ff1caf89eceaabca34259e946f40f",
-  "implementation_revision": "converge-v1-workspace-2026-08-26",
+  "implementation_revision": "agent-v1-workspace-2026-08-27",
   "catalog_gzip_sha256": "07fd142631fd6b03e2b4d09988c3eb7d53720e9d57010c79db48eeaada50a8f8",
   "python_version": "3.13.1",
   "sqlite_version": "3.45.3",

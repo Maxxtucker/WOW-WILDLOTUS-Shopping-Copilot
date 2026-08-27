@@ -1,8 +1,8 @@
-# Converge implementation report
+# Agent implementation report
 
 ## 1. Objective and constraints
 
-Converge implements the official `Agent.reset()` and `Agent.respond()`
+This agent implements the official `Agent.reset()` and `Agent.respond()`
 interface without modifying the catalog, evaluator, or public labels. The core
 runtime uses no network service and no generative model. All output is
 deterministic for a fixed catalog and message sequence.
@@ -35,14 +35,14 @@ Each `session_id` owns an isolated `SessionState` with:
 
 The evaluator does not send an explicit negative click. Instead, a call to
 `respond()` at turn `t + 1` proves that the prior scored slate did not contain
-the target. Converge therefore excludes the previous slate at the start of the
+the target. The agent therefore excludes the previous slate at the start of the
 new turn, but only if `last_gate_open` was true.
 
 ### Intent Override
 
 Before the override message, the conversion gate is closed, so a displayed
 target does not end the session and cannot be excluded on the next call. On the
-override message, Converge:
+override message, the agent:
 
 1. increments `intent_version`;
 2. clears the superseded initial preference;
@@ -78,13 +78,13 @@ For each product, the index precomputes:
 - the counterfactual reply for every `ask_attribute`;
 - normalized exact mappings from category/constraint to `parent_asin`.
 
-When every observed value has an exact mapping, Converge intersects these sets.
+When every observed value has an exact mapping, the agent intersects these sets.
 Full normalized response strings are preserved: `Leather sole` must not collapse
 to the generic alias `leather` in the exact route.
 
 ### Robust fallback
 
-If category or constraint wording cannot be mapped exactly, Converge switches
+If category or constraint wording cannot be mapped exactly, the agent switches
 to:
 
 - SQLite FTS5 BM25 over title, category, features, details, store, and
@@ -140,7 +140,7 @@ posterior Top-10 and `ask_attribute=None`.
 ### Sequential-slate risk guard
 
 The public reward places much more value on rank one than on a low-ranked hit.
-While an informative answer is pending, Converge exposes only the highest-
+While an informative answer is pending, the agent exposes only the highest-
 confidence product from a proposed multi-item slate. A continued session then
 proves that item was wrong and promotes the next hypothesis. When evidence is
 exhausted, singleton probing continues only if the remaining turns plus final

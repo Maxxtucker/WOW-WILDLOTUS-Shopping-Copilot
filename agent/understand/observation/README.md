@@ -2,24 +2,28 @@
 
 ## Purpose
 
-The only place inside `understand` allowed to compose intention and attributes. Catalog features may legally contain `instead` / `forget`; consume `what matters is` before testing override.
+The only place inside `understand` allowed to compose extractors. Catalog features may legally contain `instead` / `forget`; apply locked constraints before testing override.
 
-`pipeline` **must not** call `IntentionDetector` and `AttributeCapture` separately.
+`pipeline` calls `StateDetector.apply` only. It does not call extractors separately.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `coordinator.py` | `ObservationCoordinator.apply` / `observe`: the fixed three-step order. |
+| `classify.py` | `extract_category` / `extract_constraints` / `parse_override` (regex toy; no state writes). |
+| `coordinator.py` | `observe`: apply hits in a fixed order every turn. |
 
 ## Collaboration
 
 ```text
-turn 1: apply_turn1_template → stop on match
-        else capture_turn1_generic_fallback
-then:   capture_reply_attributes (including what matters is)
-then:   apply_override_message
+every turn:
+    extract_constraints → write active_constraints (and stop if any)
+    extract_category    → category; leftover hint closes the conversion gate
+    parse_override      → clear legacy, open gate
+    colon_fallback      → last-resort constraint parse
 ```
+
+There is no `if turn == 1` branch and no Buying / Browsing / Boundary label.
 
 ## Core variables
 

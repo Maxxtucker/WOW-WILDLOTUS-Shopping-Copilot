@@ -2,7 +2,7 @@
 
 Input: SessionState, candidates, answer_signature callback.
 Output: askable attributes (including None = ask nothing); explain_question returns natural language.
-Role: skip no_preference, empty partitions, and already-asked typed attributes; other may repeat.
+Role: skip already-asked typed attributes and empty partitions; other may repeat.
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ def eligible_questions(
         return [None]
     result: list[str | None] = [None]
     for attribute in QUESTION_ATTRIBUTES:
-        if attribute in state.no_preference:
-            continue
         signatures = {
             answer_signature(item.parent_asin, attribute)
             for item in candidates[:max_planning_candidates]

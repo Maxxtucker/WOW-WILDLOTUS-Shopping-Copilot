@@ -87,9 +87,9 @@ class ResponseSignature:
     ) -> tuple[str, ...]:
         """Return values the official simulator would reveal for ``attribute``.
 
-        The caller remains responsible for the Boundary scenario's first
-        ``NO_PREFERENCE`` reply because boundary state is session-specific, not
-        a property of the product.
+        The caller remains responsible for the evaluator's first empty
+        Boundary reply because that is session-specific, not a property of
+        the product.
         """
 
         attr = normalise_attribute(attribute)

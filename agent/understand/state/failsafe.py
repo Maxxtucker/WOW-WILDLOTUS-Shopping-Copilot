@@ -1,7 +1,7 @@
-"""Purpose: if override_pending is still unrecognized at turn 4, force the gate open.
+"""Purpose: if the conversion gate is still closed at turn 4, force it open.
 
 Input: SessionState, turn.
-Output: may set scenario to intent_override and clear legacy / exclusions.
+Output: may open the gate and clear legacy / exclusions.
 Role: official override always fires on turn 3 or 4; a paraphrase that misses the regex must not keep the gate closed forever.
 """
 
@@ -19,9 +19,9 @@ def apply_override_failsafe(state: SessionState, turn: int) -> None:
     """The published override always fires on turn 3 or 4.
 
     If an organizer paraphrase defeats every lexical rule, opening the
-    internal gate on turn 4 is safer than remaining permanently stuck in
-    the old intent.
+    internal gate on turn 4 is safer than remaining permanently stuck
+    with conversion disabled.
     """
 
-    if state.scenario_hint == "override_pending" and turn >= 4 and not state.override_seen:
+    if not state.gate_open and turn >= 4 and not state.override_seen:
         apply_override(state, None)

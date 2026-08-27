@@ -22,11 +22,9 @@ conservative slate policy.
 Each `session_id` owns an isolated `SessionState` with:
 
 - target-derived coarse category text;
-- scenario hint and conversion-gate state;
-- intent version;
+- conversion-gate state and intent version;
 - active constraints and superseded legacy hints;
 - normalized values already disclosed by the customer;
-- attributes with no additional preference;
 - previous slate and whether it was scored under an open gate;
 - ASINs excluded by observed misses;
 - question and reply history.
@@ -53,12 +51,9 @@ override message, the agent:
 Constraints explicitly revealed by the simulator's structured replies are
 preserved because they describe the target's effective intent card.
 
-### Boundary
-
-The first non-null Boundary answer is treated as an uninformative observation.
-It does not remove products that happen to have a value for the requested
-attribute. In particular, a one-time no-preference answer to `other` does not
-disable a later `other` question; subsequent requests can reveal constraints.
+Empty simulator replies (Boundary's first judgment line, or "no additional
+preference") extract neither category, constraint, nor override, so they
+do not change session memory.
 
 ## 3. Catalog and retrieval
 
@@ -150,14 +145,17 @@ wider slate is preserved. The final turn always expands to ten.
 This guard is why the public result obtains MRR 1.0 rather than terminating on
 an uncertain rank-2-to-rank-10 item.
 
-## 6. Scenario behavior
+## 6. Evaluator scripts vs agent memory
 
-| Scenario | Initial state | Main policy |
+The public set's four scenario labels are simulator scripts, not agent tracks.
+Each user message is parsed for category, locked constraints, and override only.
+
+| Simulator script | Initial extract | Main policy |
 |---|---|---|
-| Buying | category + first hard constraint, gate open | rank immediately; request the strongest remaining evidence |
+| Buying | category + first hard constraint, gate open | rank immediately; request remaining evidence |
 | Browsing | category only, gate open | one high-confidence item plus active clarification |
-| Boundary | indistinguishable from Browsing initially | treat the first no-preference answer as uninformative, then continue |
-| Intent Override | category + legacy hint, gate closed | gather evidence without negative-censoring; reset legacy intent and rank when gate opens |
+| Intent Override | category + leftover hint, gate closed | gather evidence without negative-censoring; reset leftover and rank when gate opens |
+| Boundary | same extract as Browsing | empty first answer writes nothing; continue |
 
 ## 7. Reproducibility and tests
 
@@ -174,7 +172,7 @@ The added tests cover:
 - exact response-string lookup;
 - open-gate and closed-gate miss behavior;
 - override state reset;
-- Boundary and no-additional parsing;
+- empty replies that must not become constraints;
 - structured replies containing embedded semicolons or override-like words;
 - paraphrased override handling and the turn-four gate fail-safe;
 - the rank/turn utility trade-off;

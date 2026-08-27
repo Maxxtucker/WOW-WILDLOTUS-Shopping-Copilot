@@ -10,7 +10,7 @@ The original contest repo tree is `[docs/architecture/original_repo_code_archite
 
 ## 1. In one sentence
 
-This agent is an **offline, LLM-free, deterministic** multi-turn shopping retrieval system. Each turn, `TurnPipeline` does eight things: state detect, intention detect, attribute capture, product filter, candidate organize, ranking, pick the most distinguishing `ask_attribute`, write back and respond. A hit is required within 10 turns.
+This agent is an **offline, LLM-free, deterministic** multi-turn shopping retrieval system. Each turn, `TurnPipeline` observes the message (category / constraints / override), retrieves, ranks, picks `ask_attribute`, writes back and responds. A hit is required within 10 turns.
 
 The official entry is `starter.agent.Agent`. All logic lives in the `agent/` package.
 
@@ -74,10 +74,9 @@ user_message
     │
     ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ 2+3. Intention + AttributeCapture                             │
-│    (fixed order in understand/observation/coordinator.py)     │
-│    turn-1 templates → what matters / no-pref → then override  │
-│    produces: category, scenario, constraints, gate, disclosed │
+│ 2. Observe  (understand/observation/)                         │
+│    extract_constraints → extract_category → parse_override    │
+│    produces: category, constraints, gate, disclosed           │
 └───────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -119,7 +118,7 @@ user_message
 
 Orchestration code:
 
-```52:64:agent/pipeline.py
+```41:53:agent/pipeline.py
     def run(
         self,
         state: SessionState,
@@ -135,7 +134,7 @@ Orchestration code:
         return self.responder.apply(state, self.retriever, hits, plan, slate)
 ```
 
-**Parse order is part of correctness.** Catalog features may legally contain `instead` / `forget`. `ObservationCoordinator` must consume a `what matters is` payload before override detection. Stages 2 and 3 therefore must not each run once from `pipeline`.
+**Parse order is part of correctness.** Catalog features may legally contain `instead` / `forget`. `observe` must consume a `what matters is` payload before override detection.
 
 ---
 
@@ -145,12 +144,12 @@ Orchestration code:
 | --- | --- | --- |
 | Official entry | `starter/agent.py` | Evaluator import; re-exports `agent.Agent` |
 | Orchestrator | `agent/orchestrator.py` | Session dict, index path, hand `respond` to pipeline |
-| One-turn loop | `agent/pipeline.py` | Call stages 1→8 |
+| One-turn loop | `agent/pipeline.py` | Observe, retrieve, rank, plan, respond |
 | Stage contracts | `agent/stages.py` | Swappable Protocols for a later LLM implementation |
 | Dialogue memory | `agent/understand/state/` | `SessionState` dataclass; miss / fail-safe / begin_turn |
-| Intention | `agent/understand/intention/` | Buying / Browsing / Override templates and scenario class |
-| Attributes | `agent/understand/attributes/` | Constraint writes, no-preference, semicolon restore |
-| Observation order | `agent/understand/observation/` | Fixed: turn-1 template → reply parse → override |
+| Intention | `agent/understand/intention/` | Override conversion-gate writeback |
+| Attributes | `agent/understand/attributes/` | Constraint writes, semicolon restore |
+| Observation order | `agent/understand/observation/` | Fixed: constraints → category → override |
 | Hard filter | `agent/retrieve/filtering/` | Exact signature intersection |
 | Candidate fuse | `agent/retrieve/candidates/` | Query rewrite + exact/BM25 fusion |
 | Ranking | `agent/decide/ranking/` | Temperature softmax and `RankedCandidate` |
@@ -228,7 +227,7 @@ The index defaults to the OS temp directory (`AGENT_CACHE_DIR` / `tempfile`) and
 
 ---
 
-### 5.2 State / Intention / Attributes
+### 5.2 Observe: category, constraints, override
 
 **Memory:** `SessionState` in `agent/understand/state/session.py`. Public `begin_turn` / `observe` / `record_action` still exist; internals delegate to submodules.
 
@@ -236,47 +235,39 @@ Key fields:
 
 | Field | Meaning |
 | --- | --- |
-| `category` | Coarse category phrase from the initial message |
-| `scenario_hint` | `buying` / `exploring` / `override_pending` / `intent_override` / `boundary` |
+| `category` | Coarse category phrase |
 | `gate_open` | Conversion gate. When closed, showing the target **does not** end the session and cannot count as a miss |
-| `active_constraints` | Current hard constraints |
-| `legacy_hints` | Pre-override preference; dropped after override |
+| `active_constraints` | Current locked constraints |
+| `legacy_hints` | Pre-override leftover preference; dropped after override |
 | `disclosed` | Values the simulator already revealed; not treated as new evidence in planning |
-| `no_preference` | Attributes the user marked as no preference; planner will not ask |
 | `excluded_asins` | ASINs proven missed after the gate opened |
 | `reply_value_lookup` | Surface form of last predicted reply → atomic constraints, so semicolons are not split wrongly |
 
 **Turn start:**
 
-```28:36:agent/understand/state/lifecycle.py
+```28:35:agent/understand/state/lifecycle.py
 def begin_turn(state: SessionState, message: str, turn: int) -> None:
     apply_miss_feedback(state, turn)
     state.turn = turn
     state.latest_message = str(message)
     state.message_history.append(state.latest_message)
     state.last_reply_informative = False
-    state.last_reply_no_additional = False
     observe(state, message)
     apply_override_failsafe(state, turn)
 ```
 
-The evaluator **has no explicit negative click**. Another `respond(turn+1)` proves the previous open-gate slate missed. Displays while the gate was closed (before Override) are not negatives. If still `override_pending` at `turn >= 4`, fail-safe opens the gate.
+The evaluator **has no explicit negative click**. Another `respond(turn+1)` proves the previous open-gate slate missed. Displays while the gate was closed (before Override) are not negatives. If the gate is still closed at `turn >= 4`, fail-safe opens it.
 
-**Initial-message routing (turn 1, `understand/intention/parsers.py`):**
+Every message uses the same extractors (`understand/observation/classify.py`):
 
-| Regex / shape | Scenario | State effect |
-| --- | --- | --- |
-| `I'm looking for X. A key requirement is: Y.` | Buying | `gate_open=True`, add constraint Y immediately |
-| `I'm looking for X, but I'm still exploring.` | Browsing | category only, gate open |
-| `I'm looking for X. {old_value}` | Intent Override pending | `gate_open=False`, old_value into `legacy_hints` |
-| Other paraphrase | Fallback | recover a shopping phrase if possible; gate stays open unless the override template matched |
-
-**Later messages (`understand/attributes/` then `understand/intention/detector.py`):**
-
-- `I don't have an additional preference for {attr}` → `no_preference`, no new constraint this turn.
-- `I don't have a preference for {attr}` → Boundary: first time uninformative; `other` is **not** permanently banned.
-- `For that, what matters is: A; B.` → add constraints. Prefer `reply_value_lookup` to restore atomic values.
-- Override phrasing → `apply_override`: `intent_version++`, clear legacy / exclusions, open the gate, write the new constraint.
+| Shape | Extract |
+| --- | --- |
+| `I'm looking for X. A key requirement is: Y.` | category X, locked constraint Y, gate stays open |
+| `I'm looking for X, but I'm still exploring.` | category X only |
+| `I'm looking for X. {rest}` | category X; rest is a leftover hint, gate closed |
+| `For that, what matters is: A; B.` | locked constraints (semicolon restore via `reply_value_lookup`) |
+| Override phrasing | `apply_override`: `intent_version++`, clear leftover / exclusions, open the gate, write the new constraint |
+| Empty replies (simulator judgment / no additional) | nothing written |
 
 `ranking_constraints` includes `legacy_hints` before override and drops the old preference after override.
 
@@ -363,7 +354,7 @@ Turn 1 / Rank 10 = `0.73`; Turn 2 / Rank 1 = `0.98`. Dumping an uncertain Top-10
 - Slate size: `k = 0 .. min(top_k, |candidates|)`.
 - Turn 10 forces `ask_attribute=None` and slate = posterior Top-K.
 
-Question filters: skip `no_preference`; do not re-ask typed attributes; skip attributes with no non-`NO_ADDITIONAL` partition. `other` may repeat because each ask can reveal the next pair of constraints.
+Question filters: do not re-ask typed attributes; skip attributes with no non-`NO_ADDITIONAL` partition. `other` may repeat because each ask can reveal the next pair of constraints.
 
 **Objective:**
 
@@ -410,16 +401,18 @@ Agent **must not** read `ground_truth` from `data/public_set.jsonl`.
 
 ---
 
-## 6. How the four scenarios differ on this path
+## 6. How the evaluator scenarios look on this path
 
-| Scenario | Initial state | Retrieval | Planning |
-| --- | --- | --- | --- |
-| Buying | category + first hard constraint, gate open | exact signature intersection usually works | rank immediately; keep asking remaining info |
-| Browsing | category only, gate open | exact pool is wide; BM25 often helps | high-confidence 1 item + active clarification |
-| Intent Override | category + legacy hint, **gate closed** | retrieve with legacy but do not treat displays as misses | probe questions while closed; after override clear negatives, open gate, swap constraint |
-| Boundary | looks like Browsing | same as Browsing | first no-preference **does not** drop products; `other` can be asked again |
+The public set still has four simulator scripts. The agent does not route on those labels; it only writes category, constraints, and the conversion gate.
 
-If still `override_pending` on turn 4, `apply_override_failsafe` opens the gate so a paraphrase cannot stall the state machine.
+| Simulator script | First message (evaluator) | What the agent stores |
+| --- | --- | --- |
+| Buying | category + first hard constraint | same; gate open |
+| Browsing | category only | same; gate open |
+| Intent Override | category + leftover old preference | leftover in `legacy_hints`, gate closed until override |
+| Boundary | same first line as Browsing | first asked attribute is an empty reply; agent writes nothing |
+
+If the gate is still closed on turn 4, `apply_override_failsafe` opens it so a paraphrase cannot stall conversion.
 
 ---
 
@@ -475,7 +468,7 @@ Data flows one way: **message → State → Hits → Belief → Plan → truncat
 1. `starter/agent.py` — entry
 2. `agent/README.md` plus `understand/` `retrieve/` `decide/` and each subpackage README — tree and collaboration
 3. `agent/orchestrator.py` + `agent/pipeline.py` — thin orchestration and one-turn loop
-4. `agent/understand/observation/coordinator.py` — parse order
+4. `agent/understand/observation/classify.py` + `coordinator.py` — extract then apply
 5. `agent/understand/state/session.py` + `lifecycle.py` — session memory
 6. `agent/retrieve/catalog/retriever.py` — recall facade
 7. `agent/decide/clarification/planner.py` + `distinguish.py` — question choice

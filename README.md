@@ -48,10 +48,10 @@ expand coverage when evidence is exhausted; turn 10 is always a full Top-10.
 user message
    │
    ▼
-intent-version state machine ── handles Buying / Browsing / Override / Boundary
+category, locked constraints, conversion gate
    │
    ▼
-structured active constraints ── required / no-preference / superseded / shown
+structured active constraints ── required / leftover / shown
    │
    ├── exact category + response-signature index
    └── field-aware SQLite FTS5 BM25 fallback
@@ -156,8 +156,8 @@ prefixes, plus a conservative sequential-slate risk guard.
 the Intent Override conversion gate was open.
 - Explicit intent versions: an override removes the superseded preference,
 resets old negative evidence, and enables conversion on the same turn.
-- Boundary replies are treated as uninformative observations, not as product
-exclusions; `other` remains available after the one-time boundary response.
+- Empty simulator replies write nothing; they are not treated as product
+exclusions.
 - Missing-friendly price handling and soft store/brand matching because catalog
 metadata is sparse and `store` is not guaranteed to be a brand.
 - Deterministic output, zero reported model tokens, and no network dependency at

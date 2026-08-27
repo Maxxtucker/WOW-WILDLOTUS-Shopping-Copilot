@@ -1,4 +1,4 @@
-"""Purpose: mutable memory for one session (constraints, scenario, misses, conversion gate).
+"""Purpose: mutable memory for one session (constraints, misses, conversion gate).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
 Output: ranking_constraints, excluded_asins, gate_open, and related fields for retrieve/decide.
@@ -17,15 +17,12 @@ class SessionState:
     session_id: str
     user_profile: dict
     category: str | None = None
-    scenario_hint: str = "unknown"
     intent_version: int = 0
     gate_open: bool = True
     override_seen: bool = False
-    boundary_seen: bool = False
     active_constraints: list[str] = field(default_factory=list)
     legacy_hints: list[str] = field(default_factory=list)
     disclosed: set[str] = field(default_factory=set)
-    no_preference: set[str] = field(default_factory=set)
     asked: list[str] = field(default_factory=list)
     last_ask: str | None = None
     last_slate: list[str] = field(default_factory=list)
@@ -34,7 +31,6 @@ class SessionState:
     shown_asins: set[str] = field(default_factory=set)
     informative_replies: int = 0
     last_reply_informative: bool = False
-    last_reply_no_additional: bool = False
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)
     latest_message: str = ""
     message_history: list[str] = field(default_factory=list)

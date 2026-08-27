@@ -1,32 +1,30 @@
-"""Purpose: run turn-1 templates → reply attributes → override in a fixed order.
+"""Purpose: apply category, constraints, then override in a fixed order every turn.
 
 Input: SessionState, this turn's message.
 Output: SessionState updated in place.
-Role: catalog copy may contain instead/forget; parse what matters is before intent override.
+Role: catalog copy may contain instead/forget; locked constraints are applied before override.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..attributes.capture import (
-    capture_colon_paraphrase,
-    capture_reply_attributes,
-    capture_turn1_generic_fallback,
+from ..attributes.capture import add_constraint
+from ..intention.detector import apply_override
+from .classify import (
+    CategoryHit,
+    colon_fallback,
+    extract_category,
+    extract_constraints,
+    parse_override,
 )
-from ..intention.detector import apply_override_message, apply_turn1_template
 
 if TYPE_CHECKING:
     from ..state.session import SessionState
 
 
 class ObservationCoordinator:
-    """Compose intention and attribute capture without changing parse order.
-
-    Catalog features can legally contain words such as ``instead`` or
-    ``forget``. Structured ``what matters is`` payloads must be consumed
-    before override detection.
-    """
+    """Compose extractors without changing parse order."""
 
     def apply(self, state: SessionState, message: str) -> SessionState:
         observe(state, message)
@@ -35,20 +33,38 @@ class ObservationCoordinator:
 
 def observe(state: SessionState, message: str) -> None:
     value = message.strip()
-    if state.turn == 1:
-        if apply_turn1_template(state, value):
-            return
-        # Paraphrase-safe fallback: retain the raw message for BM25 and
-        # recover a coarse shopping phrase when possible. The gate stays
-        # open unless the explicit override template above was recognized.
-        capture_turn1_generic_fallback(state, value)
+    constraints = extract_constraints(state, value)
+    category_hit = extract_category(value)
 
-    # Parse the simulator's structured answers before looking for intent
-    # changes.  Catalog values are free text and can legitimately contain
-    # words such as "instead", "rather", or "forget"; those words inside
-    # a ``what matters is`` payload must remain product constraints.
-    if capture_reply_attributes(state, value):
+    if constraints:
+        for piece in constraints:
+            add_constraint(state, piece)
+        state.informative_replies += 1
+        state.last_reply_informative = True
+        if category_hit is not None:
+            state.category = category_hit.category
         return
-    if apply_override_message(state, value):
+
+    if category_hit is not None:
+        _apply_category(state, category_hit)
+
+    override = parse_override(value, gate_closed=not state.gate_open)
+    if override is not None:
+        apply_override(state, override.new_value)
         return
-    capture_colon_paraphrase(state, value)
+
+    pieces = colon_fallback(state, value)
+    if pieces:
+        for piece in pieces:
+            add_constraint(state, piece)
+        state.informative_replies += 1
+        state.last_reply_informative = True
+
+
+def _apply_category(state: SessionState, hit: CategoryHit) -> None:
+    state.category = hit.category
+    if not hit.provisional_hint:
+        return
+    state.gate_open = False
+    if hit.provisional_hint not in state.legacy_hints:
+        state.legacy_hints.append(hit.provisional_hint)

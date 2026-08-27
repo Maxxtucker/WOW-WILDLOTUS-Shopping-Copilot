@@ -2,7 +2,7 @@
 
 Input: SessionState, user_message, turn.
 Output: the same SessionState object, updated in place.
-Role: pipeline stage 1; internally calls ObservationCoordinator so stages 2/3 are not each run from pipeline.
+Role: pipeline stage 1; observation.classify runs inside observe.
 """
 
 from __future__ import annotations
@@ -31,6 +31,5 @@ def begin_turn(state: SessionState, message: str, turn: int) -> None:
     state.latest_message = str(message)
     state.message_history.append(state.latest_message)
     state.last_reply_informative = False
-    state.last_reply_no_additional = False
     observe(state, message)
     apply_override_failsafe(state, turn)

@@ -140,6 +140,33 @@ customer message, the structured attribute asked, the recommendation slate,
 and the first-hit turn/rank, making it suitable for a backend walkthrough
 video.
 
+## Synthetic 200k-session evaluation
+
+For a protocol-level generalization baseline, the repository includes a
+deterministic generator for four session seeds per catalog product (50,000 x 4
+= 200,000).  The seed file contains only the target ASIN, scenario type, and an
+aggregate profile; intent cards and multi-turn customer replies are materialized
+by the official evaluator at run time.
+
+```bash
+python3 scripts/synthetic_eval.py generate \
+  --catalog data/catalog.jsonl \
+  --output data/synthetic_200k.jsonl
+
+CONVERGE_INDEX_PATH=.cache/converge.sqlite3 \
+python3 scripts/synthetic_eval.py evaluate \
+  --seeds data/synthetic_200k.jsonl \
+  --rounds 100 \
+  --sample-size 800 \
+  --output artifacts/synthetic_eval_100.json
+```
+
+Each round samples without replacement within each scenario and preserves the
+competition mix: 320 Buying, 320 Browsing, 120 Intent Override, and 40 Boundary
+sessions.  The report includes distributions for Hit Rate@10, MRR, MTTC,
+Efficiency, TechnicalScore, scenario metrics, and ask-attribute frequencies.
+This is a synthetic protocol stress test, not a private leaderboard estimate.
+
 ## Implementation highlights
 
 - Exact compatibility with the official `intent_card`, `coarse_category`, and

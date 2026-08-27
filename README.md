@@ -198,6 +198,11 @@ python3 scripts/diagnose_synthetic.py synthetic_00000_browsing \
   --seeds data/synthetic_200k.jsonl
 ```
 
+Static evaluation short-circuits after its first eligible question: it measures
+the intended fixed-order policy without evaluating irrelevant lower-priority
+counterfactual answers. Dynamic evaluation continues to score every eligible
+question.
+
 ## Implementation highlights
 
 - Exact compatibility with the official `intent_card`, `coarse_category`, and

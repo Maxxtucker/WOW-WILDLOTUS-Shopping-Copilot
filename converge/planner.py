@@ -121,6 +121,11 @@ class ScoreAwarePlanner:
             if attribute != "other" and attribute in state.asked:
                 continue
             result.append(attribute)
+            # A static policy is defined as the first eligible, informative
+            # attribute in its configured order. Later attributes cannot alter
+            # its action, so their counterfactual signatures are unnecessary.
+            if self.question_policy == "static":
+                break
         return result
 
     def plan(

@@ -208,6 +208,22 @@ class PlannerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ScoreAwarePlanner(question_priority=("other", "feature"))
 
+    def test_static_policy_does_not_expand_lower_priority_questions(self) -> None:
+        state = SessionState("s", {})
+        state.turn = 1
+        ranked = normalize_probabilities([(f"P{i}", 1.0) for i in range(3)])
+        calls: list[str] = []
+
+        def answer(parent_asin: str, attribute: str) -> tuple[str, ...]:
+            calls.append(attribute)
+            if attribute == "other":
+                return (parent_asin,)
+            raise AssertionError("static policy evaluated a lower-priority question")
+
+        plan = ScoreAwarePlanner(question_policy="static").plan(state, ranked, 10, answer)
+        self.assertEqual(plan.ask_attribute, "other")
+        self.assertEqual(set(calls), {"other"})
+
 
 class RetrievalAndAgentTest(unittest.TestCase):
     def setUp(self) -> None:

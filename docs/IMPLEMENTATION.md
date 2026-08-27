@@ -133,6 +133,12 @@ Questions with no predicted coverage, repeated typed questions, and attributes
 already marked no-preference are removed. `other` may repeat because each call
 can reveal the next pair of constraints.
 
+For ablation experiments, the planner also supports a `static` policy. It asks
+the first eligible attribute in a configured complete priority sequence rather
+than comparing expected utilities. The production default remains `dynamic`;
+the static option exists to quantify whether a fixed ordering generalizes on
+fresh synthetic draws.
+
 The planner only expands the top 500 candidates. Retrieval keeps a wider path
 for recall. On turn 10, future value is zero, so the response is the full
 posterior Top-10 and `ask_attribute=None`.

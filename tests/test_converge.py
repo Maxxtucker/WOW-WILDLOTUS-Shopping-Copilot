@@ -176,6 +176,38 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(len(plan.recommendations), 10)
         self.assertIsNone(plan.ask_attribute)
 
+    def test_static_question_policy_respects_configured_priority(self) -> None:
+        state = SessionState("s", {})
+        state.turn = 1
+        ranked = normalize_probabilities([(f"P{i}", 1.0) for i in range(3)])
+
+        def answer(parent_asin: str, attribute: str) -> tuple[str, ...]:
+            if attribute == "color":
+                return ("blue",) if parent_asin != "P2" else ("red",)
+            if attribute == "feature":
+                return (parent_asin,)
+            return NO_ADDITIONAL
+
+        planner = ScoreAwarePlanner(
+            question_policy="static",
+            question_priority=(
+                "color",
+                "feature",
+                "material",
+                "style",
+                "size",
+                "use_case",
+                "budget",
+                "other",
+            ),
+        )
+        plan = planner.plan(state, ranked, 10, answer)
+        self.assertEqual(plan.ask_attribute, "color")
+
+    def test_question_priority_must_contain_all_supported_attributes(self) -> None:
+        with self.assertRaises(ValueError):
+            ScoreAwarePlanner(question_priority=("other", "feature"))
+
 
 class RetrievalAndAgentTest(unittest.TestCase):
     def setUp(self) -> None:

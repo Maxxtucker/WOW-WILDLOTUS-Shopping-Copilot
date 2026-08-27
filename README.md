@@ -167,6 +167,37 @@ sessions.  The report includes distributions for Hit Rate@10, MRR, MTTC,
 Efficiency, TechnicalScore, scenario metrics, and ask-attribute frequencies.
 This is a synthetic protocol stress test, not a private leaderboard estimate.
 
+### Question-policy experiments
+
+The default policy evaluates each eligible clarification question by one-step
+expected TechnicalScore.  A reproducible static-order baseline is also
+available for controlled comparisons.  `CONVERGE_QUESTION_PRIORITY` must name
+each of these attributes exactly once: `other,feature,material,color,style,size,use_case,budget`.
+
+```bash
+# Dynamic expected-score policy (default)
+CONVERGE_QUESTION_POLICY=dynamic \
+python3 scripts/synthetic_eval.py evaluate \
+  --seeds data/synthetic_200k.jsonl --rounds 100 --sample-size 800 \
+  --seed 20260827 --output artifacts/question_dynamic_100.json
+
+# Static first-eligible policy with a specified question order
+CONVERGE_QUESTION_POLICY=static \
+CONVERGE_QUESTION_PRIORITY=other,feature,material,color,style,size,use_case,budget \
+python3 scripts/synthetic_eval.py evaluate \
+  --seeds data/synthetic_200k.jsonl --rounds 100 --sample-size 800 \
+  --seed 20260827 --output artifacts/question_static_other_first_100.json
+```
+
+Use the same seed for every policy so all rounds see the same 800-session
+draws.  The output includes per-turn question counts and common question paths;
+inspect a particular failure with:
+
+```bash
+python3 scripts/diagnose_synthetic.py synthetic_00000_browsing \
+  --seeds data/synthetic_200k.jsonl
+```
+
 ## Implementation highlights
 
 - Exact compatibility with the official `intent_card`, `coarse_category`, and

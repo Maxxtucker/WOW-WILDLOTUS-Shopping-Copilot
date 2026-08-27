@@ -54,8 +54,21 @@ class ScoreAwarePlanner:
     hit now can be worse than a rank-1 hit after one informative answer.
     """
 
-    def __init__(self, max_planning_candidates: int = 500) -> None:
+    def __init__(
+        self,
+        max_planning_candidates: int = 500,
+        *,
+        question_priority: Sequence[str] | None = None,
+        question_policy: str = "dynamic",
+    ) -> None:
         self.max_planning_candidates = max_planning_candidates
+        priority = tuple(question_priority or QUESTION_ATTRIBUTES)
+        if set(priority) != set(QUESTION_ATTRIBUTES) or len(priority) != len(QUESTION_ATTRIBUTES):
+            raise ValueError("question_priority must contain every supported question exactly once")
+        if question_policy not in {"dynamic", "static"}:
+            raise ValueError("question_policy must be 'dynamic' or 'static'")
+        self.question_priority = priority
+        self.question_policy = question_policy
 
     @staticmethod
     def _terminal_value(candidates: Sequence[RankedCandidate], turn: int) -> float:
@@ -93,7 +106,7 @@ class ScoreAwarePlanner:
         if state.turn >= 10:
             return [None]
         result: list[str | None] = [None]
-        for attribute in QUESTION_ATTRIBUTES:
+        for attribute in self.question_priority:
             if attribute in state.no_preference:
                 continue
             signatures = {
@@ -127,6 +140,9 @@ class ScoreAwarePlanner:
             return Plan(slate, None, self._terminal_value(candidates, state.turn), "final turn")
 
         questions = self._eligible_questions(state, candidates, answer_signature)
+        if self.question_policy == "static":
+            first_typed = next((value for value in questions if value is not None), None)
+            questions = [first_typed] if first_typed is not None else [None]
 
         # Before an intent override, hits are disabled.  Showing one provisional
         # candidate is useful to a human demo but does not censor the belief.

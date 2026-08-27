@@ -52,7 +52,17 @@ class Agent:
         self.retriever = CatalogRetriever(catalog_path, index_path=persistent_index)
         # Planning only needs the head of the posterior; retrieval still keeps
         # a wider pool for recall.  This bounds counterfactual reply expansion.
-        self.planner = ScoreAwarePlanner(max_planning_candidates=500)
+        configured_priority = os.environ.get("CONVERGE_QUESTION_PRIORITY")
+        question_priority = None
+        if configured_priority:
+            question_priority = tuple(
+                value.strip() for value in configured_priority.split(",") if value.strip()
+            )
+        self.planner = ScoreAwarePlanner(
+            max_planning_candidates=500,
+            question_priority=question_priority,
+            question_policy=os.environ.get("CONVERGE_QUESTION_POLICY", "dynamic"),
+        )
         self.sessions: dict[str, SessionState] = {}
         self._lock = RLock()
 
@@ -195,13 +205,27 @@ class Agent:
                 )
             return reply_cache[key]
 
+        slate_limit = min(10, int(top_k))
         plan = self.planner.plan(
             state,
             ranked,
-            min(10, int(top_k)),
+            slate_limit,
             answer_signature,
         )
         slate = list(plan.recommendations)
+        # Once every informative question is exhausted, reserve enough slate
+        # capacity to cover the remaining belief by turn 10 whenever possible.
+        # The one-step planner otherwise has no visibility into turns t+2..10
+        # and can keep probing singletons until comprehensive coverage is no
+        # longer feasible.
+        if plan.ask_attribute is None and state.turn < 10:
+            future_capacity = slate_limit * (10 - state.turn)
+            coverage_floor = min(
+                slate_limit,
+                max(1, len(ranked) - future_capacity),
+            )
+            if len(slate) < coverage_floor:
+                slate = [item.parent_asin for item in ranked[:coverage_floor]]
         # Risk control for a miss-triggered dialog: while an informative answer
         # is pending, only the highest-confidence item is exposed. Rank one can
         # only benefit from converting now; lower-ranked items are usually

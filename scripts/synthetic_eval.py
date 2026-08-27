@@ -204,6 +204,9 @@ def evaluate_rounds(
     ask_counts: Counter[str] = Counter()
     ask_counts_by_scenario: dict[str, Counter[str]] = defaultdict(Counter)
     ask_counts_by_turn: Counter[str] = Counter()
+    question_paths: Counter[str] = Counter()
+    failure_counts: Counter[str] = Counter()
+    failure_examples: dict[str, dict[str, object]] = {}
     started = time.perf_counter()
 
     for round_number in range(1, rounds + 1):
@@ -222,22 +225,31 @@ def evaluate_rounds(
         round_rows.append(row)
         for scenario, metrics in result["scenario_metrics"].items():
             scenario_metrics[scenario].append(metrics)
-        for session_id, traces in agent.responses.items():
-            sample_scenario = None
-            # Session IDs are random, so map the trace through the response
-            # count only; scenario-level ask counts are computed from the
-            # evaluator session rows below.
-            _ = session_id
+        traces_in_order = list(agent.responses.values())
+        if len(traces_in_order) != len(result["sessions"]):
+            raise RuntimeError("trace/session count mismatch")
+        for sample_session, traces in zip(result["sessions"], traces_in_order):
+            sample_scenario = str(sample_session["scenario_type"])
+            path: list[str] = []
             for trace in traces:
                 attribute = trace["ask_attribute"]
                 label = "None" if attribute is None else str(attribute)
+                path.append(label)
                 ask_counts[label] += 1
+                ask_counts_by_scenario[sample_scenario][label] += 1
                 ask_counts_by_turn[f"{trace['turn']}:{label}"] += 1
-        for sample_session in result["sessions"]:
-            sample_scenario = str(sample_session["scenario_type"])
-            # The tracing proxy does not receive sample IDs, so scenario ask
-            # counts are intentionally reported only in aggregate by turn.
-            _ = sample_scenario
+            question_paths[">".join(path)] += 1
+            if not sample_session["hit"]:
+                sample_id = str(sample_session["sample_id"])
+                failure_counts[sample_id] += 1
+                failure_examples.setdefault(
+                    sample_id,
+                    {
+                        "sample_id": sample_id,
+                        "scenario_type": sample_scenario,
+                        "question_path": path,
+                    },
+                )
         agent.clear_sessions()
 
     elapsed = time.perf_counter() - started
@@ -263,7 +275,19 @@ def evaluate_rounds(
             for scenario, rows in sorted(scenario_metrics.items())
         },
         "ask_attribute_counts": dict(sorted(ask_counts.items())),
+        "ask_attribute_by_scenario": {
+            scenario: dict(sorted(counts.items()))
+            for scenario, counts in sorted(ask_counts_by_scenario.items())
+        },
         "ask_attribute_by_turn": dict(sorted(ask_counts_by_turn.items(), key=lambda item: (int(item[0].split(":", 1)[0]), item[0]))),
+        "top_question_paths": [
+            {"path": path, "count": count}
+            for path, count in question_paths.most_common(30)
+        ],
+        "top_recurring_failures": [
+            {**failure_examples[sample_id], "miss_count": count}
+            for sample_id, count in failure_counts.most_common(100)
+        ],
         "notes": [
             "Seeds are generated from catalog products and official scenario rules; no public labels are read.",
             "Each round samples 320 buying, 320 browsing, 120 intent_override, and 40 boundary sessions.",

@@ -7,20 +7,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from converge.agent import Agent
-from converge.domain import card_constraints, coarse_category, intent_card
-from converge.planner import (
-    NO_ADDITIONAL,
-    ScoreAwarePlanner,
-    hit_utility,
-    normalize_probabilities,
-)
-from converge.retrieval import (
+from agent import Agent
+from agent.decide.clarification import NO_ADDITIONAL, ScoreAwarePlanner, hit_utility
+from agent.decide.ranking import normalize_probabilities
+from agent.domain import card_constraints, coarse_category, intent_card
+from agent.retrieve.catalog import (
     CatalogRetriever,
     _coerce_constraints,
     build_response_signature,
 )
-from converge.state import SessionState
+from agent.understand.state import SessionState
 from evaluator.local_evaluator import (
     catalog_index,
     evaluate,
@@ -264,7 +260,7 @@ class RetrievalAndAgentTest(unittest.TestCase):
                 "ground_truth": {"parent_asin": "P29"},
             }
         ]
-        with patch.dict(os.environ, {"CONVERGE_INDEX_PATH": ":memory:"}):
+        with patch.dict(os.environ, {"AGENT_INDEX_PATH": ":memory:"}):
             result = evaluate(
                 Agent(catalog),
                 samples,

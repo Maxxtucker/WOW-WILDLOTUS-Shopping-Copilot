@@ -1,49 +1,24 @@
-"""Score-aware joint recommendation-slate and clarification planning."""
+"""Purpose: one-step joint search over “which attribute to ask” × “how many products to expose”.
+
+Input: SessionState, RankedCandidate, top_k, answer_signature.
+Output: Plan (slate + ask_attribute + expected_value).
+Role: dumping an uncertain Top-10 too early loses score; turn 10 is always a full slate with no question.
+"""
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 import math
+from typing import TYPE_CHECKING
 
-from .domain import QUESTION_ATTRIBUTES
-from .state import SessionState
+from .distinguish import future_value, terminal_value
+from .questions import eligible_questions
+from .types import Plan
+from .utility import hit_utility
 
-
-NO_ADDITIONAL = ("__no_additional__",)
-
-
-@dataclass(frozen=True)
-class RankedCandidate:
-    parent_asin: str
-    score: float
-    probability: float
-
-
-@dataclass(frozen=True)
-class Plan:
-    recommendations: tuple[str, ...]
-    ask_attribute: str | None
-    expected_value: float
-    reason: str
-
-
-def hit_utility(turn: int, rank: int) -> float:
-    """Exact per-session contribution to the official technical composite."""
-
-    return 0.50 + 0.30 / rank + 0.02 * (11 - turn)
-
-
-def normalize_probabilities(items: Sequence[tuple[str, float]]) -> list[RankedCandidate]:
-    if not items:
-        return []
-    finite = [(asin, max(float(weight), 1e-12)) for asin, weight in items]
-    total = sum(weight for _, weight in finite)
-    return [
-        RankedCandidate(asin, weight, weight / total)
-        for asin, weight in sorted(finite, key=lambda item: (-item[1], item[0]))
-    ]
+if TYPE_CHECKING:
+    from ..ranking.normalize import RankedCandidate
+    from ...understand.state.session import SessionState
 
 
 class ScoreAwarePlanner:
@@ -57,12 +32,8 @@ class ScoreAwarePlanner:
     def __init__(self, max_planning_candidates: int = 500) -> None:
         self.max_planning_candidates = max_planning_candidates
 
-    @staticmethod
-    def _terminal_value(candidates: Sequence[RankedCandidate], turn: int) -> float:
-        return sum(
-            item.probability * hit_utility(turn, rank)
-            for rank, item in enumerate(candidates[:10], start=1)
-        )
+    def _terminal_value(self, candidates: Sequence[RankedCandidate], turn: int) -> float:
+        return terminal_value(candidates, turn)
 
     def _future_value(
         self,
@@ -71,18 +42,13 @@ class ScoreAwarePlanner:
         next_turn: int,
         answer_signature: Callable[[str, str], tuple[str, ...]],
     ) -> float:
-        if not residual or next_turn > 10:
-            return 0.0
-        if attribute is None:
-            return self._terminal_value(residual, next_turn)
-
-        groups: dict[tuple[str, ...], list[RankedCandidate]] = defaultdict(list)
-        for item in residual[: self.max_planning_candidates]:
-            groups[answer_signature(item.parent_asin, attribute)].append(item)
-
-        # Probabilities remain unconditional here.  Summing each branch's
-        # top-10 terminal reward therefore already integrates branch mass.
-        return sum(self._terminal_value(group, next_turn) for group in groups.values())
+        return future_value(
+            residual,
+            attribute,
+            next_turn,
+            answer_signature,
+            self.max_planning_candidates,
+        )
 
     def _eligible_questions(
         self,
@@ -90,25 +56,9 @@ class ScoreAwarePlanner:
         candidates: Sequence[RankedCandidate],
         answer_signature: Callable[[str, str], tuple[str, ...]],
     ) -> list[str | None]:
-        if state.turn >= 10:
-            return [None]
-        result: list[str | None] = [None]
-        for attribute in QUESTION_ATTRIBUTES:
-            if attribute in state.no_preference:
-                continue
-            signatures = {
-                answer_signature(item.parent_asin, attribute)
-                for item in candidates[: self.max_planning_candidates]
-            }
-            informative = {value for value in signatures if value != NO_ADDITIONAL}
-            if not informative:
-                continue
-            # Repeated ``other`` is useful because it reveals the next pair of
-            # undisclosed constraints. Typed attributes are not repeated.
-            if attribute != "other" and attribute in state.asked:
-                continue
-            result.append(attribute)
-        return result
+        return eligible_questions(
+            state, candidates, answer_signature, self.max_planning_candidates
+        )
 
     def plan(
         self,
@@ -183,19 +133,3 @@ class ScoreAwarePlanner:
                     )
         assert best is not None
         return best
-
-
-def explain_question(attribute: str | None) -> str:
-    templates = {
-        "material": "Do you have a preferred material?",
-        "color": "Which color would you prefer?",
-        "size": "Do you have a size or fit requirement?",
-        "style": "What style or fit should I prioritize?",
-        "budget": "What budget range should I use?",
-        "feature": "Which product feature matters most to you?",
-        "use_case": "What will you mainly use the product for?",
-        "other": "What other requirements matter most to you?",
-        "category": "Which product category should I focus on?",
-        "brand": "Do you have a preferred brand?",
-    }
-    return templates.get(attribute, "I have enough information to refine the shortlist.")

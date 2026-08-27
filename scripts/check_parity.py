@@ -10,13 +10,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from converge.domain import (
+from agent.domain import (
     card_constraints,
     classify_constraint,
     coarse_category,
     intent_card,
 )
-from converge.retrieval import build_response_signature
+from agent.retrieve.catalog import build_response_signature
 from evaluator.local_evaluator import (
     classify_constraint as official_classify_constraint,
     coarse_category as official_coarse_category,

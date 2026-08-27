@@ -1,8 +1,8 @@
-"""Competition-domain helpers shared by indexing, state tracking, and planning.
+"""Purpose: evaluator protocol mirror (intent_card, classify_constraint, canonical, …).
 
-The intent-card and category functions deliberately mirror the public evaluator.
-Keeping them here makes the protocol-aware path explicit and testable while the
-retriever still provides a lexical fallback for paraphrased messages.
+Input: product dict or constraint/category strings.
+Output: card / attribute name / normalized text aligned with evaluator.local_evaluator.
+Role: state machine and planner use this copy; index build uses the independent catalog.protocol_copy.
 """
 
 from __future__ import annotations

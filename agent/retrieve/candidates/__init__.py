@@ -7,5 +7,12 @@ Role: fold filter results or BM25 recall into one list. See README.md.
 
 from .query import rewrite_query
 from .retrieve import CandidateOrganizer, retrieve_candidates
+from .routing import TrackRouting, routing_for
 
-__all__ = ["CandidateOrganizer", "retrieve_candidates", "rewrite_query"]
+__all__ = [
+    "CandidateOrganizer",
+    "TrackRouting",
+    "retrieve_candidates",
+    "rewrite_query",
+    "routing_for",
+]

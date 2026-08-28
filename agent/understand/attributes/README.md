@@ -1,35 +1,34 @@
-# understand/attributes — constraints and no-preference
+# understand/attributes — constraints and semicolon restore
 
 ## Purpose
 
-Turn shopping evidence in simulator/user messages into structured constraints for retrieve (hard/soft filters) and clarification (which attributes not to ask). This is semantic capture, not prose understanding.
+Turn shopping evidence in simulator/user messages into structured constraints for retrieve. This is semantic capture, not prose understanding. Observation classify finds the strings; this package writes them and restores semicolon-containing values.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `parsers.py` | Regexes for `what matters is` / no preference / no additional. |
+| `parsers.py` | Regex for `what matters is`. |
 | `lookup.py` | Previous predicted-reply surface form → atomic constraints (do not blindly split on semicolons). |
-| `capture.py` | Write Match results into `active_constraints` / `disclosed` / `no_preference`. |
+| `capture.py` | `add_constraint` into `active_constraints` / `disclosed`. |
 
 ## Collaboration
 
 ```text
-observe → capture_reply_attributes
-            ├─ no additional / no preference
-            ├─ what matters is → resolve_matters_pieces (lookup)
-            └─ colon fallback (turn 1 when no template matched)
+observe → extract_constraints
+            ├─ key requirement / what matters is
+            └─ resolve_matters_pieces (lookup)
 ```
 
 `reply_value_lookup` is written by the previous turn's `decide/response/writeback.set_reply_options`. This package only reads it.
 
 ## Core variables
 
-- Regexes: `MATTERS_RE`, `NO_PREFERENCE_RE`, `NO_ADDITIONAL_RE`
-- State: `active_constraints`, `disclosed`, `no_preference`, `boundary_seen`, `last_reply_informative`
+- Regex: `MATTERS_RE`
+- State: `active_constraints`, `disclosed`, `last_reply_informative`
 
 ## Core code
 
 - Phrasing: `parsers.py`
 - Semicolon restore: `build_reply_lookup` / `resolve_matters_pieces` in `lookup.py`
-- Writes: `capture_reply_attributes`, `add_constraint` in `capture.py`
+- Writes: `add_constraint` in `capture.py`

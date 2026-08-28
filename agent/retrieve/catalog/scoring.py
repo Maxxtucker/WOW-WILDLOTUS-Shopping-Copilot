@@ -11,7 +11,7 @@ import json
 import math
 import sqlite3
 import zlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from .signatures import coerce_budget, coerce_constraints, signature_similarity
@@ -63,6 +63,7 @@ class ScoringMixin:
         *,
         lexical_scores: Mapping[str, float] | None = None,
         required: ConstraintInput = None,
+        required_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         preferred: ConstraintInput = None,
         excluded: ConstraintInput = None,
         categories: Iterable[str] = (),
@@ -74,7 +75,16 @@ class ScoringMixin:
         """Score a supplied candidate pool without performing retrieval."""
 
         scoring = weights or SearchWeights()
-        required_pairs = coerce_constraints(required)
+        if required_groups is not None:
+            required_or = tuple(
+                (str(attribute), tuple(str(value) for value in values if str(value).strip()))
+                for attribute, values in required_groups
+                if values
+            )
+        else:
+            required_or = tuple(
+                (attribute, (value,)) for attribute, value in coerce_constraints(required)
+            )
         preferred_pairs = coerce_constraints(preferred)
         excluded_pairs = coerce_constraints(excluded)
         category_pairs = tuple(("category", str(value)) for value in categories if str(value).strip())
@@ -96,15 +106,21 @@ class ScoringMixin:
             structured_score = 0.0
 
             required_similarities: list[float] = []
-            for attribute, value in required_pairs:
-                similarity = signature_similarity(
-                    attribute, value, signature.search_values.get(attribute, ())
-                )
+            for attribute, values in required_or:
+                similarity = 0.0
+                matched_value = None
+                for value in values:
+                    score = signature_similarity(
+                        attribute, value, signature.search_values.get(attribute, ())
+                    )
+                    if score > similarity:
+                        similarity = score
+                        matched_value = value
                 required_similarities.append(similarity)
-                if similarity > 0:
-                    matched.append(f"required:{attribute}={value}")
+                if similarity > 0 and matched_value is not None:
+                    matched.append(f"required:{attribute}={matched_value}")
                 structured_score += scoring.required * similarity
-            if required_pairs:
+            if required_or:
                 missing = sum(1 for value in required_similarities if value == 0.0)
                 structured_score += scoring.missing_required * missing
                 required_coverage = sum(required_similarities) / len(required_similarities)

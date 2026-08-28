@@ -1,8 +1,8 @@
-"""Purpose: one-turn eight-stage orchestration: understand → retrieve → decide.
+"""Purpose: one-turn orchestration: understand → retrieve → decide.
 
 Input: SessionState, user_message, turn, top_k.
 Output: official respond dict.
-Role: stages 2/3 are not each run here; ObservationCoordinator inside StateDetector keeps parse order.
+Role: StateDetector.apply runs observe (category / constraints / override) in fixed order.
 """
 
 from __future__ import annotations
@@ -15,8 +15,6 @@ from .decide.ranking import Ranker
 from .decide.response.builder import ResponseBuilder
 from .retrieve.candidates.retrieve import CandidateOrganizer
 from .retrieve.filtering.exact_pool import ProductFilter
-from .understand.attributes.capture import AttributeCapture
-from .understand.intention.detector import IntentionDetector
 from .understand.state.lifecycle import StateDetector
 
 if TYPE_CHECKING:
@@ -25,14 +23,7 @@ if TYPE_CHECKING:
 
 
 class TurnPipeline:
-    """Run one evaluator turn through the eight named stages.
-
-    Intention detection and attribute capture are not invoked as independent
-    pipeline steps. They share
-    :class:`~agent.understand.observation.coordinator.ObservationCoordinator`
-    so ``what matters is`` payloads are parsed before override detection.
-    :class:`StateDetector` is the stage that runs that coordinator.
-    """
+    """Run one evaluator turn: observe, retrieve, rank, plan, respond."""
 
     def __init__(
         self,
@@ -41,8 +32,6 @@ class TurnPipeline:
     ) -> None:
         self.retriever = retriever
         self.state_detector = StateDetector()
-        self.intention = IntentionDetector()
-        self.attributes = AttributeCapture()
         self.filter = ProductFilter(retriever)
         self.organizer = CandidateOrganizer(retriever)
         self.ranker = Ranker()

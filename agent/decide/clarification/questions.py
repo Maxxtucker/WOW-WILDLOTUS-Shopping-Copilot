@@ -2,7 +2,7 @@
 
 Input: SessionState, candidates, answer_signature callback.
 Output: askable attributes (including None = ask nothing); explain_question returns natural language.
-Role: skip no_preference, empty partitions, and already-asked typed attributes; other may repeat.
+Role: skip already-asked typed attributes and empty partitions; other may repeat.
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ def eligible_questions(
         return [None]
     result: list[str | None] = [None]
     for attribute in QUESTION_ATTRIBUTES:
-        if attribute in state.no_preference:
-            continue
         signatures = {
             answer_signature(item.parent_asin, attribute)
             for item in candidates[:max_planning_candidates]
@@ -38,8 +36,13 @@ def eligible_questions(
         if not informative:
             continue
         # Repeated ``other`` is useful because it reveals the next pair of
-        # undisclosed constraints. Typed attributes are not repeated.
+        # undisclosed constraints. Already-asked and already-locked typed
+        # attributes are not repeated.
         if attribute != "other" and attribute in state.asked:
+            continue
+        if attribute != "other" and any(
+            slot.attribute == attribute for slot in state.typed_constraints
+        ):
             continue
         result.append(attribute)
     return result

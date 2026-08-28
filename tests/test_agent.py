@@ -16,12 +16,21 @@ from agent.retrieve.catalog import (
     _coerce_constraints,
     build_response_signature,
 )
+from agent.understand.mode import MODE_REGEX, configure_understand, reset_understand_mode
 from agent.understand.state import SessionState
 from evaluator.local_evaluator import (
     catalog_index,
     evaluate,
     intent_card as official_intent_card,
 )
+
+
+def setUpModule() -> None:
+    configure_understand(MODE_REGEX)
+
+
+def tearDownModule() -> None:
+    reset_understand_mode()
 
 
 def product(
@@ -51,7 +60,7 @@ class StateTest(unittest.TestCase):
         state.begin_turn(
             "I'm looking for Men Shoes. A key requirement is: leather.", 1
         )
-        self.assertEqual(state.scenario_hint, "buying")
+        self.assertEqual(state.category, "Men Shoes")
         self.assertTrue(state.gate_open)
         self.assertIn("leather", state.active_constraints)
         state.record_action(["A"], "other")
@@ -75,19 +84,18 @@ class StateTest(unittest.TestCase):
         self.assertEqual(state.intent_version, 1)
         self.assertEqual(state.legacy_hints, [])
 
-    def test_boundary_and_no_additional_are_not_constraints(self) -> None:
+    def test_empty_replies_do_not_write_constraints(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes, but I'm still exploring.", 1)
+        self.assertEqual(state.category, "Men Shoes")
+        self.assertEqual(state.active_constraints, [])
         state.record_action(["A"], "other")
         state.begin_turn(
             "I don't have a preference for other; please use your judgment.", 2
         )
-        self.assertTrue(state.boundary_seen)
         self.assertEqual(state.active_constraints, [])
-        self.assertNotIn("other", state.no_preference)
         state.record_action(["B"], "other")
         state.begin_turn("I don't have an additional preference for other.", 3)
-        self.assertIn("other", state.no_preference)
         self.assertEqual(state.active_constraints, [])
 
     def test_candidate_reply_map_preserves_semicolon_inside_atomic_value(self) -> None:
@@ -219,7 +227,7 @@ class RetrievalAndAgentTest(unittest.TestCase):
         )
 
     def test_agent_contract_and_session_isolation(self) -> None:
-        agent = Agent(self.catalog_path)
+        agent = Agent(self.catalog_path, understand_mode="regex")
         agent.reset("one", {"preference_tags": []})
         agent.reset("two", {"preference_tags": []})
         category = coarse_category(self.rows[0]["categories"])
@@ -262,7 +270,7 @@ class RetrievalAndAgentTest(unittest.TestCase):
         ]
         with patch.dict(os.environ, {"AGENT_INDEX_PATH": ":memory:"}):
             result = evaluate(
-                Agent(catalog),
+                Agent(catalog, understand_mode="regex"),
                 samples,
                 catalog_ids,
                 categories,

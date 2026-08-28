@@ -19,19 +19,6 @@ class StateDetectStage(Protocol):
         ...
 
 
-class IntentionStage(Protocol):
-    def apply_turn1(self, state: SessionState, value: str) -> bool:
-        ...
-
-    def apply_override(self, state: SessionState, value: str) -> bool:
-        ...
-
-
-class AttributeStage(Protocol):
-    def apply(self, state: SessionState, message: str) -> SessionState:
-        ...
-
-
 class FilterStage(Protocol):
     def apply(self, state: SessionState) -> set[str] | None:
         ...

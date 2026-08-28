@@ -1,7 +1,7 @@
-"""Purpose: official turn-1 phrasing and override regex templates.
+"""Purpose: official looking-for phrasing and override regex templates.
 
 Input: raw message string.
-Output: regex Match (detector interprets it as scenario + constraint).
+Output: regex Match; observation.classify interprets category / constraint / override.
 Role: patterns only, no state writes, so phrasing can be edited in isolation.
 """
 

@@ -14,7 +14,7 @@ from ....domain import ALLOWED_ATTRIBUTES, classify_constraint
 from .text import clean_surface, format_amount, infer_op, parse_amount
 from .types import ConstraintOp, ParsedItem
 
-SLOT_ATTRIBUTES = frozenset(name for name in ALLOWED_ATTRIBUTES if name != "category")
+SLOT_ATTRIBUTES = frozenset(ALLOWED_ATTRIBUTES)
 ATTRIBUTE_ALIASES = {
     "categories": "category",
     "materials": "material",
@@ -69,6 +69,23 @@ def normalise_slot_attribute(attribute: object) -> str:
     return "other"
 
 
+def coerce_is_hard(value: object, *, default: bool = True) -> bool:
+    """True unless the payload clearly marks a soft preference."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().casefold()
+    if text in {"true", "1", "hard", "yes"}:
+        return True
+    if text in {"false", "0", "soft", "no"}:
+        return False
+    return default
+
+
 def parse_constraint_item(item: Any) -> ParsedItem | None:
     """Return a parsed constraint, or None when there is no surface."""
 
@@ -108,6 +125,7 @@ def parse_constraint_item(item: Any) -> ParsedItem | None:
             extras,
             item,
             alt_surfaces,
+            coerce_is_hard(item.get("is_hard")),
         )
 
     if item is None:
@@ -125,7 +143,6 @@ def parse_constraint_item(item: Any) -> ParsedItem | None:
         surface = rhs or text
         extras = (text,) if text != surface else ()
         return ParsedItem(attribute, surface, (), amount, op, extras, item)
-
     attribute = classify_constraint(text)
     if attribute not in SLOT_ATTRIBUTES:
         attribute = "other"

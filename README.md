@@ -87,7 +87,8 @@ agent/
   orchestrator.py   reset / respond → TurnPipeline
   pipeline.py       single-turn loop
   domain.py         evaluator-compatible helpers
-  understand/       message → SessionState          (layer + submodule READMEs)
+  understand/       message → turn_delta            (layer + submodule READMEs)
+  intent_router/    override vs accumulate, intention
   retrieve/         SessionState → SearchHit        (layer + submodule READMEs)
   decide/           SearchHit → official response   (layer + submodule READMEs)
 starter/
@@ -100,7 +101,8 @@ scripts/
   nlu_probe.py      fixture probe; --live calls Ollama
   nlu.env           local model/host/timeout (not loaded on import)
 tests/
-  test_agent.py     kit tests pin understand_mode=regex
+  test_agent.py     kit tests pin understand_mode=regex and mock the router LLM
+  test_intent_router.py
   test_nlu.py
   test_nlu_console.py
 evaluator/          unchanged official evaluator

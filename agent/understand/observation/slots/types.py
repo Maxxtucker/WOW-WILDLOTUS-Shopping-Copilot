@@ -24,7 +24,8 @@ OR_ATTRIBUTES = frozenset(
 class ConstraintSlot:
     """One typed requirement. ``surface`` is what grounding checks.
 
-    ``canonical`` is a tuple of alternatives (OR). Size letters are a 1-tuple.
+    ``canonical`` is a tuple of alternatives (OR) before writeback splits
+    one value per row. ``is_hard`` is a user-language lock, not a catalog fingerprint.
     """
 
     attribute: str
@@ -38,11 +39,13 @@ class ConstraintSlot:
     length: float | None = None
     width: float | None = None
     height: float | None = None
+    is_hard: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         row: dict[str, Any] = {
             "attribute": self.attribute,
             "surface": self.surface,
+            "is_hard": self.is_hard,
         }
         if self.canonical is not None:
             row["canonical"] = list(self.canonical)
@@ -84,6 +87,7 @@ class ParsedItem:
     extras: tuple[str, ...]
     raw: Any = None
     alt_surfaces: tuple[str, ...] = ()
+    is_hard: bool = True
 
     @property
     def canonical_hint(self) -> str | None:

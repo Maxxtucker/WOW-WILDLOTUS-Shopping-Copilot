@@ -1,7 +1,7 @@
 """Purpose: public retrieval data types (SearchHit, ResponseSignature, weights).
 
 Input: index rows / signature JSON / scoring intermediates.
-Output: frozen dataclasses used by filtering, candidates, and decide.
+Output: frozen dataclasses used by candidates, the router probe, and decide.
 Role: catalog's structural contract; no SessionState dependency.
 """
 

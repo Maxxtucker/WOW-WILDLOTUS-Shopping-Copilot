@@ -1,7 +1,8 @@
-"""Unit tests for span-grounded NLU, hybrid observe, and track routing.
+"""Unit tests for span-grounded NLU, hybrid observe, and intention routing.
 
 Live Ollama is never required. Tests pin understand_mode to regex unless they
-patch extract_with_llm.
+patch extract_with_llm. Router classification is mocked in Agent tests; hybrid
+observe tests commit turn_delta with apply_delta / replace_with_delta.
 """
 
 from __future__ import annotations
@@ -11,8 +12,9 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from agent.intent_router import apply_delta, replace_with_delta
 from agent.retrieve.candidates.routing import (
     BROWSING_LIMIT,
     BUYING_LIMIT,
@@ -22,7 +24,7 @@ from agent.decide.clarification import NO_ADDITIONAL, eligible_questions
 from agent.domain import classify_constraint
 from agent.retrieve.candidates.retrieve import retrieve_candidates
 from agent.retrieve.candidates.query import rewrite_query
-from agent.retrieve.catalog import CatalogRetriever
+from agent.retrieve.catalog import CatalogRetriever, SearchHit
 from agent.retrieve.from_slots import (
     constraint_pairs,
     required_and_budget,
@@ -37,6 +39,7 @@ from agent.understand.mode import (
 )
 from agent.understand.observation.hybrid import (
     NLU_ATTEMPTS,
+    extract_from_regex,
     hybrid_extract,
     regex_is_high_confidence,
 )
@@ -54,8 +57,17 @@ from agent.understand.observation.schema import (
 )
 from agent.understand.observation.slots import ConstraintSlot
 from agent.understand.state import SessionState
+from agent.understand.state.failsafe import apply_override_failsafe
 
 _LLM_EXTRACT = "agent.understand.observation.hybrid.extract_with_llm"
+
+
+def _commit(state: SessionState, *, override: bool = False) -> None:
+    if override:
+        replace_with_delta(state)
+    else:
+        apply_delta(state)
+    apply_override_failsafe(state, state.turn)
 
 
 def _shoe_product(parent_asin: str, feature: str, sole: str, rating_number: int) -> dict:
@@ -97,6 +109,19 @@ class SpanGroundingTest(unittest.TestCase):
         self.assertEqual(extract.constraints, ("leather",))
         self.assertEqual(extract.track, "buying")
         self.assertEqual(extract.source, "llm")
+
+    def test_payload_without_override_keys_still_parses(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "category": "running shoes",
+                "constraints": ["leather"],
+                "empty": False,
+            },
+            "Need leather running shoes.",
+        )
+        self.assertFalse(extract.override)
+        self.assertIsNone(extract.override_value)
+        self.assertEqual(extract.constraints, ("leather",))
 
     def test_inspect_returns_raw_json_and_grounded_extract(self) -> None:
         client = OllamaNluClient()
@@ -672,9 +697,21 @@ class HybridObserveTest(unittest.TestCase):
             state = SessionState("s", {})
             state.begin_turn(message, 1)
             mocked.assert_not_called()
+        _commit(state)
         self.assertEqual(state.category, "Men Shoes")
         self.assertIn("leather", state.active_constraints)
-        self.assertEqual(state.track, "buying")
+        self.assertIsNone(state.intention)
+
+    def test_regex_new_need_is_constraint_not_override_flag(self) -> None:
+        message = "Actually, ignore my earlier preference. What I need is: leather."
+        state = SessionState("s", {})
+        extract = extract_from_regex(state, message)
+        self.assertFalse(extract.override)
+        self.assertIsNone(extract.override_value)
+        self.assertIn("leather", extract.constraints)
+        self.assertTrue(
+            any(slot.surface == "leather" and slot.is_hard for slot in extract.slots)
+        )
 
     def test_nlu_runs_on_protocol_phrasing(self) -> None:
         message = "I'm looking for Men Shoes. A key requirement is: leather."
@@ -690,15 +727,17 @@ class HybridObserveTest(unittest.TestCase):
         with patch(_LLM_EXTRACT, side_effect=fake):
             state = SessionState("s", {})
             state.begin_turn(message, 1)
+        _commit(state)
         self.assertEqual(state.category, "running shoes")
         self.assertEqual(state.active_constraints, ["mesh"])
 
-    def test_exploring_sets_browsing_track(self) -> None:
+    def test_exploring_writes_category_without_constraints(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes, but I'm still exploring.", 1)
+        _commit(state)
         self.assertEqual(state.category, "Men Shoes")
         self.assertEqual(state.active_constraints, [])
-        self.assertEqual(state.track, "browsing")
+        self.assertIsNone(state.intention)
 
     def test_llm_slots_are_stored_on_session(self) -> None:
         def fake(_state: SessionState, _message: str) -> ObservationExtract:
@@ -719,11 +758,13 @@ class HybridObserveTest(unittest.TestCase):
         with patch(_LLM_EXTRACT, side_effect=fake):
             state = SessionState("s", {})
             state.begin_turn("A navy dress please.", 1)
+        _commit(state)
         self.assertEqual(state.active_constraints, ["navy"])
-        self.assertEqual(len(state.typed_constraints), 1)
-        self.assertEqual(state.typed_constraints[0].canonical, ("blue",))
+        colors = [slot for slot in state.typed_constraints if slot.attribute == "color"]
+        self.assertEqual(len(colors), 1)
+        self.assertEqual(colors[0].canonical, ("blue",))
 
-    def test_mocked_llm_writes_constraints_and_track(self) -> None:
+    def test_mocked_llm_writes_constraints(self) -> None:
         def fake(_state: SessionState, message: str) -> ObservationExtract:
             return ObservationExtract(
                 category="running shoes",
@@ -736,9 +777,10 @@ class HybridObserveTest(unittest.TestCase):
         with patch(_LLM_EXTRACT, side_effect=fake):
             state = SessionState("s", {})
             state.begin_turn("Need leather running shoes I can train in.", 1)
+        _commit(state)
         self.assertEqual(state.category, "running shoes")
         self.assertEqual(state.active_constraints, ["leather"])
-        self.assertEqual(state.track, "buying")
+        self.assertIsNone(state.intention)
 
     def test_mocked_empty_extract_writes_nothing(self) -> None:
         def fake(_state: SessionState, _message: str) -> ObservationExtract:
@@ -749,6 +791,7 @@ class HybridObserveTest(unittest.TestCase):
             state = SessionState("s", {})
             state.category = "Men Shoes"
             state.begin_turn("No preference, use your judgment.", 1)
+        _commit(state)
         self.assertEqual(state.active_constraints, [])
         self.assertEqual(state.category, "Men Shoes")
 
@@ -805,46 +848,73 @@ class HybridObserveTest(unittest.TestCase):
         def fake(_state: SessionState, _message: str) -> ObservationExtract:
             return ObservationExtract(
                 constraints=("waterproof",),
-                override=True,
-                override_value="waterproof",
-                track="buying",
                 source="llm",
             )
 
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
+        _commit(state)
         self.assertFalse(state.gate_open)
         configure_understand(MODE_NLU)
         with patch(_LLM_EXTRACT, side_effect=fake):
             state.begin_turn("Waterproof instead of that earlier look.", 2)
+        _commit(state, override=True)
         self.assertTrue(state.gate_open)
         self.assertTrue(state.override_seen)
         self.assertIn("waterproof", state.active_constraints)
         self.assertEqual(state.legacy_hints, [])
-        self.assertEqual(state.track, "buying")
+        self.assertEqual(state.intention, None)
 
 
-class TrackRoutingTest(unittest.TestCase):
+class IntentionRoutingTest(unittest.TestCase):
     def test_buying_is_exact_first_with_tight_cap(self) -> None:
         buying = routing_for("buying")
         self.assertTrue(buying.exact_first)
         self.assertEqual(buying.limit, BUYING_LIMIT)
         self.assertGreater(buying.weights.required, buying.weights.lexical)
 
-    def test_browsing_unions_bm25_with_wide_cap(self) -> None:
+    def test_browsing_is_exact_first_with_wide_cap(self) -> None:
         buying = routing_for("buying")
         browsing = routing_for("browsing")
-        self.assertFalse(browsing.exact_first)
+        self.assertTrue(browsing.exact_first)
         self.assertEqual(browsing.limit, BROWSING_LIMIT)
         self.assertGreater(browsing.weights.lexical, buying.weights.lexical)
         self.assertGreater(browsing.weights.missing_required, buying.weights.missing_required)
 
-    def test_unset_track_keeps_historical_exact_first_cap(self) -> None:
+    def test_retrieve_scores_passed_exact_without_catalog_search(self) -> None:
+        hit = SearchHit("A", 1.0, 0.0, 1.0, 0.0, 1.0)
+        state = SessionState("s", {})
+        state.intention = "browsing"
+        retriever = MagicMock()
+        retriever.score_candidates.return_value = [hit]
+        hits = retrieve_candidates(retriever, state, {"A", "B"})
+        retriever.search.assert_not_called()
+        retriever.score_candidates.assert_called_once()
+        self.assertEqual([item.parent_asin for item in hits], ["A"])
+
+    def test_retrieve_empty_exact_does_not_bm25(self) -> None:
+        state = SessionState("s", {})
+        state.intention = "buying"
+        retriever = MagicMock()
+        retriever.score_candidates.return_value = []
+        hits = retrieve_candidates(retriever, state, set())
+        retriever.search.assert_not_called()
+        retriever.score_candidates.assert_called_once()
+        self.assertEqual(hits, [])
+
+    def test_override_matches_buying_weights(self) -> None:
+        buying = routing_for("buying")
+        override = routing_for("override")
+        self.assertTrue(override.exact_first)
+        self.assertEqual(override.limit, buying.limit)
+        self.assertEqual(override.weights, buying.weights)
+
+    def test_unset_intention_keeps_historical_exact_first_cap(self) -> None:
         default = routing_for(None)
         self.assertTrue(default.exact_first)
         self.assertEqual(default.limit, 500)
 
-    def test_retrieve_respects_track_caps(self) -> None:
+    def test_retrieve_respects_intention_caps(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         catalog_path = Path(temporary.name) / "catalog.jsonl"
@@ -861,14 +931,14 @@ class TrackRoutingTest(unittest.TestCase):
             buying_state = SessionState("buy", {})
             buying_state.category = "Men Shoes"
             buying_state.active_constraints = ["leather"]
-            buying_state.track = "buying"
+            buying_state.intention = "buying"
             buying_hits = retrieve_candidates(retriever, buying_state)
             self.assertLessEqual(len(buying_hits), BUYING_LIMIT)
             self.assertTrue(buying_hits)
 
             browsing_state = SessionState("browse", {})
             browsing_state.category = "Men Shoes"
-            browsing_state.track = "browsing"
+            browsing_state.intention = "browsing"
             browsing_hits = retrieve_candidates(retriever, browsing_state)
             self.assertLessEqual(len(browsing_hits), BROWSING_LIMIT)
             self.assertTrue(browsing_hits)
@@ -955,7 +1025,7 @@ class TypedRetrievalTest(unittest.TestCase):
         )
         state = SessionState("s", {})
         state.category = "Dresses"
-        state.track = "buying"
+        state.intention = "buying"
         state.latest_message = "Something in an orpiment or saffron hue"
         state.active_constraints = ["orpiment or saffron hue"]
         state.typed_constraints = [
@@ -1017,7 +1087,7 @@ class TypedRetrievalTest(unittest.TestCase):
         )
         state = SessionState("s", {})
         state.category = "Dresses"
-        state.track = "buying"
+        state.intention = "buying"
         state.latest_message = "blue, or orange or pink"
         state.typed_constraints = [
             ConstraintSlot(
@@ -1057,14 +1127,61 @@ class SlotOrListTest(unittest.TestCase):
             },
             message,
         )
-        self.assertEqual(len(extract.slots), 1)
-        self.assertEqual(extract.slots[0].canonical, ("blue", "orange", "pink"))
+        self.assertEqual(len(extract.slots), 3)
         self.assertEqual(
-            extract.slots[0].as_dict()["canonical"],
-            ["blue", "orange", "pink"],
+            {slot.canonical for slot in extract.slots},
+            {("blue",), ("orange",), ("pink",)},
+        )
+        self.assertTrue(all(slot.is_hard for slot in extract.slots))
+
+    def test_omitted_is_hard_defaults_true(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {"attribute": "color", "surface": "navy", "canonical": "blue"}
+                ]
+            },
+            "A navy dress for the wedding.",
+        )
+        self.assertEqual(len(extract.slots), 1)
+        self.assertTrue(extract.slots[0].is_hard)
+
+    def test_is_hard_false_is_kept(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {
+                        "attribute": "color",
+                        "surface": "navy",
+                        "canonical": "blue",
+                        "is_hard": False,
+                    }
+                ]
+            },
+            "I might like a navy dress.",
+        )
+        self.assertEqual(len(extract.slots), 1)
+        self.assertFalse(extract.slots[0].is_hard)
+
+    def test_category_list_keeps_hard_and_soft_rows(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "category": [
+                    {"surface": "Men Shoes", "is_hard": True},
+                    {"surface": "sneakers", "is_hard": False},
+                ],
+                "constraints": [],
+            },
+            "I need Men Shoes but sneakers would be nice.",
+        )
+        categories = [slot for slot in extract.slots if slot.attribute == "category"]
+        self.assertEqual(extract.category, "Men Shoes")
+        self.assertEqual(
+            {(slot.surface, slot.is_hard) for slot in categories},
+            {("Men Shoes", True), ("sneakers", False)},
         )
 
-    def test_three_color_objects_merge_to_one_slot(self) -> None:
+    def test_three_color_objects_stay_separate_rows(self) -> None:
         extract = parse_observation_payload(
             {
                 "constraints": [
@@ -1076,8 +1193,11 @@ class SlotOrListTest(unittest.TestCase):
             },
             "I want blue, or orange or pink shoes.",
         )
-        self.assertEqual(len(extract.slots), 1)
-        self.assertEqual(extract.slots[0].canonical, ("blue", "orange", "pink"))
+        self.assertEqual(len(extract.slots), 3)
+        self.assertEqual(
+            {slot.canonical for slot in extract.slots},
+            {("blue",), ("orange",), ("pink",)},
+        )
 
     def test_surfaces_list_without_single_surface(self) -> None:
         extract = parse_observation_payload(
@@ -1093,7 +1213,10 @@ class SlotOrListTest(unittest.TestCase):
             },
             "I want blue, or orange or pink shoes.",
         )
-        self.assertEqual(extract.slots[0].canonical, ("blue", "orange", "pink"))
+        self.assertEqual(
+            {slot.canonical for slot in extract.slots},
+            {("blue",), ("orange",), ("pink",)},
+        )
 
     def test_invalid_canonical_in_list_is_dropped(self) -> None:
         extract = parse_observation_payload(
@@ -1140,10 +1263,16 @@ class SlotOrListTest(unittest.TestCase):
         with patch(_LLM_EXTRACT, side_effect=[first(None, ""), second(None, "")]):
             state = SessionState("s", {})
             state.begin_turn("Something blue.", 1)
+            _commit(state)
             self.assertEqual(state.typed_constraints[0].canonical, ("blue",))
             state.begin_turn("Orange is also fine.", 2)
-        self.assertEqual(len(state.typed_constraints), 1)
-        self.assertEqual(state.typed_constraints[0].canonical, ("blue", "orange"))
+        _commit(state)
+        colors = [slot for slot in state.typed_constraints if slot.attribute == "color"]
+        self.assertEqual(len(colors), 2)
+        self.assertEqual(
+            {slot.canonical for slot in colors},
+            {("blue",), ("orange",)},
+        )
 
 
 if __name__ == "__main__":

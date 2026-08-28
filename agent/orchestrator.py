@@ -20,6 +20,7 @@ from .understand.mode import (
     configure_understand,
     resolve_understand_mode,
 )
+from .intent_router import warmup_intent_router
 from .understand.observation.llm_nlu import load_nlu_env, warmup_nlu
 from .understand.observation.runtime import ensure_llm_runtime
 from .understand.state.session import SessionState
@@ -65,6 +66,7 @@ class Agent:
         if self.understand_mode == MODE_NLU:
             ensure_llm_runtime()
             warmup_nlu()
+            warmup_intent_router()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         """Create an isolated state for a new evaluator session."""

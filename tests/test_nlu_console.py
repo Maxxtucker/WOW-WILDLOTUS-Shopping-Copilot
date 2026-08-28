@@ -10,6 +10,8 @@ import io
 import unittest
 from pathlib import Path
 
+from unittest.mock import patch
+
 from agent.understand.observation.schema import ObservationExtract, parse_observation_payload
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,19 @@ def _load_console():
 
 
 nlu_console = _load_console()
+_ROUTER_PATCHES: list = []
+
+
+def setUpModule() -> None:
+    patcher = patch.object(nlu_console, "classify_override", return_value=False)
+    patcher.start()
+    _ROUTER_PATCHES.append(patcher)
+
+
+def tearDownModule() -> None:
+    for patcher in reversed(_ROUTER_PATCHES):
+        patcher.stop()
+    _ROUTER_PATCHES.clear()
 
 
 class _FakeNluClient:
@@ -36,11 +51,7 @@ class _FakeNluClient:
     def inspect(self, message, *, category, constraints, last_ask):
         payload = {
             "category": "dress",
-            "provisional_hint": None,
             "constraints": ["black", "wedding"],
-            "override": False,
-            "override_value": None,
-            "track": "buying",
             "empty": False,
         }
         return payload, parse_observation_payload(payload, message)
@@ -66,7 +77,7 @@ class ConsoleHelperTest(unittest.TestCase):
             "constraints": ["leather", "breathable mesh"],
         }
         extract = parse_observation_payload(
-            {**payload, "override": False, "track": "buying", "empty": False},
+            payload,
             "Need leather running shoes.",
         )
         dropped = nlu_console.grounding_drops(
@@ -90,7 +101,7 @@ class ConsoleHelperTest(unittest.TestCase):
         console.run_turn("I want a black dress for a wedding.")
         self.assertEqual(console.state.category, "dress")
         self.assertEqual(console.state.active_constraints, ["black", "wedding"])
-        self.assertEqual(console.state.track, "buying")
+        self.assertIsNone(console.state.intention)
         self.assertEqual(console.state.turn, 1)
         self.assertTrue(console.state.typed_constraints)
 
@@ -129,13 +140,14 @@ class ConsoleHelperTest(unittest.TestCase):
         self.assertEqual(snap["active_constraints"][0]["attribute"], "color")
         self.assertNotIn("retrieval_pairs", snap)
         self.assertEqual(snap["typed_constraints"][0]["canonical"], ["orange"])
+        self.assertEqual(snap["preference_tags"], [])
 
     def test_seed_commands_fill_model_context(self) -> None:
         console = nlu_console.NluConsole(None, out=io.StringIO())
         console.handle_command("/category running shoes")
         console.handle_command("/constraints leather; under $40")
         console.handle_command("/ask color")
-        console.handle_command("/track buying")
+        console.handle_command("/intention buying")
         snap = nlu_console.state_snapshot(console.state)
         self.assertEqual(snap["model_context"]["category"], "running shoes")
         self.assertEqual(
@@ -143,6 +155,7 @@ class ConsoleHelperTest(unittest.TestCase):
             ["leather", "under $40"],
         )
         self.assertEqual(snap["model_context"]["last_ask"], "color")
+        self.assertEqual(snap["intention"], "buying")
 
 
 class ExtractDictTest(unittest.TestCase):
@@ -157,6 +170,8 @@ class ExtractDictTest(unittest.TestCase):
         self.assertEqual(row["source"], "llm")
         self.assertEqual(row["slots"], [])
         self.assertEqual(row["repair_rounds"], 0)
+        self.assertNotIn("constraints", row)
+        self.assertNotIn("override", row)
 
     def test_extract_dict_labels_slots_not_keyword_guess(self) -> None:
         from agent.understand.observation.slots import ConstraintSlot
@@ -173,8 +188,9 @@ class ExtractDictTest(unittest.TestCase):
             source="llm",
         )
         row = nlu_console.extract_as_dict(extract)
-        self.assertEqual(row["constraints"][0]["attribute"], "color")
-        self.assertEqual(row["constraints"][0]["span"], "orpiment or saffron hue")
+        self.assertEqual(row["slots"][0]["attribute"], "color")
+        self.assertEqual(row["slots"][0]["surface"], "orpiment or saffron hue")
+        self.assertNotIn("constraints", row)
 
 
 if __name__ == "__main__":

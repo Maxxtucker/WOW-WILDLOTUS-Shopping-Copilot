@@ -1,8 +1,8 @@
-"""Purpose: one-turn orchestration: understand → retrieve → decide.
+"""Purpose: one-turn orchestration: understand → intention router → retrieve → decide.
 
 Input: SessionState, user_message, turn, top_k.
 Output: official respond dict.
-Role: StateDetector.apply runs observe (category / constraints / override) in fixed order.
+Role: observe writes turn_delta; the router commits constraints and an exact pool.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from .decide.clarification.planner import ScoreAwarePlanner
 from .decide.clarification.stage import Clarifier
 from .decide.ranking import Ranker
 from .decide.response.builder import ResponseBuilder
+from .intent_router import IntentRouter
 from .retrieve.candidates.retrieve import CandidateOrganizer
-from .retrieve.filtering.exact_pool import ProductFilter
 from .understand.state.lifecycle import StateDetector
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class TurnPipeline:
-    """Run one evaluator turn: observe, retrieve, rank, plan, respond."""
+    """Run one evaluator turn: observe, route, retrieve, rank, plan, respond."""
 
     def __init__(
         self,
@@ -32,7 +32,7 @@ class TurnPipeline:
     ) -> None:
         self.retriever = retriever
         self.state_detector = StateDetector()
-        self.filter = ProductFilter(retriever)
+        self.intent_router = IntentRouter()
         self.organizer = CandidateOrganizer(retriever)
         self.ranker = Ranker()
         self.clarifier = Clarifier(retriever, planner)
@@ -46,7 +46,7 @@ class TurnPipeline:
         top_k: int,
     ) -> dict:
         self.state_detector.apply(state, user_message, turn)
-        exact = self.filter.apply(state)
+        exact = self.intent_router.apply(state, self.retriever)
         hits = self.organizer.apply(state, exact)
         ranked = self.ranker.apply(hits)
         plan, slate = self.clarifier.apply(state, ranked, top_k)

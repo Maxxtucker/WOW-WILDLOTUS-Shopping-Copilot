@@ -25,12 +25,12 @@ from typing import Any, TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agent.intent_router import apply_delta, classify_override, replace_with_delta, warmup_intent_router
 from agent.understand.mode import MODE_NLU, MODE_REGEX, configure_understand
-from agent.understand.observation.coordinator import _apply_extract
 from agent.understand.observation.hybrid import extract_from_regex, regex_is_high_confidence
 from agent.understand.observation.llm_nlu import OllamaNluClient, load_nlu_env
 from agent.understand.observation.runtime import ensure_llm_runtime
-from agent.understand.observation.schema import ObservationExtract, infer_track
+from agent.understand.observation.schema import ObservationExtract
 from agent.understand.observation.slots import collect_failures
 from agent.understand.state import SessionState
 
@@ -44,14 +44,16 @@ Commands (prefix /). Anything else is this turn's user message.
   /constraints A; B     set locked constraints (semicolon-separated)
   /hint TEXT            set leftover provisional hint
   /ask ATTR             set last asked attribute (color, material, ...)
-  /track buying|browsing|clear
+  /intention buying|browsing|override|clear
   /gate open|closed
   /history-add TEXT     append a prior utterance without extracting
   /paste                multiline message; end with a line that is only .
   /mode all|nlu|regex   what to run (default all)
   /apply nlu|regex|hybrid|none
                         what to write into SessionState after a turn
-                        (hybrid prefers NLU when the model returned JSON)
+                        (hybrid prefers NLU when the model returned JSON).
+                        Live NLU also runs the override LLM (call 1) then
+                        writeback; --no-live only accumulates the extract.
   /raw on|off           print model JSON before span grounding
   /quit                 exit
 
@@ -104,18 +106,11 @@ def extract_as_dict(extract: ObservationExtract | None, *, elapsed_ms: float | N
         "empty": extract.empty,
         "source": extract.source,
         "category": extract.category,
-        "provisional_hint": extract.provisional_hint,
-        "constraints": (
-            labeled_slots(extract.slots)
-            if extract.slots
-            else labeled_constraints(extract.constraints)
-        ),
         "slots": slot_rows(extract),
-        "override": extract.override,
-        "override_value": extract.override_value,
-        "track": extract.track or infer_track(extract),
         "repair_rounds": extract.repair_rounds,
     }
+    if extract.provisional_hint:
+        row["provisional_hint"] = extract.provisional_hint
     if elapsed_ms is not None:
         row["elapsed_ms"] = round(elapsed_ms, 1)
     return row
@@ -136,8 +131,6 @@ def grounding_drops(
         dropped["category"] = payload.get("category")
     if failures.provisional_hint:
         dropped["provisional_hint"] = payload.get("provisional_hint")
-    if failures.override_value:
-        dropped["override_value"] = payload.get("override_value")
     if failures.constraints:
         dropped["constraints"] = failures.constraints
     return dropped
@@ -147,7 +140,20 @@ def state_snapshot(state: SessionState) -> dict[str, Any]:
     return {
         "turn": state.turn,
         "category": state.category,
-        "track": state.track,
+        "intention": state.intention,
+        "turn_delta": None
+        if state.turn_delta is None
+        else {
+            "category": state.turn_delta.category,
+            "slots": [
+                slot.as_dict() if hasattr(slot, "as_dict") else slot
+                for slot in state.turn_delta.slots
+            ],
+            "empty": state.turn_delta.empty,
+            "source": state.turn_delta.source,
+        },
+        "candidate_count": state.candidate_count,
+        "preference_tags": list(state.preference_tags),
         "active_constraints": labeled_locked(state),
         "legacy_hints": list(state.legacy_hints),
         "ranking_constraints": labeled_constraints(state.ranking_constraints),
@@ -279,18 +285,33 @@ class NluConsole:
         self.state.turn += 1
         self.state.latest_message = message
         self.state.message_history.append(message)
-        _apply_extract(self.state, message, chosen)
+        self.state.turn_delta = None if chosen.empty else chosen
+        if self.client is None:
+            apply_delta(self.state)
+        elif classify_override(self.state):
+            replace_with_delta(self.state)
+            self.state.intention = "override"
+        else:
+            apply_delta(self.state)
         self._write(f"# applied {self.apply_mode} extract; turn={self.state.turn}")
+        delta = self.state.turn_delta
         self.print_json(
             {
-                "category": self.state.category,
-                "constraints": labeled_locked(self.state),
-                "typed_constraints": [
-                    slot.as_dict() if hasattr(slot, "as_dict") else slot
-                    for slot in self.state.typed_constraints
-                ],
-                "track": self.state.track,
-                "last_ask": self.state.last_ask,
+                "delta": None
+                if delta is None
+                else {
+                    "category": delta.category,
+                    "slots": slot_rows(delta),
+                },
+                "session": {
+                    "category": self.state.category,
+                    "typed_constraints": [
+                        slot.as_dict() if hasattr(slot, "as_dict") else slot
+                        for slot in self.state.typed_constraints
+                    ],
+                    "intention": self.state.intention,
+                    "last_ask": self.state.last_ask,
+                },
             }
         )
 
@@ -338,16 +359,16 @@ class NluConsole:
                 self.state.asked.append(self.state.last_ask)
             self._write(f"# last_ask = {self.state.last_ask!r}")
             return True
-        if command == "/track":
+        if command in {"/intention", "/track"}:
             value = rest.casefold()
             if value in {"", "clear", "none"}:
-                self.state.track = None
-            elif value in {"buying", "browsing"}:
-                self.state.track = value
+                self.state.intention = None
+            elif value in {"buying", "browsing", "override"}:
+                self.state.intention = value
             else:
-                self._write("# track must be buying, browsing, or clear")
+                self._write("# intention must be buying, browsing, override, or clear")
                 return True
-            self._write(f"# track = {self.state.track!r}")
+            self._write(f"# intention = {self.state.intention!r}")
             return True
         if command == "/gate":
             value = rest.casefold()
@@ -467,6 +488,7 @@ def main() -> None:
         configure_understand(MODE_NLU)
         ensure_llm_runtime()
         client = OllamaNluClient.from_env()
+        warmup_intent_router()
     NluConsole(client, show_raw=args.raw).loop()
 
 

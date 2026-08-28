@@ -2,7 +2,7 @@
 
 Input: SessionState plus this turn's stripped message.
 Output: ObservationExtract. Protocol-like phrasing is not a reason to skip the model.
-Role: observe() writes state from this payload. Regex is the fallback, not a test hook.
+Role: observe() stores this payload as turn_delta. Regex is the fallback, not a test hook.
 """
 
 from __future__ import annotations
@@ -10,16 +10,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..attributes.parsers import MATTERS_RE
-from ..intention.parsers import (
+from .patterns import (
     EXPLORING_RE,
     INITIAL_OTHER_RE,
     KEY_REQUIREMENT_RE,
     OVERRIDE_RE,
 )
+from ...domain import classify_constraint
 from ..mode import MODE_NLU, current_understand_mode
-from .classify import extract_category, extract_constraints, parse_override
+from .classify import extract_category, extract_constraints
 from .llm_nlu import extract_with_llm
 from .schema import ObservationExtract
+from .slots.types import ConstraintSlot
 
 if TYPE_CHECKING:
     from ..state.session import SessionState
@@ -45,13 +47,34 @@ def regex_is_high_confidence(message: str) -> bool:
 def extract_from_regex(state: SessionState, message: str) -> ObservationExtract:
     constraints = tuple(extract_constraints(state, message))
     category_hit = extract_category(message)
-    override = parse_override(message, gate_closed=not state.gate_open)
+    category = None if category_hit is None else category_hit.category
+    hint = None if category_hit is None else category_hit.provisional_hint
+    slots: list[ConstraintSlot] = []
+    if category:
+        slots.append(
+            ConstraintSlot(attribute="category", surface=category, is_hard=True)
+        )
+    if hint:
+        slots.append(
+            ConstraintSlot(
+                attribute=classify_constraint(hint),
+                surface=hint,
+                is_hard=False,
+            )
+        )
+    for piece in constraints:
+        slots.append(
+            ConstraintSlot(
+                attribute=classify_constraint(piece),
+                surface=piece,
+                is_hard=True,
+            )
+        )
     return ObservationExtract(
-        category=None if category_hit is None else category_hit.category,
-        provisional_hint=None if category_hit is None else category_hit.provisional_hint,
+        category=category,
+        provisional_hint=hint,
         constraints=constraints,
-        override=override is not None,
-        override_value=None if override is None else override.new_value,
+        slots=tuple(slots),
         source="regex",
     )
 

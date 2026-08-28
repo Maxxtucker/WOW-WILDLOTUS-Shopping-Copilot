@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from .retrieve.catalog.retriever import CatalogRetriever
 from .retrieve.catalog.types import SearchHit
 from .decide.clarification.types import Plan
 from .decide.ranking.normalize import RankedCandidate
@@ -19,8 +20,10 @@ class StateDetectStage(Protocol):
         ...
 
 
-class FilterStage(Protocol):
-    def apply(self, state: SessionState) -> set[str] | None:
+class IntentRouterStage(Protocol):
+    def apply(
+        self, state: SessionState, retriever: CatalogRetriever
+    ) -> set[str] | None:
         ...
 
 

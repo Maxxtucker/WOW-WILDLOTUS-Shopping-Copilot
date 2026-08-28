@@ -1,21 +1,17 @@
-"""Retrieve layer: constraints → exact pool or BM25 → scored SearchHit.
+"""Retrieve layer: score the router exact pool, or BM25 when that pool is None.
 
-Input: SessionState (category, typed slots or ranking_constraints, excluded_asins, message).
+Input: SessionState (typed slots, excluded_asins, message) plus optional exact ASINs.
 Output: at most 500 SearchHit values.
-Role: shrink the catalog; from_slots maps typed_constraints at retrieve time. See README.md.
+Role: from_slots maps typed_constraints at score time. Hard intersection is the router.
 """
 
 from .catalog import CatalogRetriever, SearchHit, build_response_signature
 from .candidates import CandidateOrganizer, retrieve_candidates
-from .filtering import ProductFilter, exact_pool, exact_pool_for_state
 
 __all__ = [
     "CatalogRetriever",
     "CandidateOrganizer",
-    "ProductFilter",
     "SearchHit",
     "build_response_signature",
-    "exact_pool",
-    "exact_pool_for_state",
     "retrieve_candidates",
 ]

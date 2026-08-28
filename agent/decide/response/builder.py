@@ -2,7 +2,7 @@
 
 Input: SessionState, retriever, hits, Plan, slate.
 Output: {message, ask_attribute, recommendations, usage}.
-Role: external shape of pipeline stage 8; usage is always 0 (no LLM).
+Role: external shape of pipeline stage 8; usage includes intention-router tokens.
 """
 
 from __future__ import annotations
@@ -31,7 +31,12 @@ class ResponseBuilder:
         slate: list[str],
     ) -> dict:
         persist_turn(state, retriever, hits, plan, slate)
-        return build_response(slate, plan.ask_attribute)
+        return build_response(
+            slate,
+            plan.ask_attribute,
+            prompt_tokens=state.router_prompt_tokens,
+            completion_tokens=state.router_completion_tokens,
+        )
 
 
 def build_message(slate: list[str], ask_attribute: str | None) -> str:
@@ -46,12 +51,21 @@ def build_message(slate: list[str], ask_attribute: str | None) -> str:
     )
 
 
-def build_response(slate: list[str], ask_attribute: str | None) -> dict:
+def build_response(
+    slate: list[str],
+    ask_attribute: str | None,
+    *,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+) -> dict:
     return {
         "message": build_message(slate, ask_attribute),
         "ask_attribute": ask_attribute,
         "recommendations": [
             {"parent_asin": parent_asin} for parent_asin in slate
         ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        "usage": {
+            "prompt_tokens": max(0, int(prompt_tokens)),
+            "completion_tokens": max(0, int(completion_tokens)),
+        },
     }

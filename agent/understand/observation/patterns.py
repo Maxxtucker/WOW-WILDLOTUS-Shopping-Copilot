@@ -2,7 +2,7 @@
 
 Input: raw message string.
 Output: regex Match; observation.classify interprets category / constraint / override.
-Role: patterns only, no state writes, so phrasing can be edited in isolation.
+Role: patterns only, no state writes. Used by regex extract, not by intention routing.
 """
 
 from __future__ import annotations

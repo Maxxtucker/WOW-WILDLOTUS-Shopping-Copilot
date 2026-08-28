@@ -2,9 +2,11 @@
 
 ## Purpose
 
-Turn one LLM constraint into a `ConstraintSlot`. The model reads ordinary shopper language. Code checks that cited text is in the message, and that classified labels are official keys. Category is a top-level extract field, not a constraint object.
+Turn one LLM or regex constraint into a `ConstraintSlot`. The model reads ordinary shopper language. Code checks that cited text is in the message, and that classified labels are official keys. Category may be a top-level field and/or `attribute=category` rows.
 
-When `typed_constraints` is non-empty, retrieve and ask use the slot `attribute` plus matchable values (`canonical` list / size amount+system / budget amount), not `classify_constraint` on the cited surface. Empty slots fall back to `ranking_constraints` strings. Understand defaults to NLU; regex is the fallback after failed extracts or `understand_mode="regex"`.
+Each slot has `is_hard`. Hardness is user language (must vs prefer), not evaluator `intent_card` fingerprints. Same `(attribute, value)` later overwrites earlier hardness. Different values of the same attribute may be hard and soft at once.
+
+When `typed_constraints` is non-empty, retrieve uses hard slots to prune and soft slots only as preferred scoring. Empty slots fall back to `active_constraints` strings (not leftover hints). Understand defaults to NLU; regex is the fallback after failed extracts or `understand_mode="regex"`.
 
 Do not copy evaluator `intent_card`, customer templates, or `public_set.jsonl` labels into these handlers.
 
@@ -23,7 +25,7 @@ Two kinds of fields. Mixing them is the usual bug.
 
 ### OR alternatives
 
-`canonical` is a tuple of alternatives. `blue or orange or pink` is **one** color slot: `canonical=("blue", "orange", "pink")`. Retrieve unions those values (OR). Separate slots for color/material/style/brand/feature/use_case/other in one extract are merged into one list as a safety net. Size and budget stay scalar.
+One utterance may still emit `canonical: ["blue", "orange", "pink"]`. Writeback splits that into one row per value so a later "must be blue" can flip only blue to hard. Retrieve ORs hard values of the same attribute; it ANDs across attributes. Soft rows never join the exact intersection.
 
 ### Ten attributes
 
@@ -31,7 +33,7 @@ Two kinds of fields. Mixing them is the usual bug.
 
 | Attribute | Handler | Grounding |
 |---|---|---|
-| `category` | `attributes/category.py` | Top-level span only. Not a constraint row. |
+| `category` | `attributes/category.py` | Top-level span or a category slot. Hard and soft category names may coexist. |
 | `color` | `attributes/color.py` | Each `canonical` member ∈ closed color list. Surface may be a synonym; grey/gray are one bucket. Missing canonical and surface not already a list member → drop. |
 | `material` | `attributes/material.py` | Same pattern against `MATERIALS`. |
 | `size` | `attributes/size.py` | See below. Never one shared XS–XXL class for shoes and boxes. Letter `canonical` is a 1-tuple. |
@@ -68,7 +70,7 @@ Not allowed: synonym tables that classify open shopper language (`clothing` → 
 | `text.py` | Shared span, digits, comparison ops. |
 | `closed.py` | Closed-list accept for color/material. |
 | `types.py` | `ConstraintSlot`, `ParsedItem`, `GroundingFailures`, `OR_ATTRIBUTES`. |
-| `merge.py` | Union same-attribute OR slots. |
+| `merge.py` | Split multi-canonical rows; upsert by `(attribute, value)`. |
 | `attributes/` | One `ground()` per attribute. |
 
 ## Collaboration
@@ -82,23 +84,23 @@ llm_nlu / regex payload
         size                # kind + system / letters / mm|in
         budget              # amount + op
         free strings
-    merge same-attribute OR slots
+    merge_or_attribute_slots    # one row per (attribute, value)
     ObservationExtract.slots → SessionState.typed_constraints
-    retrieve/from_slots.py  → (attribute, values) groups at retrieve time
+    retrieve/from_slots.py  → hard groups prune; soft pairs only score
 ```
 
-Repair (max three rounds) replaces only ungrounded fields; already-cited slots stay. Later turns extend an existing OR-attribute list instead of ANDing a second color slot.
+Repair (max three rounds) replaces only ungrounded fields; already-cited slots stay. Later turns upsert the same `(attribute, value)`; a later hard overwrites an earlier soft for that value. Different values of one attribute stay as separate rows.
 
 ## Core variables
 
-On `ConstraintSlot`: `attribute`, `surface`, `canonical` (tuple of alternatives), `amount`, `op`, `system`, `kind`, `unit`, `length`, `width`, `height`.
+On `ConstraintSlot`: `attribute`, `surface`, `canonical`, `is_hard`, plus size/budget fields. Writeback stores one row per `(attribute, value)`.
 
-On session: `typed_constraints` (list of slots). `active_constraints` is the cited-string view (talking to the user / regex fallback). Retrieve maps slots in `retrieve/from_slots.py`; search pairs are not stored on session.
+On session: `typed_constraints` (list of slots, including category). `active_constraints` is the cited-string view. Retrieve maps **hard** slots to the exact pool and **soft** slots to preferred scoring.
 
 ## Core code
 
 - Dispatch: `ground_constraint_item` in `pipeline.py`
 - Per-attribute rules: `attributes/<name>.py`
-- OR merge: `merge_or_attribute_slots` / `merge_or_slot` in `merge.py`
+- Upsert: `merge_or_attribute_slots` / `split_value_rows` in `merge.py`
 - Retrieve mapping: `slot_search_values` / `constraint_groups` in `retrieve/from_slots.py`
 - Model contract: system prompt in `../llm_nlu.py` (must stay aligned with this README)

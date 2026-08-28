@@ -1,10 +1,10 @@
-# understand/observation — fixed parse order
+# understand/observation — extract this turn into turn_delta
 
 ## Purpose
 
-The only place inside `understand` allowed to compose extractors. Catalog features may legally contain `instead` / `forget`; apply locked constraints before testing override.
+The only place inside `understand` allowed to compose extractors. Catalog features may legally contain `instead` / `forget`; those strings stay in the extract. **Intention routing does not live here** and does not use regex.
 
-`pipeline` calls `StateDetector.apply` only. It does not call extractors separately.
+`pipeline` calls `StateDetector.apply` only for observation. The intention router commits constraints afterward.
 
 Understand defaults to local NLU (`understand_mode="nlu"`). `hybrid_extract` calls the model (including on protocol-like phrasing), retries a failed extract three times, then falls back to regex. `understand_mode="regex"` skips the model. Mode lives in `understand/mode.py`; Agent nlu startup starts Ollama via `runtime.py`. Design note: [docs/architecture/understand_nlu.md](../../../docs/architecture/understand_nlu.md).
 
@@ -12,13 +12,14 @@ Understand defaults to local NLU (`understand_mode="nlu"`). `hybrid_extract` cal
 
 | File | Role |
 |---|---|
-| `classify.py` | `extract_category` / `extract_constraints` / `parse_override` (regex; no state writes). |
-| `schema.py` | `ObservationExtract`, span grounding, track inference. |
+| `classify.py` | `extract_category` / `extract_constraints` / `extract_new_need` (regex extract; no override routing). |
+| `patterns.py` | Looking-for / exploring / leftover / override regexes for extract only. |
+| `schema.py` | `ObservationExtract`, span grounding. Optional extract `track` is unused by the router. |
 | `slots/` | Typed slots. Design: [slots/README.md](slots/README.md). One handler per attribute; `pipeline.py` dispatches. |
-| `llm_nlu.py` | Ollama JSON client. HTTP only. |
+| `llm_nlu.py` | Ollama JSON client. HTTP only. Prompt has `category`, `constraints`, `empty`. No override keys. |
 | `runtime.py` | Ping Ollama, spawn `serve` if needed, load the configured model. No pull. |
 | `hybrid.py` | NLU up to three attempts when mode is nlu; else regex. |
-| `coordinator.py` | `observe`: apply hits in a fixed order every turn, then write `track`. |
+| `coordinator.py` | `observe`: store `turn_delta`. Does not apply constraints, override, or intention. |
 
 ## Collaboration
 
@@ -27,18 +28,15 @@ every turn:
     hybrid_extract
         nlu mode → llm_nlu.py (3 attempts)
         regex mode, or all attempts None → classify.py
-    extract_constraints → write active_constraints (and stop if any, unless LLM also set override)
-    extract_category    → category; leftover hint closes the conversion gate
-    parse_override      → clear legacy, open gate
-    colon_fallback      → last-resort constraint parse (regex path)
-    write track         → buying if locked constraints; browsing if vague/explore
+    colon_fallback      → last-resort constraint parse (regex path, no constraints yet)
+    state.turn_delta    → extract, or None when empty
 ```
 
 There is no `if turn == 1` branch and no evaluator Buying / Browsing / Boundary label.
 
 ## Core variables
 
-No independent state. Reads and writes the passed-in `SessionState`, including `track`.
+No independent state. Writes `SessionState.turn_delta` only.
 
 NLU settings persist in `scripts/nlu.env`. Agent nlu mode loads that file. Interactive console:
 
@@ -51,6 +49,6 @@ python scripts/nlu_console.py
 
 ## Core code
 
-`observe` in `coordinator.py`. The order is a correctness constraint, not style.
+`observe` in `coordinator.py`. Commit is `agent/intent_router`.
 
 Typed NLU slots (cite vs classify, size kinds, alias policy): [slots/README.md](slots/README.md).

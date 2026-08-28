@@ -16,8 +16,10 @@ from agent.retrieve.catalog import (
     _coerce_constraints,
     build_response_signature,
 )
+from agent.intent_router import apply_delta, replace_with_delta
 from agent.understand.mode import MODE_REGEX, configure_understand, reset_understand_mode
 from agent.understand.state import SessionState
+from agent.understand.state.failsafe import apply_override_failsafe
 from evaluator.local_evaluator import (
     catalog_index,
     evaluate,
@@ -25,12 +27,60 @@ from evaluator.local_evaluator import (
 )
 
 
+_ROUTER_PATCHES: list = []
+
+
+def _fake_classify_override(state: SessionState) -> bool:
+    text = (state.latest_message or "").casefold()
+    return "ignore my earlier preference" in text or (
+        "changed my mind" in text and "disregard" in text
+    )
+
+
+def _fake_classify_route(
+    state: SessionState,
+    *,
+    pool_before: int | None = None,
+    pool_after: int | None = None,
+    ratio: float | None = None,
+) -> str:
+    if state.active_constraints or state.typed_constraints:
+        return "buying"
+    return "browsing"
+
+
 def setUpModule() -> None:
     configure_understand(MODE_REGEX)
+    for target, kwargs in (
+        (
+            "agent.intent_router.router.classify_override",
+            {"side_effect": _fake_classify_override},
+        ),
+        (
+            "agent.intent_router.router.classify_route",
+            {"side_effect": _fake_classify_route},
+        ),
+    ):
+        patcher = patch(target, **kwargs)
+        patcher.start()
+        _ROUTER_PATCHES.append(patcher)
 
 
 def tearDownModule() -> None:
+    for patcher in reversed(_ROUTER_PATCHES):
+        patcher.stop()
+    _ROUTER_PATCHES.clear()
     reset_understand_mode()
+
+
+def _commit(state: SessionState, *, override: bool | None = None) -> None:
+    if override is None:
+        override = _fake_classify_override(state)
+    if override:
+        replace_with_delta(state)
+    else:
+        apply_delta(state)
+    apply_override_failsafe(state, state.turn)
 
 
 def product(
@@ -60,25 +110,30 @@ class StateTest(unittest.TestCase):
         state.begin_turn(
             "I'm looking for Men Shoes. A key requirement is: leather.", 1
         )
+        _commit(state)
         self.assertEqual(state.category, "Men Shoes")
         self.assertTrue(state.gate_open)
         self.assertIn("leather", state.active_constraints)
         state.record_action(["A"], "other")
         state.begin_turn("For that, what matters is: Rubber sole.", 2)
+        _commit(state)
         self.assertIn("A", state.excluded_asins)
         self.assertIn("Rubber sole", state.active_constraints)
 
     def test_closed_override_gate_does_not_turn_slate_into_negative_feedback(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
+        _commit(state)
         self.assertFalse(state.gate_open)
         state.record_action(["A"], "other")
         state.begin_turn("For that, what matters is: leather; Rubber sole.", 2)
+        _commit(state)
         self.assertNotIn("A", state.excluded_asins)
         state.record_action(["A"], "other")
         state.begin_turn(
             "Actually, ignore my earlier preference. What I need is: leather.", 3
         )
+        _commit(state)
         self.assertTrue(state.gate_open)
         self.assertTrue(state.override_seen)
         self.assertEqual(state.intent_version, 1)
@@ -87,15 +142,18 @@ class StateTest(unittest.TestCase):
     def test_empty_replies_do_not_write_constraints(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes, but I'm still exploring.", 1)
+        _commit(state)
         self.assertEqual(state.category, "Men Shoes")
         self.assertEqual(state.active_constraints, [])
         state.record_action(["A"], "other")
         state.begin_turn(
             "I don't have a preference for other; please use your judgment.", 2
         )
+        _commit(state)
         self.assertEqual(state.active_constraints, [])
         state.record_action(["B"], "other")
         state.begin_turn("I don't have an additional preference for other.", 3)
+        _commit(state)
         self.assertEqual(state.active_constraints, [])
 
     def test_candidate_reply_map_preserves_semicolon_inside_atomic_value(self) -> None:
@@ -108,6 +166,7 @@ class StateTest(unittest.TestCase):
             "For that, what matters is: Water resistant; suitable for winter; "
             "Rubber sole."
         )
+        _commit(state)
         self.assertEqual(
             state.active_constraints,
             ["Water resistant; suitable for winter", "Rubber sole"],
@@ -116,12 +175,14 @@ class StateTest(unittest.TestCase):
     def test_structured_constraint_words_do_not_trigger_override(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes, but I'm still exploring.", 1)
+        _commit(state)
         state.record_action(["A"], "other")
         state.begin_turn(
             "For that, what matters is: Use this instead of a belt; "
             "a reminder not to forget hydration.",
             2,
         )
+        _commit(state)
         self.assertFalse(state.override_seen)
         self.assertEqual(state.intent_version, 0)
         self.assertIn("A", state.excluded_asins)
@@ -133,12 +194,14 @@ class StateTest(unittest.TestCase):
     def test_paraphrased_override_opens_gate_and_clears_legacy_hint(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
+        _commit(state)
         self.assertFalse(state.gate_open)
         state.begin_turn(
             "I've changed my mind; disregard the earlier preference. "
             "Instead, I need waterproof leather.",
             3,
         )
+        _commit(state)
         self.assertTrue(state.gate_open)
         self.assertTrue(state.override_seen)
         self.assertEqual(state.legacy_hints, [])
@@ -147,9 +210,49 @@ class StateTest(unittest.TestCase):
     def test_pending_override_has_turn_four_fail_safe(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
+        _commit(state)
         state.begin_turn("Completely different requirements now.", 4)
+        _commit(state)
         self.assertTrue(state.gate_open)
+        self.assertFalse(state.override_seen)
+        self.assertNotEqual(state.intention, "override")
+
+    def test_preference_tags_snapshot_from_profile(self) -> None:
+        state = SessionState(
+            "s",
+            {
+                "purchase_frequency": "3-4 prior purchases",
+                "average_prior_rating": 5.0,
+                "rating_style": "usually positive",
+                "preference_tags": ["fit", "comfort", "durability"],
+                "summary": "Prior purchases emphasize fit, comfort, durability.",
+            },
+        )
+        self.assertEqual(state.preference_tags, ("fit", "comfort", "durability"))
+        self.assertEqual(SessionState("s", {}).preference_tags, ())
+        self.assertEqual(SessionState("s", {"summary": "x"}).preference_tags, ())
+        self.assertEqual(
+            SessionState("s", {"preference_tags": []}).preference_tags, ()
+        )
+        self.assertEqual(
+            SessionState(
+                "s", {"preference_tags": ["  Fit ", "comfort", "fit", "", 1]}
+            ).preference_tags,
+            ("Fit", "comfort"),
+        )
+
+    def test_preference_tags_survive_observe_and_override(self) -> None:
+        state = SessionState("s", {"preference_tags": ["fit", "comfort"]})
+        state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
+        _commit(state)
+        state.begin_turn(
+            "Actually, ignore my earlier preference. What I need is: leather.", 3
+        )
+        _commit(state)
         self.assertTrue(state.override_seen)
+        self.assertEqual(state.preference_tags, ("fit", "comfort"))
+        self.assertNotIn("fit", state.active_constraints)
+        self.assertEqual(state.ranking_constraints, ("leather",))
 
 
 class PlannerTest(unittest.TestCase):

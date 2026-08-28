@@ -13,7 +13,13 @@ from .attributes.size import (
     SIZE_SYSTEMS,
     SIZE_UNITS,
 )
-from .merge import merge_or_attribute_slots, merge_or_slot
+from .merge import (
+    merge_or_attribute_slots,
+    merge_or_slot,
+    slot_identity,
+    slot_value_id,
+    split_value_rows,
+)
 from .pipeline import (
     MAX_REPAIR_ROUNDS,
     collect_failures,
@@ -41,6 +47,9 @@ __all__ = [
     "grounded_extract_from_payload",
     "merge_or_attribute_slots",
     "merge_or_slot",
+    "slot_identity",
+    "slot_value_id",
+    "split_value_rows",
     "merge_repair_payload",
     "partition_constraints",
 ]

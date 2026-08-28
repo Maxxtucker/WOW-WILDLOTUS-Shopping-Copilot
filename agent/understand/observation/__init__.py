@@ -1,7 +1,7 @@
-"""Purpose: observation package: extract then apply in a fixed order.
+"""Purpose: observation package: extract this turn into turn_delta.
 
 Input: SessionState, this turn's message.
-Output: SessionState written category / constraints / override / track.
+Output: state.turn_delta. Constraints are committed by the intention router.
 Role: the only parse-order entry inside understand. See README.md.
 """
 
@@ -11,6 +11,7 @@ from .classify import (
     colon_fallback,
     extract_category,
     extract_constraints,
+    extract_new_need,
     parse_override,
 )
 from .coordinator import ObservationCoordinator, observe
@@ -27,6 +28,7 @@ __all__ = [
     "colon_fallback",
     "extract_category",
     "extract_constraints",
+    "extract_new_need",
     "hybrid_extract",
     "infer_track",
     "observe",

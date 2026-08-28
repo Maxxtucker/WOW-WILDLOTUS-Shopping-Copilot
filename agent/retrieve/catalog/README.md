@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Process-wide SQLite infrastructure. No session dependency. `CatalogRetriever` is the only place retrieve executes SQL; filtering / candidates / decide call its public methods.
+Process-wide SQLite infrastructure. No session dependency. `CatalogRetriever` is the only place retrieve executes SQL; the intention-router probe, candidates, and decide call its public methods.
 
 Index build uses an independent `intent_card` copy in `protocol_copy.py` and does not import `agent.domain`, so it can be checked against the evaluator on both sides.
 
@@ -30,8 +30,8 @@ Agent.__init__
         else: index.build writes products / product_fts / signature_values
 
 At query time
-    filtering: retriever.signature_candidates(...)
-    candidates fallback: retriever.search(..., hard_required=False)
+    intent_router probe: retriever.signature_candidates(...)
+    candidates: retriever.score_candidates(exact) or search(..., hard_required=False)
     decide: retriever.predict_reply / answer_signature
 ```
 

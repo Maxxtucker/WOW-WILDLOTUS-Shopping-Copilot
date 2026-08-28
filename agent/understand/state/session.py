@@ -1,8 +1,9 @@
-"""Purpose: mutable memory for one session (constraints, misses, conversion gate).
+"""Purpose: mutable memory for one session (constraints, misses, conversion gate, track).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
-Output: ranking_constraints, excluded_asins, gate_open, and related fields for retrieve/decide.
+Output: ranking_constraints, typed_constraints, excluded_asins, gate_open, track, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
+Retrieve builds search pairs from typed_constraints; they are not stored here.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ class SessionState:
     session_id: str
     user_profile: dict
     category: str | None = None
+    track: str | None = None
     intent_version: int = 0
     gate_open: bool = True
     override_seen: bool = False
@@ -35,6 +37,7 @@ class SessionState:
     latest_message: str = ""
     message_history: list[str] = field(default_factory=list)
     turn: int = 0
+    typed_constraints: list = field(default_factory=list)
 
     @property
     def ranking_constraints(self) -> tuple[str, ...]:

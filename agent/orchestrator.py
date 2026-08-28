@@ -1,6 +1,6 @@
 """Purpose: official Agent interface. reset creates a session; respond hands one turn to TurnPipeline.
 
-Input: catalog_path; reset(session_id, user_profile); respond(session_id, message, turn, top_k).
+Input: catalog_path; optional understand_mode (nlu or regex); reset(session_id, user_profile); respond(...).
 Output: {message, ask_attribute, recommendations, usage}.
 Role: the only implementation class the evaluator calls through starter.agent. Process-wide shared index; per-session SessionState.
 """
@@ -14,11 +14,19 @@ from .retrieve.catalog.index_path import resolve_index_path
 from .retrieve.catalog.retriever import CatalogRetriever
 from .decide.clarification.planner import ScoreAwarePlanner
 from .pipeline import TurnPipeline
+from .understand.mode import (
+    MODE_NLU,
+    MODE_REGEX,
+    configure_understand,
+    resolve_understand_mode,
+)
+from .understand.observation.llm_nlu import load_nlu_env, warmup_nlu
+from .understand.observation.runtime import ensure_llm_runtime
 from .understand.state.session import SessionState
 
 
 class Agent:
-    """Offline conversational product-search agent.
+    """Conversational product-search agent.
 
     The implementation has two cooperating paths:
 
@@ -26,13 +34,21 @@ class Agent:
       answers for every catalog product;
     * a fielded BM25/structured fallback for paraphrased or unseen wording.
 
-    It does not read the public labels and does not require an LLM, network
-    connection, API key, or non-standard Python package.
+    It does not read the public labels. Understand defaults to local NLU
+    (``understand_mode="nlu"``): Agent startup loads ``scripts/nlu.env``,
+    starts Ollama when needed, and retries a failed extract three times
+    before falling back to regex. Pass ``understand_mode="regex"`` to skip
+    the LLM entirely.
 
     Each ``respond`` call runs :class:`~agent.pipeline.TurnPipeline`.
     """
 
-    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
+    def __init__(
+        self,
+        catalog_path: str | Path = "data/catalog.jsonl",
+        *,
+        understand_mode: str | None = None,
+    ) -> None:
         persistent_index = resolve_index_path(catalog_path)
         self.retriever = CatalogRetriever(catalog_path, index_path=persistent_index)
         # Planning only needs the head of the posterior; retrieval still keeps
@@ -41,6 +57,14 @@ class Agent:
         self.pipeline = TurnPipeline(self.retriever, self.planner)
         self.sessions: dict[str, SessionState] = {}
         self._lock = RLock()
+        if understand_mode != MODE_REGEX:
+            load_nlu_env()
+        self.understand_mode = configure_understand(
+            resolve_understand_mode(understand_mode)
+        )
+        if self.understand_mode == MODE_NLU:
+            ensure_llm_runtime()
+            warmup_nlu()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         """Create an isolated state for a new evaluator session."""

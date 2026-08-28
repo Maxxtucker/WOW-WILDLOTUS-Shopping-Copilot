@@ -3,9 +3,16 @@
 ## 1. Objective and constraints
 
 This agent implements the official `Agent.reset()` and `Agent.respond()`
-interface without modifying the catalog, evaluator, or public labels. The core
-runtime uses no network service and no generative model. All output is
-deterministic for a fixed catalog and message sequence.
+interface without modifying the catalog, evaluator, or public labels.
+
+**Observe path.** `Agent()` defaults to local Ollama NLU (`understand_mode="nlu"`):
+startup loads `scripts/nlu.env`, starts the daemon when needed, and retries a
+failed extract three times before regex. Pass `understand_mode="regex"` for an
+LLM-free, deterministic observe path. Kit tests and the public-set numbers in
+this report use regex. Design: [`docs/architecture/understand_nlu.md`](architecture/understand_nlu.md).
+
+Retrieve and planning stay standard-library SQLite plus the score-aware planner.
+They do not call the model.
 
 The official technical composite can be decomposed into the terminal utility
 of a single session. If the first valid hit occurs at turn `t` and rank `r`:
@@ -196,8 +203,8 @@ Using the unmodified public evaluator at commit `9a35be5`:
 | Overall | 200 | 1.000000 | 1.000000 | 2.060000 |
 
 The resulting recommended technical composite is `0.978800`. Token usage is
-zero. These numbers are development measurements and must not be represented as
-private evaluation results.
+zero because those runs used regex observation. These numbers are development
+measurements and must not be represented as private evaluation results.
 
 ## 9. Robustness and anti-overfitting checks
 
@@ -217,6 +224,9 @@ visible metadata and published simulator behavior.
 
 ## 10. Limitations and next steps
 
+- Local NLU needs a running Ollama and a pre-pulled model. Missing daemon →
+  three failed extracts then regex. Organizer scoring may disable extra
+  processes; pin `understand_mode="regex"` when the harness must stay offline.
 - Calibrate product probabilities out of fold and reserve explicit tail mass.
 - Replace repeated SQLite JSON decoding with a compact immutable in-memory
   signature table if the organizer imposes a tighter latency limit.

@@ -57,6 +57,7 @@ class SearchMixin:
         text: str = "",
         *,
         required: ConstraintInput = None,
+        required_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         preferred: ConstraintInput = None,
         excluded: ConstraintInput = None,
         categories: Iterable[str] = (),
@@ -79,24 +80,43 @@ class SearchMixin:
         if limit <= 0:
             return []
         candidate_limit = max(limit, candidate_limit)
-        required_pairs = coerce_constraints(required)
+        if required_groups is not None:
+            required_or = tuple(
+                (str(attribute), tuple(str(value) for value in values if str(value).strip()))
+                for attribute, values in required_groups
+                if values
+            )
+        else:
+            required_or = tuple(
+                (attribute, (value,)) for attribute, value in coerce_constraints(required)
+            )
         preferred_pairs = coerce_constraints(preferred)
         category_values = tuple(str(value) for value in categories if str(value).strip())
 
         query_parts = [text]
-        query_parts.extend(value for _, value in required_pairs)
+        query_parts.extend(value for _, values in required_or for value in values)
         query_parts.extend(value for _, value in preferred_pairs)
         query_parts.extend(category_values)
         lexical = self._fts_candidates(" ".join(query_parts), candidate_limit)
         candidates: dict[str, None] = dict.fromkeys(lexical)
 
         exact_required_sets: list[set[str]] = []
-        exact_pairs = [
-            *required_pairs,
-            *preferred_pairs,
-            *(("category", value) for value in category_values),
-        ]
-        for index, (attribute, value) in enumerate(exact_pairs):
+        for attribute, values in required_or:
+            group_hits: set[str] = set()
+            for value in values:
+                matches = set(
+                    self.signature_candidates(
+                        attribute,
+                        value,
+                        limit=max(candidate_limit * 3, 2_000),
+                    )
+                )
+                group_hits.update(matches)
+                for parent_asin in matches:
+                    candidates.setdefault(parent_asin, None)
+            if group_hits:
+                exact_required_sets.append(group_hits)
+        for attribute, value in preferred_pairs:
             matches = set(
                 self.signature_candidates(
                     attribute,
@@ -106,8 +126,16 @@ class SearchMixin:
             )
             for parent_asin in matches:
                 candidates.setdefault(parent_asin, None)
-            if index < len(required_pairs) and matches:
-                exact_required_sets.append(matches)
+        for value in category_values:
+            matches = set(
+                self.signature_candidates(
+                    "category",
+                    value,
+                    limit=max(candidate_limit * 3, 2_000),
+                )
+            )
+            for parent_asin in matches:
+                candidates.setdefault(parent_asin, None)
 
         if hard_required and exact_required_sets:
             allowed = set.intersection(*exact_required_sets)
@@ -125,7 +153,7 @@ class SearchMixin:
         hits = self.score_candidates(
             candidates,
             lexical_scores=lexical,
-            required=required_pairs,
+            required_groups=required_or,
             preferred=preferred_pairs,
             excluded=excluded,
             categories=category_values,

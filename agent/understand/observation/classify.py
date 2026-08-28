@@ -2,7 +2,7 @@
 
 Input: stripped message; extract_constraints also reads SessionState for semicolon restore.
 Output: CategoryHit | constraint strings | OverrideHit; None/empty when the sentence has none.
-Role: protocol-regex toy. Does not write SessionState. Empty simulator replies are simply misses.
+Role: regex extractors only. hybrid.hybrid_extract decides when to call them. Does not write SessionState.
 """
 
 from __future__ import annotations

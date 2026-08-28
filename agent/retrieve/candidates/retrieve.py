@@ -1,16 +1,18 @@
-"""Purpose: organize possible products: exact pool first, else BM25 fusion.
+"""Purpose: organize possible products: exact pool first on Buying, BM25 union on Browsing.
 
 Input: CatalogRetriever, SessionState, optional exact set.
-Output: at most 500 SearchHit values.
-Role: pipeline stage 5. If the scored exact pool is empty, fall back to lexical search.
+Output: truncated SearchHit values (150 Buying / 500 Browsing).
+Role: pipeline stage 5. Track routing changes weights and truncation, not the index.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..filtering.exact_pool import exact_pool
+from ..filtering.exact_pool import exact_pool_for_state
+from ..from_slots import required_and_budget
 from .query import rewrite_query
+from .routing import routing_for
 
 if TYPE_CHECKING:
     from ..catalog.retriever import CatalogRetriever
@@ -37,29 +39,35 @@ def retrieve_candidates(
     state: SessionState,
     exact: set[str] | None = None,
 ) -> list[SearchHit]:
-    constraints = state.ranking_constraints
-    if exact is None:
-        exact = exact_pool(retriever, state.category, constraints)
-    if exact:
-        hits = retriever.score_candidates(
-            exact,
-            required=constraints,
-            categories=(() if state.category is None else (state.category,)),
-            exclude_asins=state.excluded_asins,
-        )
-        if hits:
-            return hits[:500]
+    groups, budget = required_and_budget(state)
+    routing = routing_for(state.track)
+    if routing.exact_first:
+        if exact is None:
+            exact = exact_pool_for_state(retriever, state)
+        if exact:
+            hits = retriever.score_candidates(
+                exact,
+                required_groups=groups,
+                categories=(() if state.category is None else (state.category,)),
+                budget=budget,
+                exclude_asins=state.excluded_asins,
+                weights=routing.weights,
+            )
+            if hits:
+                return hits[: routing.limit]
 
-    # Robust fallback: query rewrite contains only the current intent's
-    # active evidence.  Sparse prices and store/brand are kept soft.
-    query, profile_tags = rewrite_query(state, constraints)
+    # Robust fallback (and the Browsing main path): query rewrite contains only
+    # the current intent's active evidence. Sparse prices and store/brand stay soft.
+    query, profile_tags = rewrite_query(state)
     return retriever.search(
         query,
-        required=constraints,
+        required_groups=groups,
         preferred=profile_tags[:2],
         categories=(() if state.category is None else (state.category,)),
+        budget=budget,
         exclude_asins=state.excluded_asins,
-        limit=500,
-        candidate_limit=1_500,
+        limit=routing.limit,
+        candidate_limit=routing.candidate_limit,
+        weights=routing.weights,
         hard_required=False,
     )

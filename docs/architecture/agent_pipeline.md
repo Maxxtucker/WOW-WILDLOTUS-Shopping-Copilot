@@ -6,11 +6,13 @@ The implementation report is `[docs/IMPLEMENTATION.md](../IMPLEMENTATION.md)`. T
 
 The original contest repo tree is `[docs/architecture/original_repo_code_architecture.md](original_repo_code_architecture.md)`. This page covers only the split inside `agent/`. Each layer and subpackage has a README (purpose, collaboration, core variables, core code). Each `.py` file starts with Purpose / Input / Output.
 
+Understand NLU (mode, Ollama startup, retries, regex fallback): `[understand_nlu.md](understand_nlu.md)`.
+
 ---
 
 ## 1. In one sentence
 
-This agent is an **offline, LLM-free, deterministic** multi-turn shopping retrieval system. Each turn, `TurnPipeline` observes the message (category / constraints / override), retrieves, ranks, picks `ask_attribute`, writes back and responds. A hit is required within 10 turns.
+This agent is a multi-turn shopping retrieval system. Understand defaults to local NLU (`understand_mode="nlu"`): category, constraints, override, and track come from the model, with three extract retries then regex fallback. Pass `understand_mode="regex"` for an LLM-free path (kit tests do this). Each turn, `TurnPipeline` observes, retrieves, ranks, picks `ask_attribute`, writes back and responds. A hit is required within 10 turns.
 
 The official entry is `starter.agent.Agent`. All logic lives in the `agent/` package.
 
@@ -75,8 +77,8 @@ user_message
     ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ 2. Observe  (understand/observation/)                         │
-│    extract_constraints → extract_category → parse_override    │
-│    produces: category, constraints, gate, disclosed           │
+│    hybrid extract (nlu: up to 3 attempts, then regex)         │
+│    constraints → category → override; write buying/browsing   │
 └───────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -89,8 +91,8 @@ user_message
     ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ 5. CandidateOrganize  (retrieve/candidates/retrieve.py)       │
-│    exact pool non-empty: score_candidates, cap 500            │
-│    else: query rewrite → FTS5 BM25 ∪ signature candidates     │
+│    Buying: exact pool first, cap ~150                         │
+│    Browsing: BM25 ∪ signatures, cap 500                       │
 └───────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -149,9 +151,10 @@ Orchestration code:
 | Dialogue memory | `agent/understand/state/` | `SessionState` dataclass; miss / fail-safe / begin_turn |
 | Intention | `agent/understand/intention/` | Override conversion-gate writeback |
 | Attributes | `agent/understand/attributes/` | Constraint writes, semicolon restore |
-| Observation order | `agent/understand/observation/` | Fixed: constraints → category → override |
+| Observation order | `agent/understand/observation/` | Fixed: constraints → category → override. Typed slots: [`slots/README.md`](../../agent/understand/observation/slots/README.md). NLU vs regex: [`understand_nlu.md`](understand_nlu.md) |
+| Understand mode | `agent/understand/mode.py` | `nlu` (default) or `regex`; Agent keyword / env |
 | Hard filter | `agent/retrieve/filtering/` | Exact signature intersection |
-| Candidate fuse | `agent/retrieve/candidates/` | Query rewrite + exact/BM25 fusion |
+| Candidate fuse | `agent/retrieve/candidates/` | Track routing + exact/BM25 fusion |
 | Ranking | `agent/decide/ranking/` | Temperature softmax and `RankedCandidate` |
 | Clarification | `agent/decide/clarification/` | Utility planning, question choice, slate gate |
 | Response | `agent/decide/response/` | Message templates and session writeback |
@@ -209,18 +212,30 @@ from agent.retrieve.catalog import CatalogRetriever, build_response_signature, _
 - Resolve the index path (`retrieve/catalog/index_path.py`).
 - Construct the shared `CatalogRetriever`, `ScoreAwarePlanner`, and `TurnPipeline`.
 - Isolate `SessionState` by `session_id`.
+- Pin `understand_mode`, and when it is `nlu` load `scripts/nlu.env`, start Ollama, and construct the chat client. Details: [`understand_nlu.md`](understand_nlu.md).
 - Validate `reset` / `turn` / `top_k`, then hand one turn to the pipeline.
 
-```35:43:agent/orchestrator.py
-    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
+```46:67:agent/orchestrator.py
+    def __init__(
+        self,
+        catalog_path: str | Path = "data/catalog.jsonl",
+        *,
+        understand_mode: str | None = None,
+    ) -> None:
         persistent_index = resolve_index_path(catalog_path)
         self.retriever = CatalogRetriever(catalog_path, index_path=persistent_index)
-        # Planning only needs the head of the posterior; retrieval still keeps
-        # a wider pool for recall.  This bounds counterfactual reply expansion.
         self.planner = ScoreAwarePlanner(max_planning_candidates=500)
         self.pipeline = TurnPipeline(self.retriever, self.planner)
         self.sessions: dict[str, SessionState] = {}
         self._lock = RLock()
+        if understand_mode != MODE_REGEX:
+            load_nlu_env()
+        self.understand_mode = configure_understand(
+            resolve_understand_mode(understand_mode)
+        )
+        if self.understand_mode == MODE_NLU:
+            ensure_llm_runtime()
+            warmup_nlu()
 ```
 
 The index defaults to the OS temp directory (`AGENT_CACHE_DIR` / `tempfile`) and is invalidated by catalog fingerprint. `AGENT_INDEX_PATH=:memory:` forces an in-process rebuild.
@@ -238,6 +253,7 @@ Key fields:
 | `category` | Coarse category phrase |
 | `gate_open` | Conversion gate. When closed, showing the target **does not** end the session and cannot count as a miss |
 | `active_constraints` | Current locked constraints |
+| `typed_constraints` | NLU slots when present. Retrieve maps them in `retrieve/from_slots.py`; search pairs are not stored on session |
 | `legacy_hints` | Pre-override leftover preference; dropped after override |
 | `disclosed` | Values the simulator already revealed; not treated as new evidence in planning |
 | `excluded_asins` | ASINs proven missed after the gate opened |
@@ -258,7 +274,9 @@ def begin_turn(state: SessionState, message: str, turn: int) -> None:
 
 The evaluator **has no explicit negative click**. Another `respond(turn+1)` proves the previous open-gate slate missed. Displays while the gate was closed (before Override) are not negatives. If the gate is still closed at `turn >= 4`, fail-safe opens it.
 
-Every message uses the same extractors (`understand/observation/classify.py`):
+**NLU vs regex.** Default `understand_mode` is `nlu`: `hybrid_extract` calls the local model (including on protocol-looking phrasing), retries a failed extract three times, then uses regex. `understand_mode="regex"` skips the model. `observe` only applies the extract; it does not parse. Full note: [`understand_nlu.md`](understand_nlu.md).
+
+Regex templates (kit tests and NLU fallback) still live in `understand/observation/classify.py`:
 
 | Shape | Extract |
 | --- | --- |
@@ -269,7 +287,7 @@ Every message uses the same extractors (`understand/observation/classify.py`):
 | Override phrasing | `apply_override`: `intent_version++`, clear leftover / exclusions, open the gate, write the new constraint |
 | Empty replies (simulator judgment / no additional) | nothing written |
 
-`ranking_constraints` includes `legacy_hints` before override and drops the old preference after override.
+`ranking_constraints` includes `legacy_hints` before override and drops the old preference after override. Retrieve maps `typed_constraints` in `retrieve/from_slots.py`; search pairs are not stored on session.
 
 ---
 
@@ -311,7 +329,7 @@ query terms
     sort by score, required_coverage, lexical, asin; truncate to limit
 ```
 
-The exact path (`retrieve/filtering/exact_pool.py`) skips `search()`, intersects `signature_candidates`, then `score_candidates`. The fallback path uses full `search(..., hard_required=False)`.
+The exact path (`retrieve/filtering/exact_pool.py`) skips `search()`, intersects `signature_candidates`, then `score_candidates`. Typed NLU uses slot attribute + search value with catalog aliases; the regex path keeps `response_only=True`. The fallback path uses full `search(..., hard_required=False)`.
 
 `retrieve/catalog/protocol_copy.py` keeps an independent copy of `intent_card` / `classify_constraint` so index build does not import `domain` in a cycle.
 
@@ -319,7 +337,7 @@ The exact path (`retrieve/filtering/exact_pool.py`) skips `search()`, intersects
 
 ### 5.4 Filter / Candidates / Ranking
 
-**Exact filter** requires category and every active constraint to hit in `signature_values`. Any miss drops the intersection so the pool is not pruned empty. `response_only=True` keeps the exact path on strings the simulator can actually disclose (for example `"Leather sole"` must not collapse to `"leather"`).
+**Exact filter** requires category and every retrieve-facing constraint to hit in `signature_values`. Groups come from `retrieve/from_slots.py` (`typed_constraints`, else ranking strings). Any miss drops the intersection so the pool is not pruned empty. On the regex path, `response_only=True` keeps exact matching on strings the simulator can actually disclose (for example `"Leather sole"` must not collapse to `"leather"`). Typed slots look up `canonical` / amount with search aliases instead.
 
 **Belief transform:** temperature-`0.12` shifted softmax (`decide/ranking/belief.py`). Structured scores inside an exact-signature bucket are often identical; this temperature only spreads popularity/quality priors for ranking and does not claim calibrated probabilities.
 
@@ -354,7 +372,7 @@ Turn 1 / Rank 10 = `0.73`; Turn 2 / Rank 1 = `0.98`. Dumping an uncertain Top-10
 - Slate size: `k = 0 .. min(top_k, |candidates|)`.
 - Turn 10 forces `ask_attribute=None` and slate = posterior Top-K.
 
-Question filters: do not re-ask typed attributes; skip attributes with no non-`NO_ADDITIONAL` partition. `other` may repeat because each ask can reveal the next pair of constraints.
+Question filters: do not re-ask attributes already in `state.asked` or in `typed_constraints`; skip attributes with no non-`NO_ADDITIONAL` partition. `other` may repeat because each ask can reveal the next pair of constraints.
 
 **Objective:**
 
@@ -467,10 +485,11 @@ Data flows one way: **message → State → Hits → Belief → Plan → truncat
 
 1. `starter/agent.py` — entry
 2. `agent/README.md` plus `understand/` `retrieve/` `decide/` and each subpackage README — tree and collaboration
-3. `agent/orchestrator.py` + `agent/pipeline.py` — thin orchestration and one-turn loop
-4. `agent/understand/observation/classify.py` + `coordinator.py` — extract then apply
-5. `agent/understand/state/session.py` + `lifecycle.py` — session memory
-6. `agent/retrieve/catalog/retriever.py` — recall facade
-7. `agent/decide/clarification/planner.py` + `distinguish.py` — question choice
-8. `evaluator/local_evaluator.py` `evaluate` / `customer_reply` — external loop
-9. `tests/test_agent.py` — executable notes on the state machine, planning trade-off, and signature alignment
+3. [`understand_nlu.md`](understand_nlu.md) — nlu vs regex observe path
+4. `agent/orchestrator.py` + `agent/pipeline.py` — thin orchestration and one-turn loop
+5. `agent/understand/observation/hybrid.py` + `coordinator.py` — extract then apply
+6. `agent/understand/state/session.py` + `lifecycle.py` — session memory
+7. `agent/retrieve/catalog/retriever.py` — recall facade
+8. `agent/decide/clarification/planner.py` + `distinguish.py` — question choice
+9. `evaluator/local_evaluator.py` `evaluate` / `customer_reply` — external loop
+10. `tests/test_agent.py` — executable notes on the state machine, planning trade-off, and signature alignment (regex observe)

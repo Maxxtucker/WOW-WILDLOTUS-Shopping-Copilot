@@ -36,8 +36,13 @@ def eligible_questions(
         if not informative:
             continue
         # Repeated ``other`` is useful because it reveals the next pair of
-        # undisclosed constraints. Typed attributes are not repeated.
+        # undisclosed constraints. Already-asked and already-locked typed
+        # attributes are not repeated.
         if attribute != "other" and attribute in state.asked:
+            continue
+        if attribute != "other" and any(
+            slot.attribute == attribute for slot in state.typed_constraints
+        ):
             continue
         result.append(attribute)
     return result

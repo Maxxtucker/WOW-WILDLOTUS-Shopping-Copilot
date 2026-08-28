@@ -28,7 +28,9 @@ pipeline → StateDetector.apply
 
 ## Core variables
 
-See `SessionState`: `category`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `disclosed`, `excluded_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`.
+See `SessionState`: `category`, `track`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `typed_constraints`, `disclosed`, `excluded_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`. Retrieve maps `typed_constraints` to search groups in `retrieve/from_slots.py`; those pairs are not stored here.
+
+NLU slot shape and grounding rules: [../observation/slots/README.md](../observation/slots/README.md).
 
 ## Core code
 

@@ -5,8 +5,12 @@ tracks the active shopping intent, predicts how each candidate product would
 answer a clarification question, and jointly controls the recommendation slate
 and next question to find the hidden product early and at rank one.
 
-The system uses only Python's standard library. It requires no LLM API, API
-key, network connection during evaluation, model download, or paid service.
+The retrieve and planning stack uses only Python's standard library. It requires
+no LLM API key or paid service. Understand defaults to a **local** Ollama model
+(`understand_mode="nlu"`). If the daemon is missing, extracts fail three times
+and fall back to regex. Kit tests and the public-set table below use
+`understand_mode="regex"` (no model). Design:
+[`docs/architecture/understand_nlu.md`](docs/architecture/understand_nlu.md).
 
 ## Public result
 
@@ -92,8 +96,13 @@ scripts/
   download_catalog.py
   check_parity.py
   demo_session.py
+  nlu_console.py    interactive observe (NLU vs regex)
+  nlu_probe.py      fixture probe; --live calls Ollama
+  nlu.env           local model/host/timeout (not loaded on import)
 tests/
-  test_agent.py
+  test_agent.py     kit tests pin understand_mode=regex
+  test_nlu.py
+  test_nlu_console.py
 evaluator/          unchanged official evaluator
 data/public_set.jsonl
 ```
@@ -133,6 +142,19 @@ or index version changes. Do not commit the generated database.
 To force a process-local in-memory index instead, set
 `AGENT_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
 more memory and rebuilds the index on every process start.
+
+### Local NLU
+
+`Agent()` defaults to `understand_mode="nlu"`. Install Ollama, pull the model in
+`scripts/nlu.env` yourself (the agent does not `ollama pull`), then:
+
+```powershell
+. .\scripts\load_nlu_env.ps1
+python scripts/nlu_console.py
+```
+
+`python -m unittest` uses regex observation and does not start Ollama. Full
+note: [`docs/architecture/understand_nlu.md`](docs/architecture/understand_nlu.md).
 
 ## Demo
 

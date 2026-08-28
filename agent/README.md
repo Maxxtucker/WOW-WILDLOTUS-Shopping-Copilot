@@ -10,10 +10,11 @@ agent/
   stages.py           swappable stage Protocols
 
   understand/         message → SessionState          see README.md
+    mode.py           nlu (default) vs regex
     state/            session memory, miss, fail-safe
     intention/        override conversion-gate writeback
     attributes/       constraints, semicolon restore
-    observation/      extract category / constraints / override (fixed order)
+    observation/      extract then apply (hybrid: nlu then regex)
 
   retrieve/           SessionState → SearchHit        see README.md
     catalog/          SQLite index and CatalogRetriever
@@ -27,3 +28,5 @@ agent/
 ```
 
 `pipeline` calls only `StateDetector.apply`. Observation classify runs inside that call.
+
+Understand defaults to local NLU. Mode, Ollama startup, retries, and regex fallback: [`docs/architecture/understand_nlu.md`](../docs/architecture/understand_nlu.md). Kit tests pin `understand_mode="regex"`.

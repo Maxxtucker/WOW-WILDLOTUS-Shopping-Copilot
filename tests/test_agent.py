@@ -16,12 +16,21 @@ from agent.retrieve.catalog import (
     _coerce_constraints,
     build_response_signature,
 )
+from agent.understand.mode import MODE_REGEX, configure_understand, reset_understand_mode
 from agent.understand.state import SessionState
 from evaluator.local_evaluator import (
     catalog_index,
     evaluate,
     intent_card as official_intent_card,
 )
+
+
+def setUpModule() -> None:
+    configure_understand(MODE_REGEX)
+
+
+def tearDownModule() -> None:
+    reset_understand_mode()
 
 
 def product(
@@ -218,7 +227,7 @@ class RetrievalAndAgentTest(unittest.TestCase):
         )
 
     def test_agent_contract_and_session_isolation(self) -> None:
-        agent = Agent(self.catalog_path)
+        agent = Agent(self.catalog_path, understand_mode="regex")
         agent.reset("one", {"preference_tags": []})
         agent.reset("two", {"preference_tags": []})
         category = coarse_category(self.rows[0]["categories"])
@@ -261,7 +270,7 @@ class RetrievalAndAgentTest(unittest.TestCase):
         ]
         with patch.dict(os.environ, {"AGENT_INDEX_PATH": ":memory:"}):
             result = evaluate(
-                Agent(catalog),
+                Agent(catalog, understand_mode="regex"),
                 samples,
                 catalog_ids,
                 categories,

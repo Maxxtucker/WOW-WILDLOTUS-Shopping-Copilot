@@ -2,7 +2,7 @@
 
 Input: SessionState, constraint string.
 Output: active_constraints and disclosed updated in place.
-Role: retrieve reads ranking_constraints; observation.classify finds the strings.
+Role: string lock list for display and regex retrieve. Typed slots override typing.
 """
 
 from __future__ import annotations

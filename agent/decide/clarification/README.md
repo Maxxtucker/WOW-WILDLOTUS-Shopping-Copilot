@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Pipeline stage 7. Joint search over “which `ask_attribute` to ask” and “how many products to show”. The objective is one-step expected TechnicalScore, not entropy. Then sequential slate risk gating (usually keep rank-1).
+Pipeline stage 7. Joint search over “which `ask_attribute` to ask” and “how many products to show”. The existing runtime objective is one-step expected TechnicalScore, followed by sequential slate risk gating that usually keeps rank 1.
 
 The simulator reads only structured `ask_attribute`. It does not infer the question from `message`.
 
@@ -16,6 +16,7 @@ The simulator reads only structured `ask_attribute`. It does not infer the quest
 | `replies.py` | Cache `predict_reply` for planner counterfactuals. |
 | `distinguish.py` | Partition by predicted reply; estimate next-turn Top-10 utility. |
 | `planner.py` | `ScoreAwarePlanner.plan`: one-step search over question × slate prefix. |
+| `dynamic_slate.py` | Proposed two-observation Dynamic Slating policy. |
 | `slate.py` | Sequential gate after planning. |
 | `stage.py` | `Clarifier`: stage entry for plan + gate. |
 
@@ -30,17 +31,114 @@ Clarifier.apply
     apply_sequential_gate → usually rank-1; turn 10 is full slate and no question
 ```
 
-The planner asks catalog how an ASIN would answer via a callback. It does not touch SQLite.
+The existing planner asks the catalog how an ASIN would answer through a callback. It does not touch SQLite directly.
 
 ## Core variables
 
 - `Plan`: `recommendations`, `ask_attribute`, `expected_value`, `reason`
-- `NO_ADDITIONAL`: simulator will not disclose more on that attribute
+- `NO_ADDITIONAL`: no more information is available for that attribute
 - `max_planning_candidates = 500`
 
 ## Core code
 
 - Entry: `Clarifier.apply` in `stage.py`
-- Search: `ScoreAwarePlanner.plan` in `planner.py`
+- Existing search: `ScoreAwarePlanner.plan` in `planner.py`
+- Proposed search: `DynamicSlatePlanner.plan` in `dynamic_slate.py`
 - Distinguishability: `future_value` in `distinguish.py`
 - Gate: `apply_sequential_gate` in `slate.py`
+
+## Dynamic Slating
+
+Dynamic Slating selects the current structured question and recommendation count together:
+
+```math
+u_t=(a_t,k_t), \qquad k_t\in\{0,1,\ldots,10\}.
+```
+
+Its input is a ranked candidate belief from the ranking stage, together with the current turn, eligible questions, conversion-gate probability, and optional probability mass outside the planning head.
+
+For candidate `d_i`:
+
+```math
+p_i=P(X=d_i\mid S_t),
+```
+
+with:
+
+```math
+\sum_{i=1}^{N}p_i+p_{\mathrm{tail}}=1.
+```
+
+If the target first appears at turn `t` and rank `r`, its score contribution is:
+
+```math
+U(t,r)=0.50+\frac{0.30}{r}+0.02(11-t).
+```
+
+The current expected hit value of showing the first `k_t` products is:
+
+```math
+I_t(S_t,k_t)
+=g_t\sum_{r=1}^{k_t}p_rU(t,r),
+```
+
+where `g_t` is the probability that the current intent is eligible to convert.
+
+For a normalized answer `y`, the no-hit answer branch has joint probability:
+
+```math
+q_t(y\mid a_t,k_t)
+=\sum_{i=1}^{N}
+p_i\left[1-g_t\mathbf{1}(i\leq k_t)\right]\ell_i^t(y)
++p_{\mathrm{tail}}\ell_{\mathrm{tail}}^t(y),
+```
+
+where:
+
+```math
+\ell_i^t(y)=P(Y_{t+1}=y\mid X=d_i,a_t,S_t).
+```
+
+After the miss and answer, the integration builds a new planning state:
+
+```math
+S_{t+1}^{y,k_t}
+=\operatorname{UpdateAndRetrieve}(S_t,a_t,k_t,y).
+```
+
+The finite-horizon recursion is:
+
+```math
+V_t^{(0)}(S_t)=\max_{a_t,k_t}I_t(S_t,k_t),
+```
+
+```math
+Q_t^{(h)}(S_t,a_t,k_t)
+=I_t(S_t,k_t)
++\sum_yq_t(y\mid a_t,k_t)
+V_{t+1}^{(h-1)}\left(S_{t+1}^{y,k_t}\right),
+```
+
+```math
+V_t^{(h)}(S_t)=\max_{a_t,k_t}Q_t^{(h)}(S_t,a_t,k_t).
+```
+
+The proposed policy uses two answer observations:
+
+```math
+(a_t^*,k_t^*)
+=\operatorname*{arg\,max}_{a_t,k_t}
+Q_t^{(2)}(S_t,a_t,k_t).
+```
+
+In each branch it:
+
+1. evaluates the current hit value;
+2. predicts the first no-hit answer and next state;
+3. chooses a new question and slate size at `t+1`;
+4. predicts the second no-hit answer;
+5. uses the best immediate slate at `t+2` as the terminal approximation.
+
+`k_t=0` means asking a question without exposing a product. On turn 10, the default configuration returns the full valid slate because no later answer can be consumed.
+
+`DynamicSlatePlanner` is currently an independent policy. It is not yet connected to `Clarifier`, retrieval, or the response model.

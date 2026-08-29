@@ -4,6 +4,9 @@ __pycache__/
 .env
 results.json
 data/catalog.jsonl
+data/catalog_images.jsonl
+data/meta_*.jsonl
+data/meta_*.jsonl.gz
 data/releases/
 .cache/
 # Organizer-only code, private evaluation data, manifests, and build reports.

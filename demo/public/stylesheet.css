@@ -1,0 +1,41 @@
+/* Demo UI polish: hide noisy chrome, make actions feel like chips. */
+
+/* Copy / feedback affordances under assistant messages — hide for v1. */
+button[aria-label*="Copy" i],
+button[title*="Copy" i],
+button[aria-label*="copy" i],
+[data-testid="copy-message"],
+button:has(svg.lucide-copy),
+button:has(svg[class*="copy"]) {
+  display: none !important;
+}
+
+/* Thumbs / feedback often sit next to copy — hide if present. */
+button[aria-label*="Thumbs" i],
+button[aria-label*="Feedback" i],
+button[aria-label*="Like" i],
+button[aria-label*="Dislike" i],
+button:has(svg.lucide-thumbs-up),
+button:has(svg.lucide-thumbs-down) {
+  display: none !important;
+}
+
+/* Action chips: bordered, rounded, readable on dark theme. */
+button[id^="actions/"],
+div[class*="action"] button {
+  border-radius: 999px !important;
+  border: 1px solid #525252 !important;
+  background: #333333 !important;
+  color: #F5F5F5 !important;
+  padding: 0.4rem 0.9rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  gap: 0.4rem !important;
+  margin: 0.15rem 0.2rem !important;
+}
+
+button[id^="actions/"]:hover,
+div[class*="action"] button:hover {
+  background: #404040 !important;
+  border-color: #737373 !important;
+}

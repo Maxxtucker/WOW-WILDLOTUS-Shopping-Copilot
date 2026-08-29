@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from starter.agent import Agent
+from evaluator.user_agent import ScenarioUserAgent
 
 
 MAX_TURNS = 10
@@ -219,7 +220,9 @@ def evaluate(
     catalog_ids: set[str],
     categories: dict[str, list[str]],
     products: dict[str, dict],
+    user_agent: ScenarioUserAgent | None = None,
 ) -> dict:
+    buyer = user_agent or ScenarioUserAgent()
     sessions: list[dict] = []
     total_prompt_tokens = 0
     total_completion_tokens = 0
@@ -232,7 +235,8 @@ def evaluate(
         disclosed: set[str] = set()
         boundary_used = False
         override_applied = sample["scenario_type"] != "intent_override"
-        user_message = initial_message(effective_sample, coarse_category(categories.get(target, [])), disclosed)
+        category = coarse_category(categories.get(target, []))
+        user_message = buyer.initial_message(effective_sample, category, disclosed)
         hit_turn: int | None = None
         best_rank: int | None = None
         for turn in range(1, MAX_TURNS + 1):
@@ -263,7 +267,7 @@ def evaluate(
                     disclosed.add(new_value)
                 user_message = str(override.get("message", "Actually, please ignore my earlier preference."))
             else:
-                user_message, boundary_used = customer_reply(
+                user_message, boundary_used = buyer.customer_reply(
                     effective_sample, response.get("ask_attribute"), disclosed, boundary_used
                 )
         sessions.append({
@@ -300,10 +304,18 @@ def main() -> None:
     parser.add_argument("--catalog", default="data/catalog.jsonl")
     parser.add_argument("--dataset", default="data/public_set.jsonl")
     parser.add_argument("--output", default="results.json")
+    parser.add_argument("--user-mode", type=int, default=None, choices=(1, 2, 3, 4))
     args = parser.parse_args()
     samples = load_jsonl(args.dataset)
     catalog_ids, categories, products = catalog_index(args.catalog)
-    result = evaluate(Agent(args.catalog), samples, catalog_ids, categories, products)
+    result = evaluate(
+        Agent(args.catalog),
+        samples,
+        catalog_ids,
+        categories,
+        products,
+        user_agent=ScenarioUserAgent(mode=args.user_mode),
+    )
     Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({key: value for key, value in result.items() if key != "sessions"}, indent=2))
 

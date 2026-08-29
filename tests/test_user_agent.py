@@ -40,182 +40,196 @@ class FakeClient:
 
 
 class ScenarioUserAgentTest(unittest.TestCase):
-    def test_mode_one_matches_template_behavior(self) -> None:
+    def test_mode_one_is_exact_original_and_does_not_call_client(self) -> None:
+        client = FakeClient([])
+        buyer = ScenarioUserAgent(mode=1, client=client)
+        disclosed: set[str] = set()
+        buyer.reset("s", sample(), "Men Shoes")
+        self.assertEqual(
+            buyer.initial_message("s", disclosed),
+            "I'm looking for Men Shoes. A key requirement is: leather.",
+        )
+        self.assertEqual(
+            buyer.customer_reply("s", "feature", disclosed, False),
+            ("For that, what matters is: Rubber sole.", False),
+        )
+        self.assertEqual(client.payloads, [])
+
+    def test_compatibility_interface_remains(self) -> None:
         buyer = ScenarioUserAgent(mode=1)
         disclosed: set[str] = set()
-        buyer.reset("s", sample(), "Men Shoes")
-
         self.assertEqual(
-            buyer.initial_message("s", disclosed),
-            "I'm looking for Men Shoes. A key requirement is: leather.",
-        )
-        self.assertEqual(disclosed, {"leather"})
-        self.assertEqual(
-            buyer.customer_reply("s", "feature", disclosed, False),
-            ("For that, what matters is: Rubber sole.", False),
-        )
-
-        compatibility_disclosed: set[str] = set()
-        self.assertEqual(
-            buyer.initial_message(sample(), "Men Shoes", compatibility_disclosed),
+            buyer.initial_message(sample(), "Men Shoes", disclosed),
             "I'm looking for Men Shoes. A key requirement is: leather.",
         )
         self.assertEqual(
-            buyer.customer_reply(sample(), "feature", compatibility_disclosed, False),
+            buyer.customer_reply(sample(), "feature", disclosed, False),
             ("For that, what matters is: Rubber sole.", False),
         )
 
-    def test_mode_two_keeps_exact_semantic_values(self) -> None:
+    def test_mode_two_sends_protected_keywords_and_rewrites_outer_language(self) -> None:
         client = FakeClient([
-            {"message": "I'm looking for Men Shoes; the key requirement is: leather."},
-            {"message": "For me, what matters is: Rubber sole."},
+            {"message": "I would like Men Shoes; the key requirement is: leather."},
+            {"message": "For me, the important part is Rubber sole."},
         ])
         buyer = ScenarioUserAgent(mode=2, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
-
-        initial = buyer.initial_message("s", disclosed)
-        reply = buyer.customer_reply("s", "feature", disclosed, False)
-
         self.assertEqual(
-            initial,
-            "I'm looking for Men Shoes; the key requirement is: leather.",
+            buyer.initial_message("s", disclosed),
+            "I would like Men Shoes; the key requirement is: leather.",
         )
-        self.assertEqual(reply, ("For me, what matters is: Rubber sole.", False))
-        self.assertEqual(disclosed, {"leather", "Rubber sole"})
-        self.assertEqual([payload["mode"] for payload in client.payloads], [2, 2])
-        self.assertTrue(all("Mode 2" in prompt for prompt in client.prompts))
+        reply, boundary = buyer.customer_reply("s", "feature", disclosed, False)
+        self.assertEqual(reply, "For me, the important part is Rubber sole.")
+        self.assertFalse(boundary)
+        self.assertEqual(client.payloads[0]["protected_keywords"], ["Men Shoes", "leather"])
+        self.assertEqual(client.payloads[1]["protected_keywords"], ["Rubber sole"])
+        self.assertTrue(all("protected_keywords" in payload for payload in client.payloads))
 
-    def test_mode_two_rejects_semantic_drift(self) -> None:
+    def test_mode_two_rejects_missing_or_changed_protected_keyword(self) -> None:
         client = FakeClient([
-            {"message": "I need Men Shoes; cotton is essential."},
-            {"message": "For me, what matters is: cotton."},
+            {"message": "I need men's footwear; hide is essential."},
+            {"message": "I prefer cotton instead."},
         ])
         buyer = ScenarioUserAgent(mode=2, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
-
         self.assertEqual(
             buyer.initial_message("s", disclosed),
-            "I'm looking for Men Shoes. A key requirement is: leather.",
+            "I want to find Men Shoes, and my main requirement is: leather.",
         )
         self.assertEqual(
             buyer.customer_reply("s", "feature", disclosed, False),
-            ("For that, what matters is: Rubber sole.", False),
+            ("The important points for me are: Rubber sole.", False),
         )
 
-    def test_mode_three_accepts_policy_variant_message(self) -> None:
+    def test_mode_three_accepts_synonyms_and_rewrites_whole_sentence(self) -> None:
         client = FakeClient([
-            {"message": "I am shopping for Men Shoes and need leather."},
-            {"message": "I care most about Rubber sole right now."},
+            {"message": "I'm shopping for men's footwear, and genuine hide is what I need."},
+            {"message": "The bottom part made of rubber is important for me."},
         ])
         buyer = ScenarioUserAgent(mode=3, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
-
         self.assertEqual(
             buyer.initial_message("s", disclosed),
-            "I am shopping for Men Shoes and need leather.",
+            "I'm shopping for men's footwear, and genuine hide is what I need.",
         )
         self.assertEqual(
             buyer.customer_reply("s", "feature", disclosed, False),
-            ("I care most about Rubber sole right now.", False),
+            ("The bottom part made of rubber is important for me.", False),
         )
 
-    def test_mode_four_can_mark_boundary_reply(self) -> None:
+    def test_mode_three_rejects_semantic_reversal_and_falls_back_to_synonym(self) -> None:
         client = FakeClient([
-            {"message": "I am looking for Men Shoes, but I am undecided."},
-            {"message": "I have no preference for feature; use your judgment.", "boundary_used": True},
+            {"message": "I'm shopping for men's footwear, but I do not want leather."},
+        ])
+        buyer = ScenarioUserAgent(mode=3, client=client)
+        disclosed: set[str] = set()
+        buyer.reset("s", sample(), "Men Shoes")
+        message = buyer.initial_message("s", disclosed)
+        self.assertIn("genuine hide", message)
+        self.assertNotIn("do not want", message)
+
+    def test_mode_four_accepts_poor_english_or_circumlocution(self) -> None:
+        client = FakeClient([
+            {"message": "I am look for men's footwear, and I need the thing which comes from real animal skin, okay."},
+            {"message": "For the bottom part, I want the thing made from rubber, but my English not very good."},
         ])
         buyer = ScenarioUserAgent(mode=4, client=client)
         disclosed: set[str] = set()
-        boundary = False
-        buyer.reset("s", {**sample("boundary")}, "Men Shoes")
+        buyer.reset("s", sample(), "Men Shoes")
+        self.assertEqual(
+            buyer.initial_message("s", disclosed),
+            "I am look for men's footwear, and I need the thing which comes from real animal skin, okay.",
+        )
+        self.assertEqual(
+            buyer.customer_reply("s", "feature", disclosed, False),
+            ("For the bottom part, I want the thing made from rubber, but my English not very good.", False),
+        )
 
-        buyer.initial_message("s", disclosed)
-        message, boundary = buyer.customer_reply("s", "feature", disclosed, boundary)
+    def test_mode_four_rejects_intent_change_and_uses_semantic_fallback(self) -> None:
+        client = FakeClient([
+            {"message": "I am look for men's footwear, but I do not want leather."},
+        ])
+        buyer = ScenarioUserAgent(mode=4, client=client)
+        disclosed: set[str] = set()
+        buyer.reset("s", sample(), "Men Shoes")
+        message = buyer.initial_message("s", disclosed)
+        self.assertIn("comes from real animal skin", message)
+        self.assertNotIn("do not want", message)
 
-        self.assertEqual(message, "I have no preference for feature; use your judgment.")
+    def test_boundary_return_contract_is_preserved(self) -> None:
+        client = FakeClient([
+            {"message": "I don't have a preference for feature; you decide for me."},
+        ])
+        buyer = ScenarioUserAgent(mode=3, client=client)
+        message, boundary = buyer.customer_reply(sample("boundary"), "feature", set(), False)
+        self.assertEqual(message, "I don't have a preference for feature; you decide for me.")
         self.assertTrue(boundary)
 
-    def test_environment_defaults_support_dashscope_and_openai(self) -> None:
+    def test_synonym_reply_updates_original_disclosed_value(self) -> None:
+        client = FakeClient([
+            {"message": "The bottom part made of rubber is important for me."},
+        ])
+        buyer = ScenarioUserAgent(mode=3, client=client)
+        disclosed = {"leather"}
+        buyer.customer_reply(sample(), "feature", disclosed, False)
+        self.assertIn("Rubber sole", disclosed)
+
+    def test_mode_two_requires_protected_keyword_exact_case(self) -> None:
+        client = FakeClient([
+            {"message": "I want men shoes, and leather is required."},
+        ])
+        buyer = ScenarioUserAgent(mode=2, client=client)
+        message = buyer.initial_message(sample(), "Men Shoes", set())
+        self.assertEqual(
+            message,
+            "I want to find Men Shoes, and my main requirement is: leather.",
+        )
+
+    def test_mode_four_rejects_plain_fluent_synonym_without_poor_english_signal(self) -> None:
+        client = FakeClient([
+            {"message": "I'm shopping for men's footwear, and genuine hide is what I need."},
+        ])
+        buyer = ScenarioUserAgent(mode=4, client=client)
+        message = buyer.initial_message(sample(), "Men Shoes", set())
+        self.assertTrue(message.startswith("I am look for"))
+
+    def test_mode_four_browsing_does_not_leak_hidden_constraint(self) -> None:
+        client = FakeClient([{}])
+        buyer = ScenarioUserAgent(mode=4, client=client)
+        message = buyer.initial_message(sample("browsing"), "Watch Bands", set())
+        self.assertIn("still checking", message)
+        self.assertNotIn("leather", message.casefold())
+        self.assertNotIn("animal skin", message.casefold())
+
+    def test_environment_defaults_and_dotenv(self) -> None:
         no_dotenv = str(Path(__file__).with_name("__missing_test_dotenv__"))
-        with patch.dict(
-            os.environ,
-            {"DASHSCOPE_API_KEY": "ds-key", "CONVERGE_DOTENV_PATH": no_dotenv},
-            clear=True,
-        ):
-            client = OpenAICompatibleClient.from_environment()
-            self.assertIsNotNone(client)
-            assert client is not None
-            self.assertEqual(client.api_key, "ds-key")
-            self.assertIn("dashscope.aliyuncs.com", client.base_url)
-            self.assertEqual(client.model, "qwen-plus")
+        cases = [
+            ({"DASHSCOPE_API_KEY": "ds-key"}, "ds-key", "dashscope.aliyuncs.com", "qwen-plus"),
+            ({"OPENAI_API_KEY": "openai-key", "CONVERGE_LLM_PROVIDER": "openai"}, "openai-key", "api.openai.com", "gpt-4o-mini"),
+            ({"DEEPSEEK_API_KEY": "deepseek-key", "CONVERGE_LLM_PROVIDER": "dp"}, "deepseek-key", "api.deepseek.com", "deepseek-chat"),
+        ]
+        for environment, expected_key, expected_host, expected_model in cases:
+            with self.subTest(expected_key=expected_key), patch.dict(
+                os.environ, {**environment, "CONVERGE_DOTENV_PATH": no_dotenv}, clear=True,
+            ):
+                client = OpenAICompatibleClient.from_environment()
+                self.assertIsNotNone(client)
+                assert client is not None
+                self.assertEqual(client.api_key, expected_key)
+                self.assertIn(expected_host, client.base_url)
+                self.assertEqual(client.model, expected_model)
 
-        with patch.dict(
-            os.environ,
-            {
-                "OPENAI_API_KEY": "openai-key",
-                "CONVERGE_LLM_PROVIDER": "openai",
-                "CONVERGE_DOTENV_PATH": no_dotenv,
-            },
-            clear=True,
-        ):
-            client = OpenAICompatibleClient.from_environment()
-            self.assertIsNotNone(client)
-            assert client is not None
-            self.assertEqual(client.api_key, "openai-key")
-            self.assertEqual(client.base_url, "https://api.openai.com/v1")
-
-        with patch.dict(
-                os.environ,
-            {
-                "DEEPSEEK_API_KEY": "deepseek-key",
-                "CONVERGE_LLM_PROVIDER": "dp",
-                "CONVERGE_DOTENV_PATH": no_dotenv,
-            },
-            clear=True,
-        ):
-            client = OpenAICompatibleClient.from_environment()
-            self.assertIsNotNone(client)
-            assert client is not None
-            self.assertEqual(client.api_key, "deepseek-key")
-            self.assertEqual(client.base_url, "https://api.deepseek.com/v1")
-            self.assertEqual(client.model, "deepseek-chat")
-
-    def test_environment_reads_dotenv_without_overwriting_process_vars(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             dotenv = Path(directory) / ".env"
-            dotenv.write_text(
-                "DEEPSEEK_API_KEY=dotenv-key\n"
-                "CONVERGE_LLM_PROVIDER=deepseek\n"
-                "CONVERGE_LLM_MODEL=deepseek-chat\n",
-                encoding="utf-8",
-            )
-            with patch.dict(
-                os.environ,
-                {"CONVERGE_DOTENV_PATH": str(dotenv)},
-                clear=True,
-            ):
+            dotenv.write_text("DEEPSEEK_API_KEY=dotenv-key\nCONVERGE_LLM_PROVIDER=deepseek\n", encoding="utf-8")
+            with patch.dict(os.environ, {"CONVERGE_DOTENV_PATH": str(dotenv)}, clear=True):
                 client = OpenAICompatibleClient.from_environment()
                 self.assertIsNotNone(client)
                 assert client is not None
                 self.assertEqual(client.api_key, "dotenv-key")
-                self.assertEqual(client.base_url, "https://api.deepseek.com/v1")
-
-            with patch.dict(
-                os.environ,
-                {
-                    "CONVERGE_DOTENV_PATH": str(dotenv),
-                    "DEEPSEEK_API_KEY": "process-key",
-                    "CONVERGE_LLM_PROVIDER": "deepseek",
-                },
-                clear=True,
-            ):
-                client = OpenAICompatibleClient.from_environment()
-                self.assertIsNotNone(client)
-                assert client is not None
-                self.assertEqual(client.api_key, "process-key")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,9 @@
-"""Scenario-based Buyer agent for local dialogue simulation."""
+"""Scenario-based Buyer agent for local dialogue simulation.
+
+The public methods intentionally mirror the original evaluator helpers.  The
+agent is standalone: it generates Buyer messages, while the shopping agent
+continues to own recommendations and ``ask_attribute`` decisions.
+"""
 
 from __future__ import annotations
 
@@ -8,82 +13,134 @@ import re
 import ssl
 import sys
 from dataclasses import dataclass, field
+from itertools import product
 from threading import RLock
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 ALLOWED_ATTRIBUTES = {
-    "category",
-    "material",
-    "color",
-    "size",
-    "style",
-    "brand",
-    "budget",
-    "feature",
-    "use_case",
-    "other",
+    "category", "material", "color", "size", "style", "brand", "budget",
+    "feature", "use_case", "other",
 }
 
 MATERIALS = (
-    "cotton",
-    "polyester",
-    "nylon",
-    "leather",
-    "wool",
-    "spandex",
-    "silk",
-    "rayon",
-    "fabric",
+    "cotton", "polyester", "nylon", "leather", "wool", "spandex", "silk",
+    "rayon", "fabric",
 )
 
+# Each mode has a separate prompt.  The validators below remain authoritative;
+# a model's claim that it preserved semantics is never accepted by itself.
 MODE_PROMPTS = {
-    2: """You are Mode 2, a paraphrase-only Buyer in a shopping dialogue.
-Rewrite the supplied deterministic Buyer message into natural language, but
-preserve its exact structured meaning. Keep every supplied category and answer
-value verbatim; do not add, remove, negate, or replace a preference. You may
-freely rewrite the surrounding natural language, including the opening,
-sentence structure, and phrases such as 'what matters is'. For a buying
-initial message, mention the supplied category and first hard constraint. For
-an informative answer, include every supplied structured answer value exactly.
-Return only a JSON object: {\"message\": \"...\"}. Do not return markdown or
-extra keys.""",
-    3: """You are Mode 3, a realistic Policy-Variant Buyer. Start from the
-supplied deterministic answer and make a small, controlled variation: change
-wording or answer order, answer only one of two available preferences, or add a
-short clarification/hesitation. Keep exact product attribute values whenever
-an answer is given, do not invent product IDs, and do not turn a normal answer
-into an unrelated request. The result is a user message, not an assistant
-response. Return only JSON with a string field named 'message' and optionally
-boolean 'boundary_used'.""",
-    4: """You are Mode 4, a difficult but plausible Buyer used for robustness
-testing. The generated message MUST clearly exercise one of these behaviours:
-missing, vague, misleading, no_preference, or conflicting. Do not merely make
-the deterministic answer friendlier or add a weak hesitation such as 'I guess'.
-Use the supplied difficulty_hint when present:
-
-- missing: explicitly say you have not decided or omit the requested detail;
-- vague: give only a broad qualitative answer without a precise value;
-- misleading: state a plausible preference that points away from the known
-  structured value;
-- no_preference: explicitly say the attribute does not matter or ask the agent
-  to choose;
-- conflicting: state two incompatible requirements or reverse one preference.
-
-Keep the message grounded in this shopping scenario, never reveal hidden labels
-or product IDs, and do not write an assistant recommendation. Return only JSON
-with a string field named 'message', optionally boolean 'boundary_used', and
-optionally 'difficulty_type' set to one of the five names above.""",
+    2: """You are Mode 2, a controlled paraphrase Buyer.
+Rewrite only the natural-language parts outside protected_keywords. Every
+protected keyword must appear exactly as supplied, with the same spelling and
+word order. Keep the same positive/negative intent and do not add another
+preference, recommendation, product ID, or new requirement. Do not copy hidden
+metadata into the message. Return only JSON: {\"message\": \"...\"}.""",
+    3: """You are Mode 3, a natural Buyer who preserves the supplied structured
+meaning. Rewrite the whole sentence naturally. Use a semantically equivalent
+expression for important keywords when a synonym hint is supplied; do not
+needlessly copy the canonical keyword. Preserve the same category, preference,
+and positive/negative intent. Do not invent requirements, products, or
+recommendations. Return only JSON: {\"message\": \"...\"}.""",
+    4: """You are Mode 4, a Buyer whose English is not very good, but whose
+shopping intent must remain the same. Rewrite the whole message while keeping
+the same structured meaning. Simulate one or more of: a small grammar error,
+a spelling error, unnatural word order, a missing article, or a long
+circumlocution that explains a keyword instead of saying the keyword directly.
+Do not reverse, remove, negate, or add a preference. Do not create conflict,
+misleading information, or a recommendation. Keep the message grounded in the
+shopping scenario. Return only JSON: {\"message\": \"...\"}.""",
 }
 
 
-def _canonical(value: str) -> str:
+# This small transparent vocabulary lets the local validator recognize common
+# paraphrases without a second model call.  Unknown values use token overlap.
+_SEMANTIC_ALIASES = {
+    "men shoes": ("men's footwear", "male footwear"),
+    "watches watch bands": ("watch straps", "timepiece straps"),
+    "sandals flats": ("flat sandals", "open-toe flat shoes"),
+    "leather": (
+        "genuine hide", "real animal skin", "animal skin", "skin from animal",
+        "hide material",
+    ),
+    "material:alloy": (
+        "mixed metal", "metal mixture", "several metals mixed together",
+        "made from several metals", "is made from several metal mixed together",
+    ),
+    "alloy": (
+        "mixed metal", "metal mixture", "several metals mixed together",
+        "made from several metals", "is made from several metal mixed together",
+    ),
+    "rubber sole": (
+        "sole made of rubber", "rubber on the bottom", "rubber bottom",
+        "rubber underneath",
+    ),
+    "triple moon pentagram symbol": (
+        "three moon phases and a five-pointed star symbol",
+        "triple moon and five-point star design",
+        "three moons with a five point sign",
+    ),
+    "color: black": ("black color", "in black", "black shade"),
+    "fabric": ("textile", "cloth material", "woven material"),
+}
+
+_WORD_ALIASES = {
+    "shoe": ("footwear",),
+    "shoes": ("footwear",),
+    "jewelry": ("jewellery",),
+    "necklaces": ("necklace",),
+    "necklace": ("neckwear",),
+    "men": ("men's", "male"),
+    "women": ("women's", "female"),
+    "woman": ("women's",),
+    "man": ("men's",),
+    "watches": ("timepieces",),
+    "watch": ("timepiece",),
+    "bands": ("straps",),
+    "band": ("strap",),
+    "sandals": ("open-toe footwear",),
+    "flats": ("flat shoes",),
+    "clothing": ("apparel",),
+    "clothes": ("apparel",),
+    "bags": ("carryalls",),
+    "bag": ("carryall",),
+    "accessories": ("accessory items",),
+}
+
+_STOP_WORDS = {
+    "a", "an", "and", "as", "at", "be", "for", "from", "i", "in", "is",
+    "it", "material", "of", "on", "or", "the", "to", "with",
+}
+_WORD_RE = re.compile(r"[a-z0-9]+(?:['-][a-z0-9]+)?", re.IGNORECASE)
+_NEGATION_RE = re.compile(
+    r"\b(?:not|no|never|without|don't|do not|doesn't|does not|didn't|"
+    r"did not|can't|cannot|rather than|instead of|no longer)\b"
+    r"[^.!?]{0,45}\b(?:leather|hide|alloy|metal|rubber|cotton|polyester|"
+    r"nylon|wool|silk|black|footwear|shoes?)\b",
+    re.IGNORECASE,
+)
+
+
+def _canonical(value: object) -> str:
     return re.sub(r"\s+", " ", str(value).casefold()).strip(" -;,.\t\n")
 
 
-def _contains(value: str, expected: str) -> bool:
+def _contains(value: object, expected: object) -> bool:
     return str(expected).casefold() in str(value).casefold()
+
+
+def _contains_exact(value: object, expected: object) -> bool:
+    return str(expected) in str(value)
+
+
+def _tokens(value: object) -> list[str]:
+    return [token.casefold() for token in _WORD_RE.findall(str(value))]
+
+
+def _core_tokens(value: object) -> list[str]:
+    return [token for token in _tokens(value) if token not in _STOP_WORDS]
 
 
 def _flatten_constraints(sample: dict) -> list[str]:
@@ -210,24 +267,19 @@ def _load_dotenv() -> None:
 
 
 def _tls_context() -> ssl.SSLContext:
-    """Build a verified TLS context, including the MSYS2 CA-bundle location."""
+    """Build a verified TLS context, including common MSYS2 CA locations."""
 
     configured = _env_first(
-        "CONVERGE_CA_BUNDLE",
-        "SSL_CERT_FILE",
-        "REQUESTS_CA_BUNDLE",
-        "CURL_CA_BUNDLE",
+        "CONVERGE_CA_BUNDLE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
     )
     candidates = [configured] if configured else []
     executable_root = os.path.abspath(os.path.join(os.path.dirname(sys.executable), "..", ".."))
-    candidates.extend(
-        [
-            os.path.join(executable_root, "usr", "ssl", "cert.pem"),
-            os.path.join(executable_root, "usr", "ssl", "certs", "ca-bundle.crt"),
-            r"C:\msys64\usr\ssl\cert.pem",
-            r"C:\msys64\usr\ssl\certs\ca-bundle.crt",
-        ]
-    )
+    candidates.extend([
+        os.path.join(executable_root, "usr", "ssl", "cert.pem"),
+        os.path.join(executable_root, "usr", "ssl", "certs", "ca-bundle.crt"),
+        r"C:\msys64\usr\ssl\cert.pem",
+        r"C:\msys64\usr\ssl\certs\ca-bundle.crt",
+    ])
     for candidate in candidates:
         if candidate and os.path.isfile(candidate):
             return ssl.create_default_context(cafile=candidate)
@@ -235,15 +287,9 @@ def _tls_context() -> ssl.SSLContext:
 
 
 class OpenAICompatibleClient:
-    """Small standard-library client for Qwen/DashScope or OpenAI endpoints."""
+    """Small standard-library client for DeepSeek, Qwen, or compatible APIs."""
 
-    def __init__(
-        self,
-        api_key: str,
-        base_url: str,
-        model: str,
-        timeout: float = 20.0,
-    ) -> None:
+    def __init__(self, api_key: str, base_url: str, model: str, timeout: float = 20.0) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -255,55 +301,30 @@ class OpenAICompatibleClient:
         provider = (_env_first("CONVERGE_LLM_PROVIDER") or "").casefold()
         if provider in {"openai", "openai-compatible"}:
             api_key = _env_first("CONVERGE_LLM_API_KEY", "OPENAI_API_KEY")
-            default_url = "https://api.openai.com/v1"
-            default_model = "gpt-4o-mini"
+            default_url, default_model = "https://api.openai.com/v1", "gpt-4o-mini"
         elif provider in {"deepseek", "deep-seek", "dp"}:
-            api_key = _env_first(
-                "CONVERGE_LLM_API_KEY",
-                "DEEPSEEK_API_KEY",
-                "DP_API_KEY",
-            )
-            default_url = "https://api.deepseek.com/v1"
-            default_model = "deepseek-chat"
+            api_key = _env_first("CONVERGE_LLM_API_KEY", "DEEPSEEK_API_KEY", "DP_API_KEY")
+            default_url, default_model = "https://api.deepseek.com/v1", "deepseek-chat"
         elif provider in {"qwen", "dashscope", "ds"}:
-            api_key = _env_first(
-                "CONVERGE_LLM_API_KEY",
-                "DASHSCOPE_API_KEY",
-                "DS_API_KEY",
-                "QWEN_API_KEY",
-            )
-            default_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            default_model = "qwen-plus"
+            api_key = _env_first("CONVERGE_LLM_API_KEY", "DASHSCOPE_API_KEY", "DS_API_KEY", "QWEN_API_KEY")
+            default_url, default_model = "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"
         else:
             api_key = _env_first(
-                "CONVERGE_LLM_API_KEY",
-                "DASHSCOPE_API_KEY",
-                "DS_API_KEY",
-                "QWEN_API_KEY",
-                "DEEPSEEK_API_KEY",
-                "DP_API_KEY",
-                "OPENAI_API_KEY",
+                "CONVERGE_LLM_API_KEY", "DASHSCOPE_API_KEY", "DS_API_KEY", "QWEN_API_KEY",
+                "DEEPSEEK_API_KEY", "DP_API_KEY", "OPENAI_API_KEY",
             )
             if _env_first("DASHSCOPE_API_KEY", "DS_API_KEY", "QWEN_API_KEY"):
-                default_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                default_model = "qwen-plus"
+                default_url, default_model = "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"
             elif _env_first("DEEPSEEK_API_KEY", "DP_API_KEY"):
-                default_url = "https://api.deepseek.com/v1"
-                default_model = "deepseek-chat"
+                default_url, default_model = "https://api.deepseek.com/v1", "deepseek-chat"
             else:
-                default_url = "https://api.openai.com/v1"
-                default_model = "gpt-4o-mini"
+                default_url, default_model = "https://api.openai.com/v1", "gpt-4o-mini"
         if not api_key:
             return None
-        base_url = _env_first(
-            "CONVERGE_LLM_BASE_URL",
-            "DASHSCOPE_BASE_URL",
-            "OPENAI_BASE_URL",
-        ) or default_url
+        base_url = _env_first("CONVERGE_LLM_BASE_URL", "DASHSCOPE_BASE_URL", "OPENAI_BASE_URL") or default_url
         model = _env_first("CONVERGE_LLM_MODEL") or default_model
-        raw_timeout = _env_first("CONVERGE_LLM_TIMEOUT") or "20"
         try:
-            timeout = max(1.0, float(raw_timeout))
+            timeout = max(1.0, float(_env_first("CONVERGE_LLM_TIMEOUT") or "20"))
         except ValueError:
             timeout = 20.0
         return cls(api_key, base_url, model, timeout)
@@ -318,19 +339,13 @@ class OpenAICompatibleClient:
             "max_tokens": 300,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps(payload, ensure_ascii=False),
-                },
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
         }
         request = Request(
             endpoint,
             data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
             method="POST",
         )
         try:
@@ -345,6 +360,193 @@ class OpenAICompatibleClient:
         return _parse_json_object(content), body.get("usage") or {}
 
 
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = _canonical(value)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(str(value))
+    return result
+
+
+def _semantic_aliases(value: str) -> list[str]:
+    normalized = _canonical(value)
+    aliases = list(_SEMANTIC_ALIASES.get(normalized, ()))
+    if normalized.startswith("material:"):
+        material = normalized.split(":", 1)[1].strip()
+        aliases.extend(_SEMANTIC_ALIASES.get(material, ()))
+    tokens = _core_tokens(value)
+    if len(tokens) <= 6:
+        choices = [tuple([token, *_WORD_ALIASES.get(token, ())]) for token in tokens]
+        for combination in product(*choices):
+            aliases.append(" ".join(combination))
+    else:
+        for index, token in enumerate(tokens):
+            for alias in _WORD_ALIASES.get(token, ()):
+                replaced = list(tokens)
+                replaced[index] = alias
+                aliases.append(" ".join(replaced))
+    return _dedupe([value, *aliases])
+
+
+def _preferred_alias(value: str) -> str:
+    aliases = _semantic_aliases(value)
+    for alias in aliases[1:]:
+        if _canonical(alias) != _canonical(value):
+            return alias
+    tokens = _core_tokens(value)
+    if tokens:
+        candidate = " ".join(_WORD_ALIASES.get(token, (token,))[0] for token in tokens)
+        if candidate and _canonical(candidate) != _canonical(value):
+            return candidate
+    # For an unknown domain phrase there is no safe deterministic synonym.
+    # Retain the canonical value rather than inventing a potentially different
+    # meaning; normal LLM output can still supply a validated paraphrase.
+    return str(value)
+
+
+def _descriptor(value: str) -> str:
+    normalized = _canonical(value)
+    descriptors = {
+        "leather": "comes from real animal skin",
+        "material:alloy": "is made from several metal mixed together",
+        "alloy": "is made from several metal mixed together",
+        "rubber sole": "has rubber on the bottom part",
+        "triple moon pentagram symbol": "shows three moon phases and a five point star sign",
+        "color: black": "has the black color",
+        "fabric": "is made from cloth textile material",
+    }
+    if normalized in descriptors:
+        return descriptors[normalized]
+    if normalized.startswith("material:"):
+        material = normalized.split(":", 1)[1].strip()
+        return f"is made from {material} material"
+    return f"has the {value} detail that I mean"
+
+
+def _semantic_evidence(value: str, message: str) -> bool:
+    if _contains(message, value):
+        return True
+    aliases = _semantic_aliases(value)
+    if any(_contains(message, alias) for alias in aliases[1:]):
+        return True
+    core = _core_tokens(value)
+    if not core:
+        return True
+    message_tokens = set(_tokens(message))
+    present = sum(token in message_tokens for token in core)
+    return present >= max(1, (len(core) + 1) // 2)
+
+
+def _contains_negative_change(message: str) -> bool:
+    return bool(_NEGATION_RE.search(message))
+
+
+def _unexpected_exact_values(sample: dict, expected: list[str], message: str) -> bool:
+    expected_normalized = {_canonical(value) for value in expected}
+    return any(
+        _canonical(value) not in expected_normalized and _contains(message, value)
+        for value in _flatten_constraints(sample)
+    )
+
+
+def _semantic_intent(kind: str, base: str, scenario_type: object) -> str:
+    """Describe the non-value speech act that must survive a rewrite."""
+
+    lowered = base.casefold()
+    if kind == "initial":
+        return "exploring" if str(scenario_type) in {"browsing", "boundary"} else "state_requirement"
+    if "no additional preference" in lowered:
+        return "no_additional_preference"
+    if "no preference for" in lowered:
+        return "no_preference"
+    if "not quite right" in lowered:
+        return "request_specific_question"
+    if "what matters is" in lowered:
+        return "state_requirement"
+    return "preserve_message_intent"
+
+
+def _intent_preserved(session: _BuyerSession, kind: str, base: str, message: str) -> bool:
+    intent = _semantic_intent(kind, base, session.sample.get("scenario_type"))
+    text = message.casefold()
+    if intent == "exploring":
+        return any(signal in text for signal in (
+            "explor", "brows", "looking around", "checking", "still see",
+            "not decided", "not sure", "compare", "options",
+        ))
+    if intent == "no_additional_preference":
+        return bool(re.search(
+            r"\b(?:no|not|don't|do not|doesn't|does not|haven't|have not)\b"
+            r"[^.!?]{0,55}\b(?:additional|another|other|more|extra|specific|strong)\b"
+            r"[^.!?]{0,35}\b(?:preference|requirement|need|detail)",
+            text,
+        ))
+    if intent == "no_preference":
+        return any(signal in text for signal in (
+            "no preference", "don't mind", "do not mind", "doesn't matter",
+            "does not matter", "not picky", "flexible", "up to you",
+            "you decide", "your judgment", "decide for me",
+        ))
+    if intent == "request_specific_question":
+        return (
+            any(signal in text for signal in ("ask", "question", "tell you"))
+            and any(signal in text for signal in ("specific", "one", "attribute", "detail"))
+        )
+    return True
+
+
+def _protected_keywords(
+    session: _BuyerSession,
+    kind: str,
+    ask_attribute: str | None,
+    semantic_values: list[str],
+) -> list[str]:
+    if kind == "initial":
+        result = [session.category]
+        scenario = session.sample.get("scenario_type")
+        if scenario == "buying":
+            constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
+            if constraints:
+                result.append(str(constraints[0]))
+        elif scenario == "intent_override":
+            result.append(str(session.sample.get("behavior", {}).get("override", {}).get("old_value", "")))
+        return _dedupe(result)
+    # ``ask_attribute`` is protocol metadata used to select the answer; it is
+    # not itself a user preference keyword.  The actual protected words are
+    # the structured values that the original reply would disclose.
+    return _dedupe(list(semantic_values))
+
+
+def _semantic_targets(
+    session: _BuyerSession,
+    kind: str,
+    semantic_values: list[str],
+) -> list[dict]:
+    values: list[str] = []
+    if kind == "initial":
+        values.append(session.category)
+        scenario = session.sample.get("scenario_type")
+        if scenario == "buying":
+            constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
+            if constraints:
+                values.append(str(constraints[0]))
+        elif scenario == "intent_override":
+            values.append(str(session.sample.get("behavior", {}).get("override", {}).get("old_value", "")))
+    else:
+        values.extend(semantic_values)
+    return [
+        {
+            "canonical_value": value,
+            "synonym_hints": _semantic_aliases(value)[1:],
+            "description_hint": _descriptor(value),
+        }
+        for value in _dedupe(values)
+    ]
+
+
 @dataclass
 class _BuyerSession:
     sample: dict
@@ -353,19 +555,9 @@ class _BuyerSession:
 
 
 class ScenarioUserAgent:
-    """Generate Buyer messages while retaining the original helper contract.
+    """Generate Buyer messages for four controlled scenario modes."""
 
-    reset accepts the materialized evaluator sample and category. Then
-    initial_message and customer_reply have the same arguments and return
-    values as the original local-evaluator functions, with LLM shaping enabled
-    for modes 2-4.
-    """
-
-    def __init__(
-        self,
-        mode: int | str | None = None,
-        client: object | None = None,
-    ) -> None:
+    def __init__(self, mode: int | str | None = None, client: object | None = None) -> None:
         _load_dotenv()
         raw_mode = mode if mode is not None else os.environ.get("CONVERGE_USER_MODE", "1")
         try:
@@ -388,10 +580,7 @@ class ScenarioUserAgent:
         if not session_id:
             raise ValueError("session_id must be non-empty")
         with self._lock:
-            self.sessions[session_id] = _BuyerSession(
-                sample=dict(sample),
-                category=str(category),
-            )
+            self.sessions[session_id] = _BuyerSession(dict(sample), str(category))
 
     def initial_message(
         self,
@@ -399,13 +588,6 @@ class ScenarioUserAgent:
         category_or_disclosed: str | set[str],
         disclosed: set[str] | None = None,
     ) -> str:
-        """Return the initial Buyer message.
-
-        The preferred compatibility form is ``(sample, category, disclosed)``
-        matching the original evaluator helper. For callers that want explicit
-        per-session storage, ``reset(session_id, sample, category)`` followed
-        by ``(session_id, disclosed)`` is also supported.
-        """
         if isinstance(sample_or_session_id, str):
             if disclosed is not None or not isinstance(category_or_disclosed, set):
                 raise TypeError("session form is initial_message(session_id, disclosed)")
@@ -414,37 +596,31 @@ class ScenarioUserAgent:
         else:
             if disclosed is None or not isinstance(category_or_disclosed, str):
                 raise TypeError("compatibility form is initial_message(sample, category, disclosed)")
-            session = _BuyerSession(sample=dict(sample_or_session_id), category=category_or_disclosed)
+            session = _BuyerSession(dict(sample_or_session_id), category_or_disclosed)
             target_disclosed = disclosed
+
         before = set(target_disclosed)
         shadow = set(target_disclosed)
         base = _mode1_initial_message(session.sample, session.category, shadow)
         if self.mode == 1:
             target_disclosed.update(shadow)
             return base
-        shaped = self._shape(
-            session,
-            "initial",
-            base,
-            None,
-            shadow - before,
-        )
+        semantic_values = list(shadow - before)
+        protected = _protected_keywords(session, "initial", None, semantic_values)
+        shaped = self._shape(session, "initial", base, None, semantic_values, protected)
         message = shaped.get("message") if shaped else None
-        if not self._valid_message(message) or (
-            self.mode == 2
-            and not self._mode2_initial_is_safe(session, str(message))
-        ):
-            if self.mode == 4:
-                return self._mode4_fallback(session, "initial", None)
-            target_disclosed.update(shadow)
-            return base
-        if self.mode == 4 and not self._mode4_is_difficult(
-            session, "initial", None, str(message), shaped
-        ):
-            return self._mode4_fallback(session, "initial", None)
-        if self.mode == 3 and _canonical(str(message)) == _canonical(base):
-            return self._mode3_fallback(session, "initial", None, [])
+        if self.mode == 2:
+            if not self._mode2_safe(session, "initial", base, protected, message) or _canonical(message) == _canonical(base):
+                message = self._mode2_fallback(session)
+        elif self.mode == 3:
+            if not self._mode3_safe(session, "initial", base, message, [], None):
+                message = self._mode3_fallback(session, "initial", None, semantic_values)
+        else:
+            if not self._mode4_safe(session, "initial", base, message, [], None):
+                message = self._mode4_fallback(session, "initial", None, base, semantic_values)
+
         self._record_exact_values_in_message(session.sample, str(message), target_disclosed)
+        target_disclosed.update(shadow)
         return str(message)
 
     def customer_reply(
@@ -457,75 +633,42 @@ class ScenarioUserAgent:
         if isinstance(sample_or_session_id, str):
             session = self._session(sample_or_session_id)
         else:
-            session = _BuyerSession(sample=dict(sample_or_session_id), category="")
+            session = _BuyerSession(dict(sample_or_session_id), "")
         before = set(disclosed)
         shadow = set(disclosed)
-        base, base_boundary = _mode1_customer_reply(
-            session.sample,
-            ask_attribute,
-            shadow,
-            boundary_used,
-        )
+        base, base_boundary = _mode1_customer_reply(session.sample, ask_attribute, shadow, boundary_used)
         if self.mode == 1:
             disclosed.update(shadow)
             return base, base_boundary
+
+        attribute = ask_attribute if isinstance(ask_attribute, str) else None
         semantic_values = list(shadow - before)
-        shaped = self._shape(
-            session,
-            "reply",
-            base,
-            ask_attribute if isinstance(ask_attribute, str) else None,
-            semantic_values,
-            boundary_used=boundary_used,
-        )
+        protected = _protected_keywords(session, "reply", attribute, semantic_values)
+        shaped = self._shape(session, "reply", base, attribute, semantic_values, protected)
         message = shaped.get("message") if shaped else None
-        if not self._valid_message(message):
-            if self.mode == 4:
-                return self._mode4_fallback(session, "reply", ask_attribute), base_boundary
-            disclosed.update(shadow)
-            return base, base_boundary
-        message = str(message)
-        if self.mode == 2 and not self._mode2_reply_is_safe(
-            base,
-            semantic_values,
-            message,
-        ):
-            disclosed.update(shadow)
-            return base, base_boundary
-        if self.mode == 4 and not self._mode4_is_difficult(
-            session, "reply", ask_attribute if isinstance(ask_attribute, str) else None,
-            message, shaped,
-        ):
-            return self._mode4_fallback(
-                session, "reply", ask_attribute if isinstance(ask_attribute, str) else None,
-            ), base_boundary
-        if self.mode == 3 and _canonical(message) == _canonical(base):
-            return self._mode3_fallback(
-                session,
-                "reply",
-                ask_attribute if isinstance(ask_attribute, str) else None,
-                semantic_values,
-            ), base_boundary
-        self._record_exact_values_in_message(session.sample, message, disclosed)
-        generated_boundary = bool(shaped.get("boundary_used")) if isinstance(shaped, dict) else False
-        if not generated_boundary and re.search(
-            r"\bno (?:a )?preference for\s+[a-z_]+",
-            message,
-            re.IGNORECASE,
-        ):
-            generated_boundary = True
-        if session.sample.get("scenario_type") == "boundary":
-            return message, boundary_used or generated_boundary
-        return message, boundary_used
+        if self.mode == 2:
+            if not self._mode2_safe(session, "reply", base, protected, message) or _canonical(message) == _canonical(base):
+                message = self._mode2_fallback_reply(base, attribute, semantic_values, base_boundary)
+        elif self.mode == 3:
+            if not self._mode3_safe(session, "reply", base, message, semantic_values, attribute):
+                message = self._mode3_fallback(session, "reply", attribute, semantic_values)
+        else:
+            if not self._mode4_safe(session, "reply", base, message, semantic_values, attribute):
+                message = self._mode4_fallback(session, "reply", attribute, base, semantic_values)
+
+        self._record_exact_values_in_message(session.sample, str(message), disclosed)
+        # All accepted/fallback messages preserve the deterministic semantic
+        # answer, even when Modes 3-4 express its values using synonyms or a
+        # description.  Keep the original disclosure state in sync.
+        disclosed.update(shadow)
+        return str(message), base_boundary
 
     def _session(self, session_id: str) -> _BuyerSession:
         with self._lock:
             try:
                 return self.sessions[session_id]
             except KeyError as exc:
-                raise RuntimeError(
-                    "reset must be called before using the user agent"
-                ) from exc
+                raise RuntimeError("reset must be called before using the user agent") from exc
 
     def _shape(
         self,
@@ -533,9 +676,8 @@ class ScenarioUserAgent:
         kind: str,
         base_message: str,
         ask_attribute: str | None,
-        semantic_values: object,
-        *,
-        boundary_used: bool = False,
+        semantic_values: list[str],
+        protected_keywords: list[str],
     ) -> dict | None:
         if not self.client or self.mode == 1:
             return None
@@ -546,20 +688,14 @@ class ScenarioUserAgent:
             "category": session.category,
             "ask_attribute": ask_attribute,
             "deterministic_message": base_message,
-            "structured_answer_values": (
-                list(semantic_values)
-                if isinstance(semantic_values, (list, tuple, set))
-                else semantic_values
+            "protected_keywords": protected_keywords,
+            "structured_answer_values": semantic_values,
+            "semantic_targets": _semantic_targets(session, kind, semantic_values),
+            "semantic_intent": _semantic_intent(
+                kind, base_message, session.sample.get("scenario_type")
             ),
-            "boundary_used": boundary_used,
             "profile": session.sample.get("user_profile") or {},
         }
-        if self.mode == 4:
-            payload["difficulty_hint"] = self._mode4_hint(
-                session,
-                kind,
-                ask_attribute,
-            )
         try:
             result = self.client.complete(MODE_PROMPTS[self.mode], payload)
         except Exception:
@@ -572,179 +708,191 @@ class ScenarioUserAgent:
         return _parse_json_object(shaped)
 
     @staticmethod
-    def _mode4_hint(
+    def _mode2_safe(
         session: _BuyerSession,
         kind: str,
-        ask_attribute: str | None,
-    ) -> str:
-        if kind == "initial":
-            return "missing"
-        if session.sample.get("scenario_type") == "boundary":
-            return "no_preference"
-        return {
-            "material": "misleading",
-            "color": "no_preference",
-            "budget": "conflicting",
-            "size": "missing",
-            "feature": "vague",
-            "use_case": "vague",
-            "style": "conflicting",
-        }.get(ask_attribute or "other", "vague")
-
-    @classmethod
-    def _mode4_is_difficult(
-        cls,
-        session: _BuyerSession,
-        kind: str,
-        ask_attribute: str | None,
-        message: str,
-        shaped: dict | None,
+        base: str,
+        protected: list[str],
+        message: object,
     ) -> bool:
-        """Reject ordinary paraphrases so Mode 4 cannot silently become Mode 3."""
-
-        text = message.casefold()
-        declared = shaped.get("difficulty_type") if isinstance(shaped, dict) else None
-        if declared is not None and declared not in {
-            "missing", "vague", "misleading", "no_preference", "conflicting",
-        }:
+        if not ScenarioUserAgent._valid_message(message):
             return False
-        signals = {
-            "missing": (
-                "not sure", "undecided", "haven't decided", "have not decided",
-                "don't know", "do not know", "no idea", "not thought about",
-            ),
-            "vague": (
-                "something", "somewhat", "kind of", "sort of", "reasonable",
-                "decent", "good enough", "more or less", "in general", "roughly",
-            ),
-            "misleading": (
-                "actually", "instead", "rather", "synthetic", "vegan", "plastic",
-                "faux", "fake", "non-leather",
-            ),
-            "no_preference": (
-                "no preference", "doesn't matter", "do not mind", "don't mind",
-                "not picky", "up to you", "use your judgment", "you decide",
-                "anything is fine", "either is fine", "i'm flexible", "im flexible",
-            ),
-            "conflicting": (
-                " but ", "however", "although", "at the same time", "on the one hand",
-                "both", "can't have", "cannot have", "as well as",
-            ),
-        }
-        if declared in signals and any(signal in text for signal in signals[declared]):
-            return True
-        return any(any(signal in text for signal in group) for group in signals.values())
+        text = str(message)
+        if not all(_contains_exact(text, keyword) for keyword in protected if keyword):
+            return False
+        if _contains_negative_change(text):
+            return False
+        if _unexpected_exact_values(session.sample, [value for value in protected if value], text):
+            return False
+        if not _intent_preserved(session, kind, base, text):
+            return False
+        lowered = base.casefold()
+        if "no additional preference for" in lowered:
+            return "additional preference" in text.casefold()
+        if "no preference for" in lowered:
+            return "preference" in text.casefold()
+        if "not quite right" in lowered:
+            return "not quite right" in text.casefold() or "specific attribute" in text.casefold()
+        return True
+
+    @staticmethod
+    def _mode3_safe(
+        session: _BuyerSession,
+        kind: str,
+        base: str,
+        message: object,
+        semantic_values: list[str] | None = None,
+        ask_attribute: str | None = None,
+    ) -> bool:
+        if not ScenarioUserAgent._valid_message(message):
+            return False
+        text = str(message)
+        if _contains_negative_change(text):
+            return False
+        targets = (
+            _semantic_targets(session, "initial", [])
+            if kind == "initial"
+            else [{"canonical_value": value} for value in (semantic_values or [])]
+        )
+        if not all(_semantic_evidence(target["canonical_value"], text) for target in targets):
+            return False
+        expected = [target["canonical_value"] for target in targets]
+        if _unexpected_exact_values(session.sample, expected, text):
+            return False
+        if not _intent_preserved(session, kind, base, text):
+            return False
+        if _canonical(text) == _canonical(base):
+            return False
+        protected = _protected_keywords(session, kind, ask_attribute, list(semantic_values or []))
+        # When there are semantic keywords, Mode 3 must replace at least one
+        # with an equivalent expression.  No-value speech acts (for example,
+        # no preference) only need a full-sentence rewrite.
+        return (
+            any(not _contains(text, keyword) for keyword in protected if keyword)
+            if protected
+            else True
+        )
+
+    @staticmethod
+    def _mode4_safe(
+        session: _BuyerSession,
+        kind: str,
+        base: str,
+        message: object,
+        semantic_values: list[str] | None = None,
+        ask_attribute: str | None = None,
+    ) -> bool:
+        if not ScenarioUserAgent._mode3_safe(session, kind, base, message, semantic_values, ask_attribute):
+            return False
+        text = str(message)
+        grammar_or_spelling = bool(re.search(
+            r"\b(?:I am look|I looking|it have|which come|a shoes|need a [a-z]+s|"
+            r"this is want|more better|does not matters|I wants)\b",
+            text,
+            re.IGNORECASE,
+        ))
+        circumlocution = bool(re.search(
+            r"\b(?:the thing|the one|which comes|which come|made from|comes from|"
+            r"material that|the detail that|you know|the kind of)\b",
+            text,
+            re.IGNORECASE,
+        ))
+        return grammar_or_spelling or circumlocution
+
+    @staticmethod
+    def _mode2_fallback(session: _BuyerSession) -> str:
+        scenario = session.sample.get("scenario_type")
+        category = session.category
+        if scenario == "buying":
+            constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
+            if constraints:
+                return f"I want to find {category}, and my main requirement is: {constraints[0]}."
+        if scenario == "intent_override":
+            old = session.sample.get("behavior", {}).get("override", {}).get("old_value", "")
+            return f"I am trying to find {category}. {old}"
+        return f"I am hoping to find {category}, but I am still looking around."
+
+    @staticmethod
+    def _mode2_fallback_reply(base: str, ask_attribute: str | None, semantic_values: list[str], boundary: bool) -> str:
+        if semantic_values:
+            return "The important points for me are: " + "; ".join(semantic_values) + "."
+        if boundary and ask_attribute:
+            return f"I don't mind which {ask_attribute} it is; please decide for me."
+        if "additional preference for" in base.casefold() and ask_attribute:
+            return f"I do not have any other specific preference for {ask_attribute}."
+        if "not quite right" in base.casefold():
+            return "These options do not feel right yet; please ask about one specific attribute."
+        if ask_attribute:
+            return f"I do not have a particular preference for {ask_attribute}."
+        return "I am still unsure; please ask me about one specific attribute."
+
+    @staticmethod
+    def _mode3_fallback(session: _BuyerSession, kind: str, ask_attribute: str | None, semantic_values: list[str]) -> str:
+        if kind == "initial":
+            category = _preferred_alias(session.category)
+            scenario = session.sample.get("scenario_type")
+            if scenario == "buying":
+                constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
+                if constraints:
+                    return f"I'm shopping for {category}, and {_preferred_alias(str(constraints[0]))} is what I need."
+            if scenario == "intent_override":
+                old = session.sample.get("behavior", {}).get("override", {}).get("old_value", "")
+                return f"I'm trying to find {category}. {_preferred_alias(str(old))}"
+            return f"I'm shopping for {category}, and I'm still checking the details."
+        if semantic_values:
+            return "The main things I care about are: " + "; ".join(_preferred_alias(value) for value in semantic_values) + "."
+        if session.sample.get("scenario_type") == "boundary" and ask_attribute:
+            return f"I'm flexible about {ask_attribute}; please use your judgment."
+        if ask_attribute:
+            return f"I do not have another strong preference for {ask_attribute}."
+        return "These choices are not working for me yet; ask about one clear attribute."
 
     @staticmethod
     def _mode4_fallback(
         session: _BuyerSession,
         kind: str,
         ask_attribute: str | None,
-    ) -> str:
-        """Keep the promised Mode 4 boundary even if the LLM is unavailable."""
-
-        if kind == "initial":
-            return (
-                f"I'm looking for {session.category}, but I haven't decided exactly "
-                "what details I need yet."
-            )
-        if not ask_attribute:
-            return "I'm not sure how to answer that; I haven't decided what matters yet."
-        hint = ScenarioUserAgent._mode4_hint(session, kind, ask_attribute)
-        if hint == "no_preference":
-            return f"I don't have a firm preference for {ask_attribute}; please choose what seems best."
-        if hint == "conflicting":
-            return (
-                f"For {ask_attribute}, I want the best quality, but I also need to keep "
-                "the cost very low."
-            )
-        if hint == "misleading":
-            return (
-                f"I mentioned one thing earlier, but actually I'd rather have a "
-                f"synthetic option for {ask_attribute}."
-            )
-        return f"I'm not sure about {ask_attribute}; something reasonable is probably fine."
-
-    @staticmethod
-    def _mode3_fallback(
-        session: _BuyerSession,
-        kind: str,
-        ask_attribute: str | None,
+        base: str,
         semantic_values: list[str],
     ) -> str:
-        """Guarantee a small Mode 3 variation when the LLM echoes the base."""
-
         if kind == "initial":
+            category = _preferred_alias(session.category)
+            scenario = session.sample.get("scenario_type")
             constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
-            if constraints:
-                return f"I'm shopping for {session.category}; the main requirement is {constraints[0]}."
-            return f"I'm shopping for {session.category}, and I'm still exploring the details."
-        if semantic_values:
-            return "My main priority here is: " + "; ".join(semantic_values) + "."
+            if scenario == "buying" and constraints:
+                return f"I am look for {category}, and I need the thing which {_descriptor(str(constraints[0]))}, okay."
+            if scenario == "intent_override":
+                old = session.sample.get("behavior", {}).get("override", {}).get("old_value", "")
+                return f"I am look for {category}. {old} This one is what I mean."
+            return f"I am look for {category}, but I still checking what detail is important."
         if not ask_attribute:
-            return "I'm still unsure; could you ask me about one specific attribute?"
+            return "These options is not right yet, please ask me one specific attribute."
         if session.sample.get("scenario_type") == "boundary":
-            return f"I'm flexible about {ask_attribute}; please use your judgment."
-        return f"I don't have any other strong preference for {ask_attribute}."
+            return f"I don't have no special preference for {ask_attribute}; you decide it for me, please."
+        if "no additional preference" in base.casefold():
+            return f"I don't have any other special preference for {ask_attribute}, maybe."
+        if semantic_values:
+            descriptions = [_descriptor(value) for value in semantic_values]
+            return (
+                f"For this {ask_attribute}, I want the thing which "
+                + ", and also the one which ".join(descriptions)
+                + ", but my English not very good."
+            )
+        return f"For {ask_attribute}, I don't have another special preference, maybe."
 
     @staticmethod
     def _valid_message(message: object) -> bool:
         return isinstance(message, str) and 0 < len(message.strip()) <= 2000
 
     @staticmethod
-    def _mode2_initial_is_safe(session: _BuyerSession, message: str) -> bool:
-        scenario = session.sample.get("scenario_type")
-        if scenario == "buying":
-            constraints = session.sample.get("intent_card", {}).get("hard_constraints") or []
-            soft_preferences = session.sample.get("intent_card", {}).get("soft_preferences") or []
-            return (
-                bool(constraints)
-                and _contains(message, constraints[0])
-                and _contains(message, session.category)
-                and not any(
-                    _contains(message, value)
-                    for value in soft_preferences
-                    if str(value).casefold() != str(constraints[0]).casefold()
-                )
-            )
-        if scenario == "intent_override":
-            old = session.sample.get("behavior", {}).get("override", {}).get("old_value", "")
-            return (
-                _contains(message, session.category)
-                and _contains(message, old)
-            )
-        return _contains(message, session.category)
-
-    @staticmethod
-    def _mode2_reply_is_safe(
-        base: str,
-        semantic_values: list[str],
-        message: str,
-    ) -> bool:
-        lowered = base.casefold()
-        if "what matters is:" in lowered:
-            return all(_contains(message, value) for value in semantic_values)
-        if "no additional preference for" in lowered:
-            return "additional preference" in message.casefold()
-        if "no preference for" in lowered:
-            return "preference" in message.casefold()
-        if "not quite right" in lowered:
-            return "not quite right" in message.casefold() or "specific attribute" in message.casefold()
-        return True
-
-    @staticmethod
-    def _record_exact_values_in_message(
-        sample: dict,
-        message: str,
-        disclosed: set[str],
-    ) -> None:
+    def _record_exact_values_in_message(sample: dict, message: str, disclosed: set[str]) -> None:
         for value in _flatten_constraints(sample):
             if _contains(message, value):
                 disclosed.add(value)
 
 
 def initial_message(sample: dict, category: str, disclosed: set[str]) -> str:
-    """Backward-compatible Mode 1 helper from evaluator.local_evaluator."""
+    """Backward-compatible deterministic Mode 1 helper."""
 
     return _mode1_initial_message(sample, category, disclosed)
 
@@ -755,14 +903,9 @@ def customer_reply(
     disclosed: set[str],
     boundary_used: bool,
 ) -> tuple[str, bool]:
-    """Backward-compatible Mode 1 helper from evaluator.local_evaluator."""
+    """Backward-compatible deterministic Mode 1 helper."""
 
     return _mode1_customer_reply(sample, ask_attribute, disclosed, boundary_used)
 
 
-__all__ = [
-    "OpenAICompatibleClient",
-    "ScenarioUserAgent",
-    "customer_reply",
-    "initial_message",
-]
+__all__ = ["OpenAICompatibleClient", "ScenarioUserAgent", "customer_reply", "initial_message"]

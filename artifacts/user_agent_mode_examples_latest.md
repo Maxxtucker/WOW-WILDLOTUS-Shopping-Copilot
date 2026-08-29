@@ -48,7 +48,7 @@ For that, what matters is: Triple Moon Pentagram Symbol; The Triple Moon represe
 boundary_used: False
 ```
 
-结果：首轮发生自然语言和轻微策略变化，同时保留 `Material:alloy` 语义。
+结果：这是旧版本示例；新版本 Mode 3 会允许把关键词改写为语义相近表达，并进行语义校验。
 
 ## Mode 4
 
@@ -62,4 +62,4 @@ I'm not sure about other; something reasonable is probably fine.
 boundary_used: False
 ```
 
-结果：首轮体现缺失偏好，回复体现模糊回答。
+结果：这是旧版本示例；新版本 Mode 4 改为保持原意、模拟英语较差、错误表达或绕述关键词。

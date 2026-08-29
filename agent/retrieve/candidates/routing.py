@@ -21,12 +21,16 @@ BUYING_WEIGHTS = SearchWeights(
     required=6.0,
     category=4.0,
     missing_required=-0.5,
+    text=0.5,
+    profile=0.3,
 )
 BROWSING_WEIGHTS = SearchWeights(
     lexical=1.6,
     required=2.5,
     category=2.0,
     missing_required=-0.1,
+    text=1.0,
+    profile=0.3,
 )
 
 
@@ -47,7 +51,6 @@ def routing_for(intention: str | None) -> TrackRouting:
             BUYING_WEIGHTS,
             BUYING_LIMIT,
             exact_first=True,
-            hard_budget=True,
         )
     if intention == "browsing":
         return TrackRouting(BROWSING_WEIGHTS, BROWSING_LIMIT, exact_first=True)

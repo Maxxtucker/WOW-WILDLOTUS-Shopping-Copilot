@@ -13,7 +13,7 @@ import sqlite3
 import warnings
 from pathlib import Path
 
-SIDECAR_VERSION = "catalog-slots-v1"
+SIDECAR_VERSION = "catalog-slots-v4"
 DEFAULT_SLOTS_RELATIVE = Path(".cache") / "catalog_preprocess" / "product_slots.sqlite3"
 
 
@@ -65,6 +65,8 @@ def sidecar_is_current(slots_path: Path, fingerprint: str) -> bool:
             rows.get("version") == SIDECAR_VERSION
             and rows.get("catalog_fingerprint") == fingerprint
             and "product_slots" in tables
+            and "product_text" in tables
+            and "slot_stats" in tables
         )
     except sqlite3.Error:
         return False

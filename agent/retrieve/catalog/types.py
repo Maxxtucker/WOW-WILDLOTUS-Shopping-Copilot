@@ -54,6 +54,20 @@ class SearchWeights:
     popularity: float = 0.12
     missing_required: float = -0.35
     excluded: float = -8.0
+    dimension: float = 1.75
+    text: float = 1.0
+    profile: float = 0.3
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionSpec:
+    """Catalog L/W/H in inches and weight in pounds. op is eq, lte, or gte."""
+
+    length: float | None = None
+    width: float | None = None
+    height: float | None = None
+    weight: float | None = None
+    op: str = "eq"
 
 
 @dataclass(frozen=True, slots=True)

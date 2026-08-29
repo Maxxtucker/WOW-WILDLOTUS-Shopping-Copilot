@@ -52,6 +52,20 @@ def _write_sidecar(path: Path, catalog_path: Path, rows: list[tuple]) -> None:
             extras_json TEXT,
             PRIMARY KEY (parent_asin, attribute, canonical, surface, source)
         ) WITHOUT ROWID;
+        CREATE TABLE product_text (
+            parent_asin TEXT NOT NULL,
+            field TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            canonical TEXT NOT NULL,
+            PRIMARY KEY (parent_asin, field)
+        ) WITHOUT ROWID;
+        CREATE TABLE slot_stats (
+            attribute TEXT NOT NULL,
+            canonical TEXT NOT NULL,
+            df INTEGER NOT NULL,
+            idf REAL NOT NULL,
+            PRIMARY KEY (attribute, canonical)
+        ) WITHOUT ROWID;
         """
     )
     connection.executemany(
@@ -185,6 +199,20 @@ class FixtureProbeSlotsTest(unittest.TestCase):
             ConstraintSlot("color", "blue", canonical="blue"),
         )
         self.assertNotIn("budget", dict(exact_pool_groups(state)))
+        pool = probe_exact_pool(self.retriever, state)
+        self.assertEqual(pool, set())
+
+    def test_soft_budget_does_not_numeric_filter(self) -> None:
+        state = _state(
+            ConstraintSlot(
+                "budget",
+                "under $40",
+                amount=40.0,
+                op="lte",
+                is_hard=False,
+            ),
+            ConstraintSlot("color", "blue", canonical="blue"),
+        )
         pool = probe_exact_pool(self.retriever, state)
         self.assertEqual(pool, {"A", "C"})
 

@@ -215,6 +215,38 @@ def singularize(word: str) -> str:
     return key
 
 
+def to_inches(value: float, source: str) -> float:
+    """Convert a catalog or shopper measurement into inches."""
+
+    if source == "cm":
+        return value / 2.54
+    if source == "mm":
+        return value / 25.4
+    return value
+
+
+def to_pounds(value: float, source: str) -> float:
+    """Convert a catalog or shopper weight into pounds."""
+
+    if source == "oz":
+        return value / 16.0
+    if source == "kg":
+        return value * 2.2046226218
+    if source == "g":
+        return value / 453.59237
+    return value
+
+
+def fold_document(value: object) -> str:
+    """Lowercase, strip symbols, drop glue words. No stemming."""
+
+    text = normalize_canonical(value)
+    if not text:
+        return ""
+    kept = [token for token in text.split() if token not in CATEGORY_STOPWORDS]
+    return " ".join(kept)
+
+
 def fold_category(value: object) -> str:
     """One category key: lowercase, strip symbols, drop stopwords, singularize tokens.
 

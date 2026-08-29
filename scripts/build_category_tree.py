@@ -169,6 +169,65 @@ def tree_catalog_tags(tree: dict) -> set[str]:
     return found
 
 
+def tree_path_tags(tree: dict) -> set[str]:
+    """Tags a product path can hit: node catalog_tags plus folded labels."""
+
+    found = set(tree_catalog_tags(tree))
+
+    def walk(raw: object) -> None:
+        if not isinstance(raw, dict):
+            return
+        folded = fold_category(raw.get("label") or "")
+        if folded:
+            found.add(folded)
+        for child in raw.get("children") or ():
+            walk(child)
+
+    for root in tree.get("roots") or ():
+        walk(root)
+    return found
+
+
+def product_category_tags(product: dict) -> list[str]:
+    """Folded category nodes on one catalog product, path order, unique."""
+
+    seen: set[str] = set()
+    tags: list[str] = []
+    for label in categories_list(product):
+        folded = fold_category(label)
+        if folded and folded not in seen:
+            seen.add(folded)
+            tags.append(folded)
+    return tags
+
+
+def products_missing_tree_path(
+    catalog_path: Path | None = None,
+    tree: dict | None = None,
+) -> list[tuple[str, list[str]]]:
+    """Products whose folded category path never hits the current tree."""
+
+    source = catalog_path or CATALOG
+    payload = tree
+    if payload is None:
+        if not OUT.is_file():
+            return []
+        payload = json.loads(OUT.read_text(encoding="utf-8"))
+    on_tree = tree_path_tags(payload)
+    missing: list[tuple[str, list[str]]] = []
+    with source.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            tags = product_category_tags(row)
+            if tags and any(tag in on_tree for tag in tags):
+                continue
+            asin = str(row.get("parent_asin") or "").strip() or "?"
+            missing.append((asin, tags))
+    return missing
+
+
 def merchandising_catalog_folds(catalog_path: Path | None = None) -> set[str]:
     """Fold keys of merch nodes and every label under a merch ancestor."""
 

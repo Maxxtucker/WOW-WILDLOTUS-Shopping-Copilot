@@ -2,7 +2,7 @@
 
 Input: parsed size item, grounded surface, user message.
 Output: ConstraintSlot with kind, system, letter canonical, or converted L/W/H.
-Role: model picks kind and letter buckets; code folds official keys and converts cm→mm.
+Role: model picks kind and letter buckets; code folds official keys and converts cm/mm→in.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ SIZE_SYSTEMS = ("us", "uk", "eu")
 SIZE_SYSTEM_SET = frozenset(SIZE_SYSTEMS)
 SIZE_KINDS = ("shoe", "apparel", "dimension")
 SIZE_KIND_SET = frozenset(SIZE_KINDS)
-SIZE_UNITS = ("in", "mm")
+SIZE_UNITS = ("in",)
 SIZE_UNIT_SET = frozenset(SIZE_UNITS)
 APPAREL_LETTERS = ("xs", "s", "m", "l", "xl", "xxl", "xxxl", "one_size")
 APPAREL_LETTER_SET = frozenset(APPAREL_LETTERS)
@@ -81,6 +81,10 @@ _DIM_CHAIN_RE = re.compile(
 )
 _SINGLE_DIM_RE = re.compile(
     r"(?P<n>\d+(?:\.\d+)?)\s*(?:cm|mm|inches|inch)\b",
+    re.IGNORECASE,
+)
+_WEIGHT_RE = re.compile(
+    r"(?P<n>\d+(?:\.\d+)?)\s*(?P<u>pounds?|lbs?|oz|ounces?|kgs?|kilograms?|grams?|g)\b",
     re.IGNORECASE,
 )
 
@@ -183,15 +187,48 @@ def _source_unit_in(text: str) -> str | None:
 
 
 def _canonical_unit_from_source(source: str) -> SizeUnit:
-    return "in" if source == "in" else "mm"
+    del source
+    return "in"
 
 
-def _to_canonical_amount(value: float | None, source: str) -> float | None:
+def _to_inches(value: float | None, source: str) -> float | None:
     if value is None:
         return None
     if source == "cm":
-        return value * 10.0
+        return value / 2.54
+    if source == "mm":
+        return value / 25.4
     return value
+
+
+def _weight_source(token: str) -> str:
+    key = token.casefold()
+    if key.startswith("oz") or key.startswith("ounce"):
+        return "oz"
+    if key.startswith("kg") or key.startswith("kilo"):
+        return "kg"
+    if key in {"g", "gram", "grams"}:
+        return "g"
+    return "lb"
+
+
+def _to_pounds(value: float | None, source: str) -> float | None:
+    if value is None:
+        return None
+    if source == "oz":
+        return value / 16.0
+    if source == "kg":
+        return value * 2.2046226218
+    if source == "g":
+        return value / 453.59237
+    return value
+
+
+def _parse_weight_surface(surface: str) -> tuple[float | None, str | None]:
+    match = _WEIGHT_RE.search(surface or "")
+    if not match:
+        return None, None
+    return float(match.group("n")), _weight_source(match.group("u"))
 
 
 def _official_letter(value: str | None) -> str | None:
@@ -227,7 +264,11 @@ def _coerce_letter_hint(canonical_hint: str | None) -> str | None:
 
 def _looks_like_dimension(surface: str) -> bool:
     text = surface or ""
-    return bool(_DIM_CHAIN_RE.search(text) or _SINGLE_DIM_RE.search(text))
+    return bool(
+        _DIM_CHAIN_RE.search(text)
+        or _SINGLE_DIM_RE.search(text)
+        or _WEIGHT_RE.search(text)
+    )
 
 
 def _parse_dimension_numbers(
@@ -261,7 +302,7 @@ def resolve_size_unit(
     *,
     extras: tuple[str, ...] = (),
 ) -> tuple[SizeUnit | None, str | None]:
-    """Canonical in/mm from the original unit word. cm maps to mm."""
+    """Stored unit is always inches. Source may be in, cm, or mm."""
 
     del hint
     source: str | None = None
@@ -297,6 +338,7 @@ def ground(parsed: ParsedItem, surface: str, message: str) -> ConstraintSlot | N
     length: float | None = None
     width: float | None = None
     height: float | None = None
+    weight: float | None = None
     extras = parsed.extras
     if kind == "apparel":
         letter = _coerce_letter_hint(parsed.canonical_hint) or _official_letter(surface)
@@ -321,12 +363,30 @@ def ground(parsed: ParsedItem, surface: str, message: str) -> ConstraintSlot | N
         width = grounded_number(raw.get("width"), message) or parsed_w
         height = grounded_number(raw.get("height"), message) or parsed_h
         if source is not None:
-            length = _to_canonical_amount(length, source)
-            width = _to_canonical_amount(width, source)
-            height = _to_canonical_amount(height, source)
+            length = _to_inches(length, source)
+            width = _to_inches(width, source)
+            height = _to_inches(height, source)
+        else:
+            length = _to_inches(length, "in")
+            width = _to_inches(width, "in")
+            height = _to_inches(height, "in")
         if length is not None:
             amount = length
             op = op or "eq"
+        raw_weight = grounded_number(raw.get("weight"), message)
+        parsed_w, weight_source = _parse_weight_surface(surface)
+        if raw_weight is None:
+            raw_weight = parsed_w
+        elif weight_source is None:
+            for blob in (surface, *extras, message):
+                _raw, found = _parse_weight_surface(blob)
+                if found is not None:
+                    weight_source = found
+                    break
+        weight = _to_pounds(raw_weight, weight_source or "lb")
+        if weight is not None and amount is None:
+            amount = weight
+            op = op or infer_op(surface) or "eq"
     else:
         system = resolve_size_system(
             surface, raw.get("system"), message, extras=extras, amount=amount
@@ -343,4 +403,5 @@ def ground(parsed: ParsedItem, surface: str, message: str) -> ConstraintSlot | N
         length=length,
         width=width,
         height=height,
+        weight=weight,
     )

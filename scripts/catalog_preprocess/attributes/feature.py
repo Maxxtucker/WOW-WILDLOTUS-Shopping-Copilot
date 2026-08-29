@@ -1,11 +1,11 @@
-"""Purpose: extract short capability tokens, not marketing paragraphs."""
+"""Purpose: extract catalog feature lines and short capability tokens."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..sources import FEATURE_DETAIL_KEYS
-from ..text import details_map, feature_lines, fold_key, ngrams, tokens
+from ..sources import is_feature_detail_key
+from ..text import details_map, feature_lines, fold_key, ngrams, normalize_canonical, tokens
 from ..types import SlotRecord
 from ._common import dedupe, slot
 
@@ -46,17 +46,27 @@ FEATURE_PHRASES = frozenset(
 COMPOSITION_HINT = "%"
 
 
+def _emit(value: str, source: str) -> SlotRecord | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    folded = normalize_canonical(cleaned)
+    if not folded:
+        return None
+    return slot("feature", folded, cleaned, source)
+
+
 def extract(product: Mapping[str, object]) -> list[SlotRecord]:
     rows: list[SlotRecord | None] = []
     details = details_map(product)
-    for key in FEATURE_DETAIL_KEYS:
-        raw = details.get(key)
-        if raw:
-            rows.append(slot("feature", raw, raw, f"details:{key}"))
+    for key, raw in details.items():
+        if raw and is_feature_detail_key(key):
+            rows.append(_emit(raw, f"details:{key}"))
     for line in feature_lines(product):
         folded = fold_key(line)
         if folded in SKIP_LINES or COMPOSITION_HINT in line:
             continue
+        rows.append(_emit(line, "features"))
         if len(line) <= 40 and " " not in folded:
             continue
         words = tokens(line)

@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from ..sources import DIMENSION_DETAIL_KEYS, SIZE_DETAIL_KEYS
-from ..text import categories_list, details_map, fold_key
+from ..sources import SIZE_DETAIL_KEYS, is_dimension_detail_key, is_weight_detail_key
+from ..text import categories_list, details_map, fold_key, to_inches, to_pounds
 from ..types import SlotRecord
 from ._common import dedupe, slot
 
@@ -65,6 +65,10 @@ _SINGLE_DIM_RE = re.compile(
 )
 _SYSTEM_RE = re.compile(r"\b(usa|u\.s\.a\.|u\.s\.|us|uk|eur|eu)\b", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"\b(\d+(?:\.\d+)?)\b")
+_WEIGHT_RE = re.compile(
+    r"(?P<n>\d+(?:\.\d+)?)\s*(?P<u>pounds?|lbs?|oz|ounces?|kgs?|kilograms?|grams?|g)\b",
+    re.IGNORECASE,
+)
 
 
 def _looks_like_shoe(product: Mapping[str, object]) -> bool:
@@ -87,17 +91,35 @@ def _source_unit(text: str) -> str | None:
     return None
 
 
-def _to_canonical_amount(value: float, source: str) -> float:
-    return value * 10.0 if source == "cm" else value
-
-
 def _letter(value: str) -> str | None:
     key = fold_key(value).replace("-", " ")
     compact = key.replace(" ", "")
     return APPAREL_LETTERS.get(key) or APPAREL_LETTERS.get(compact)
 
 
-def _dimension_row(text: str, source: str) -> SlotRecord | None:
+def _weight_source(token: str) -> str:
+    key = token.casefold()
+    if key.startswith("oz") or key.startswith("ounce"):
+        return "oz"
+    if key.startswith("kg") or key.startswith("kilo"):
+        return "kg"
+    if key in {"g", "gram", "grams"}:
+        return "g"
+    return "lb"
+
+
+def parse_weight_lb(text: str, *, default_lb: bool = False) -> float | None:
+    match = _WEIGHT_RE.search(text or "")
+    if match:
+        return to_pounds(float(match.group("n")), _weight_source(match.group("u")))
+    if default_lb:
+        numbers = _NUMBER_RE.findall(text or "")
+        if len(numbers) == 1:
+            return float(numbers[0])
+    return None
+
+
+def _dimension_row(text: str, source: str, source_key: str) -> SlotRecord | None:
     match = _DIM_CHAIN_RE.search(text)
     length = width = height = None
     if match:
@@ -109,22 +131,29 @@ def _dimension_row(text: str, source: str) -> SlotRecord | None:
         single = _SINGLE_DIM_RE.search(text)
         if single:
             length = float(single.group("n"))
-        else:
-            return None
+    weight = parse_weight_lb(
+        text, default_lb=is_weight_detail_key(source_key) and match is None
+    )
+    if length is None and width is None and height is None and weight is None:
+        return None
     unit_source = _source_unit(text) or "in"
-    unit = "in" if unit_source == "in" else "mm"
-    if unit_source == "cm":
-        length = _to_canonical_amount(length, "cm") if length is not None else None
-        width = _to_canonical_amount(width, "cm") if width is not None else None
-        height = _to_canonical_amount(height, "cm") if height is not None else None
+    if length is not None:
+        length = to_inches(length, unit_source)
+    if width is not None:
+        width = to_inches(width, unit_source)
+    if height is not None:
+        height = to_inches(height, unit_source)
     extras = {
         "kind": "dimension",
-        "unit": unit,
+        "unit": "in",
         "length": length,
         "width": width,
         "height": height,
         "amount": length,
+        "source_key": source_key,
     }
+    if weight is not None:
+        extras["weight"] = weight
     return slot("size", "dimension", text[:180], source, extras)
 
 
@@ -145,10 +174,9 @@ def _system_token(text: str) -> str | None:
 def extract(product: Mapping[str, object]) -> list[SlotRecord]:
     details = details_map(product)
     rows: list[SlotRecord | None] = []
-    for key in DIMENSION_DETAIL_KEYS:
-        raw = details.get(key)
-        if raw:
-            rows.append(_dimension_row(raw, f"details:{key}"))
+    for key, raw in details.items():
+        if raw and (is_dimension_detail_key(key) or is_weight_detail_key(key)):
+            rows.append(_dimension_row(raw, f"details:{key}", key))
     size_raw = None
     for key in SIZE_DETAIL_KEYS:
         if details.get(key):

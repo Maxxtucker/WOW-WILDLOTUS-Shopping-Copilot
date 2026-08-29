@@ -185,6 +185,20 @@ class CategoryTreeFileTest(unittest.TestCase):
             f"{len(missing)} catalog categories missing, e.g. {sorted(missing)[:12]}",
         )
 
+    def test_every_product_hits_a_tree_path_tag(self) -> None:
+        catalog = ROOT / "data" / "catalog.jsonl"
+        if not catalog.is_file():
+            self.skipTest("data/catalog.jsonl is not present")
+        from build_category_tree import products_missing_tree_path
+
+        payload = json.loads(TREE_PATH.read_text(encoding="utf-8"))
+        missing = products_missing_tree_path(catalog, payload)
+        sample = missing[:8]
+        self.assertFalse(
+            missing,
+            f"{len(missing)} products have no category tag on the tree, e.g. {sample}",
+        )
+
     def test_csj_children_are_product_types_not_promo(self) -> None:
         csj = next(
             node for node in self.roots if node.id == "Clothing_Shoes_and_Jewelry"

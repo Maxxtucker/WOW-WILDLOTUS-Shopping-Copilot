@@ -7,7 +7,8 @@ optional exact ASIN set. Hard intersection already happened in the router. This
 layer scores a non-empty exact set, or recovers with BM25 plus catalog signature
 recall when strict intersection found nothing. It does not choose the question
 or how many products to show. Buying and override keep up to 150 hits; Browsing
-keeps up to 500 before the smaller semantic reranking head.
+keeps up to 500 before the smaller semantic reranking head. Hard vs soft
+budget and object dimensions come from typed slots, not from intention.
 
 The catalog index is process-wide. Candidates read the index and the session exclusion set each turn.
 
@@ -48,7 +49,8 @@ Ranker.apply(hits, state)
 - query string: current category + committed slot search values; current message only when no state was extracted
 - required groups: hard slots only (`from_slots.constraint_groups`); same-attribute values OR, attributes AND
 - preferred: soft slots only; missing soft does not drop a candidate
-- profile preference tags: semantic-ranker tie-breakers, never hard filters
+- profile preference tags: retrieve surface cosine and optional semantic-ranker tie-breakers; never BM25 terms or hard filters
+- `candidate_count`: size of the router exact set after numeric hard filters
 
 ## Core code
 

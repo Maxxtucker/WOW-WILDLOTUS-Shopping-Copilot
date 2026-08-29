@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..sources import GENDER_MAP, STYLE_DETAIL_KEYS
-from ..text import details_map, feature_lines, fold_key, ngrams, tokens
+from ..sources import GENDER_MAP, STYLE_DETAIL_KEYS, is_style_detail_key
+from ..text import details_map, feature_lines, fold_key, ngrams, normalize_canonical, tokens
 from ..types import SlotRecord
 from ._common import dedupe, slot
 
@@ -38,6 +38,16 @@ STYLE_PHRASES = frozenset(
 SHORT_FEATURES = 80
 
 
+def _emit(value: str, source: str) -> SlotRecord | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    folded = normalize_canonical(cleaned)
+    if not folded:
+        return None
+    return slot("style", folded, cleaned, source)
+
+
 def extract(product: Mapping[str, object]) -> list[SlotRecord]:
     rows: list[SlotRecord | None] = []
     details = details_map(product)
@@ -46,10 +56,11 @@ def extract(product: Mapping[str, object]) -> list[SlotRecord]:
         gender = GENDER_MAP.get(fold_key(department).replace("'", ""))
         if gender:
             rows.append(slot("style", gender, department, "details:department"))
-    for key in STYLE_DETAIL_KEYS:
-        raw = details.get(key)
-        if raw:
-            rows.append(slot("style", raw, raw, f"details:{key}"))
+    for key, raw in details.items():
+        if not raw:
+            continue
+        if is_style_detail_key(key) or key in STYLE_DETAIL_KEYS:
+            rows.append(_emit(raw, f"details:{key}"))
     blobs = [str(product.get("title") or "")]
     blobs.extend(line for line in feature_lines(product) if len(line) <= SHORT_FEATURES)
     wanted = {phrase: None for phrase in STYLE_PHRASES}
@@ -60,5 +71,12 @@ def extract(product: Mapping[str, object]) -> list[SlotRecord]:
                 wanted[phrase] = phrase
     for phrase, hit in wanted.items():
         if hit:
-            rows.append(slot("style", phrase, phrase, "title" if phrase in fold_key(blobs[0]) else "features"))
+            rows.append(
+                slot(
+                    "style",
+                    phrase,
+                    phrase,
+                    "title" if phrase in fold_key(blobs[0]) else "features",
+                )
+            )
     return dedupe(rows)

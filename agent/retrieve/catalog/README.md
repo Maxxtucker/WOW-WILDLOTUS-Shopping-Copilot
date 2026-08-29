@@ -15,8 +15,9 @@ Index build uses an independent `intent_card` copy in `protocol_copy.py` and doe
 | `signatures.py` | Build response signatures from product metadata; normalize constraints/budget. |
 | `index_path.py` | `AGENT_INDEX_PATH` / `AGENT_CACHE_DIR` → on-disk path. |
 | `index.py` | Schema, fingerprint, FTS + signature tables from JSONL. |
-| `slots_sidecar.py` | ATTACH precomputed `product_slots` (no extraction). |
-| `scoring.py` | Structured scores for a given ASIN pool (no recall). |
+| `slots_sidecar.py` | ATTACH precomputed `product_slots` / `product_text` / `slot_stats`. Version `catalog-slots-v4`. |
+| `scoring.py` | Structured scores for a given ASIN pool (no recall). Hard numeric filter, rarity, soft `text_fit`. |
+| `profile_embed.py` | Optional preference-tag cosine vs product surfaces. Never BM25. |
 | `search.py` | FTS5 BM25 ∪ signature hits, then scoring. |
 | `retriever.py` | Facade: open DB, exact lookup, `predict_reply`, `search`. |
 

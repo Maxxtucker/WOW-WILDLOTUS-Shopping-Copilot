@@ -97,6 +97,11 @@ scripts/
   download_catalog.py
   check_parity.py
   demo_session.py
+  build_aliases_color.py
+  build_aliases_material.py
+  extract_catalog_slots.py
+  catalog_preprocess/  offline catalog slot extractors
+
   nlu_console.py    interactive observe (NLU vs regex)
   nlu_probe.py      fixture probe; --live calls Ollama
   nlu.env           local model/host/timeout (not loaded on import)
@@ -125,6 +130,31 @@ python3 -m evaluator.local_evaluator
 
 The download script verifies the organizer-published SHA-256 digest before
 decompressing `data/catalog.jsonl`. The catalog is intentionally gitignored.
+
+### Catalog slot preprocess (once)
+
+Color and material aliases plus structured `product_slots` are built **offline**
+in `scripts/`. The Agent never extracts them at `reset` / `respond` time; it
+only `ATTACH`es the sidecar SQLite if the catalog fingerprint matches.
+
+```bash
+python scripts/build_category_tree.py
+python scripts/build_aliases_color.py
+python scripts/build_aliases_material.py
+python scripts/extract_catalog_slots.py
+```
+
+Alias JSON is committed under `scripts/catalog_preprocess/aliases/`
+(`category_tree.json`, `category_parents.json`, color/material maps). Category
+keys are folded (`fold_category`: lowercase, no punctuation, no glue words,
+singular tokens) so `Shoes` and `shoe` share one sidecar value. The sidecar
+defaults to `.cache/catalog_preprocess/product_slots.sqlite3` (gitignored).
+Override with `AGENT_SLOTS_PATH`. Set `AGENT_SLOTS_PATH=:none:` to skip ATTACH.
+A missing or stale sidecar is not rebuilt in-process; exact lookup then uses
+the existing signature index only.
+
+`python scripts/catalog_preprocess/survey_catalog_fields.py` prints details-key
+and category histograms (read-only).
 
 ### Index cache
 

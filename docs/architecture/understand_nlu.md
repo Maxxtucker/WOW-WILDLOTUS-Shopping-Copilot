@@ -66,11 +66,13 @@ regex classify.py
 
 Protocol-looking messages still go to the model in nlu mode. `regex_is_high_confidence` is diagnostic only.
 
-One `extract_with_llm` call is one `inspect()`: chat JSON, then up to three **span-repair** rounds inside that attempt ([`MAX_REPAIR_ROUNDS`](../../agent/understand/observation/slots/pipeline.py)). Repair is not a fourth outer retry.
+One `extract_with_llm` call is one `inspect()`: casefold plus **parallel** color and material alias lookup, then up to two **word-class** chats (keep a pair only when both sides are color words or both are material words; the model does not score whether the dictionary bucket is correct). Identity pairs skip those chats. Surviving same-span hits concatenate `color material`. Then up to three **category-layer** chats on the **original** sentence: L1 lists every root; L2 concatenates children of all selected L1 nodes; L3 concatenates children of all selected L2 nodes (merchandising / promo shelves omitted). Each layer may return an empty id list (keep the broader parent). A pick is valid only when that branch is broader than or equal to the shopper's product (Shoes for running shoes; not Kids Shoes). Unstated audience words (kids, women, men, …) are dropped in code even if the model emits them. A selected node enters `delta` only when its label, slug, tag, or a content token from those strings is a span of the original message (`surface`). Then one **attribute** chat on the rewritten sentence, then up to three **span-repair** rounds on attributes ([`MAX_REPAIR_ROUNDS`](../../agent/understand/observation/slots/pipeline.py)). Repair is not a fourth outer retry. Regex observation does not rewrite and does not walk the tree.
 
-Ollama options: `NUM_PREDICT=4096`, `NUM_CTX=8192`, `temperature=0`. If `done_reason=length`, `_complete` retries once at `NUM_PREDICT * 2`.
+Ollama options: `NUM_PREDICT=4096` for attributes, `NUM_PREDICT_CATEGORY=512` per layer, `NUM_PREDICT_ALIAS=256` for word-class gates, `NUM_CTX=8192`, `temperature=0`. If `done_reason=length`, `_complete` retries once at `NUM_PREDICT * 2`.
 
-The HTTP client is [`llm_nlu.py`](../../agent/understand/observation/llm_nlu.py). It does not write session state. The model returns `category`, `constraints`, and `empty` only. Context is category, locked constraint strings, and `last_ask` plus the current message.
+The HTTP client is [`llm_nlu.py`](../../agent/understand/observation/llm_nlu.py). It does not write session state. Category ids come from [`category_tree.json`](../../scripts/catalog_preprocess/aliases/category_tree.json) (promo leaves dropped at build and again at parse). Attribute JSON is `constraints` and `empty` only. Context is session category, locked constraint strings, and `last_ask` plus the **rewritten** message. `SessionState.latest_message` stays the original utterance.
+
+Cited tree nodes keep `catalog_tags` as category slot `canonical` values (sidecar probe). Tags are `fold_category` keys. Uncited nodes are omitted from `delta`, including empty-tag leaves with no shopper span.
 
 ## After extract
 
@@ -105,7 +107,7 @@ Do not set these as user/system environment variables if you want kit tests to s
 
 | Script | Role |
 | --- | --- |
-| `scripts/nlu_console.py` | Interactive observe. Per-turn dump is `category` + `slots`. After apply: `delta` vs `session`. Live apply runs override LLM then writeback. |
+| `scripts/nlu_console.py` | Interactive observe, then override-first `route_intention` (skip buying/browsing when override) and retrieve on the exact pool. Per-turn dump: `nlu` / `delta` / `router` / `retrieve`. `--no-retrieve` is override writeback only. |
 | `scripts/nlu_probe.py --live` | Fixture spans vs live model |
 
 ## Tests
@@ -113,7 +115,9 @@ Do not set these as user/system environment variables if you want kit tests to s
 - [`tests/test_agent.py`](../../tests/test_agent.py): `setUpModule` mocks the router LLM and pins `understand_mode="regex"`.
 - [`tests/test_intent_router.py`](../../tests/test_intent_router.py): patches `classify_override` / `classify_route` / `probe_exact_pool`.
 - [`tests/test_nlu.py`](../../tests/test_nlu.py): regex by default in hybrid tests; nlu tests `configure_understand("nlu")` and patch `hybrid.extract_with_llm`. Three `None` returns then regex. Agent nlu constructs with `ensure_llm_runtime` mocked. No live Ollama in CI.
-- [`tests/test_nlu_console.py`](../../tests/test_nlu_console.py): patches console `classify_override`.
+- [`tests/test_category_nlu.py`](../../tests/test_category_nlu.py): committed tree, child→parent map, alias rewrite, mocked layered category HTTP.
+- [`tests/test_nlu_console.py`](../../tests/test_nlu_console.py): patches console `classify_override` when retrieve is off; tiny-catalog tests exercise override-first `route_intention` + retrieve.
+- [`tests/test_understand_router_smoke.py`](../../tests/test_understand_router_smoke.py): observe → `turn_delta` → override/writeback → sidecar probe → buying/browsing → retrieve scores the exact set. Offline tests script `/api/chat`. Live Ollama is opt-in: `AGENT_SMOKE_LIVE=1` (fails if `/api/tags` is down).
 
 ## Files
 
@@ -121,7 +125,10 @@ Do not set these as user/system environment variables if you want kit tests to s
 | --- | --- |
 | `agent/understand/mode.py` | Resolve and pin mode |
 | `agent/understand/observation/hybrid.py` | NLU attempts then regex |
-| `agent/understand/observation/llm_nlu.py` | Chat client, prompts, parse |
+| `agent/understand/observation/llm_nlu.py` | Rewrite, layered category chats, attribute chat, parse |
+| `agent/understand/observation/rewrite.py` | Parallel color/material alias rewrite plus optional word-class gates |
+| `agent/understand/observation/category_merch.py` | Promo / merchandising label detector |
+| `agent/understand/observation/category_tree.py` | Committed 3-level category walk (promo children filtered) |
 | `agent/understand/observation/runtime.py` | Daemon ping / spawn / model load |
 | `agent/understand/observation/coordinator.py` | Store `turn_delta` |
 | `agent/understand/observation/patterns.py` | Looking-for / leftover / override regex templates |

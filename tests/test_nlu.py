@@ -134,7 +134,14 @@ class SpanGroundingTest(unittest.TestCase):
             "track": "buying",
             "empty": False,
         }
-        with patch.object(client, "_complete", side_effect=[payload, None]):
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(
+                client,
+                "_complete",
+                side_effect=[{"keep": []}, payload, None],
+            ),
+        ):
             raw, extract = client.inspect("Need leather running shoes.")
         self.assertEqual(raw, payload)
         assert extract is not None
@@ -606,7 +613,10 @@ class RepairLoopTest(unittest.TestCase):
             ]
         }
         message = "I want a yellow dress."
-        with patch.object(client, "_complete", side_effect=[first, repair]) as mocked:
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(client, "_complete", side_effect=[first, repair]) as mocked,
+        ):
             raw, extract = client.inspect(message)
         self.assertEqual(mocked.call_count, 2)
         assert extract is not None
@@ -624,7 +634,10 @@ class RepairLoopTest(unittest.TestCase):
             "track": "buying",
         }
         message = "I want a yellow dress."
-        with patch.object(client, "_complete", side_effect=[bad, bad, bad, bad]) as mocked:
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(client, "_complete", side_effect=[bad, bad, bad, bad]) as mocked,
+        ):
             _raw, extract = client.inspect(message)
         self.assertEqual(mocked.call_count, 4)
         assert extract is not None

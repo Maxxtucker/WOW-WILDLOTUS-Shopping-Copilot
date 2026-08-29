@@ -108,7 +108,8 @@ def _sync_primary_category(state: SessionState, *, fallback: str | None = None) 
         if slot.attribute == "category" and slot.surface.strip()
     ]
     if hard:
-        state.category = hard[0]
+        # Last hard row is the most specific tree layer (L1 then L2 then L3).
+        state.category = hard[-1]
         return
     if any_cat:
         state.category = any_cat[0]

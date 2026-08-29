@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
-"""Interactive console for the understand NLU path.
+"""Interactive console: understand extract, then override-first router, then retrieve.
 
 Seed prior session fields yourself, type a shopper utterance, and compare
-regex vs live Ollama vs the hybrid gate. Does not read public_set.jsonl.
+regex vs live Ollama vs the hybrid gate. After apply, production
+``route_intention`` runs: override LLM first; if true, replace session, probe
+once, skip buying/browsing; if false, probe before/after delta then classify
+buying vs browsing. ``CandidateOrganizer`` then scores that exact set.
+Does not read public_set.jsonl. Does not run ranking or clarification.
 
 From repo root (PowerShell):
 
     . .\\scripts\\load_nlu_env.ps1
     python scripts/nlu_console.py
 
-The live client only sees category, locked constraints, and last_ask — not
-the full transcript. Play turns (or /seed those fields) to supply context.
+``--no-retrieve`` skips the catalog (extract + override writeback only).
+``--no-live`` is regex extract; router/retrieve still run when the catalog loads.
+
+The live NLU client only sees category, locked typed-slot surfaces (or
+``/constraints`` strings when slots are empty), and last_ask — not the full
+transcript. Play turns (or /seed those fields) to supply context.
 When NLU is connected, hybrid prefers the model even on protocol-like phrasing.
 """
 
@@ -25,7 +33,18 @@ from typing import Any, TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent.intent_router import apply_delta, classify_override, replace_with_delta, warmup_intent_router
+from agent.intent_router import (
+    apply_delta,
+    classify_override,
+    replace_with_delta,
+    route_intention,
+    warmup_intent_router,
+)
+from agent.intent_router.probe import pool_ratio
+from agent.retrieve.candidates.retrieve import CandidateOrganizer
+from agent.retrieve.catalog import CatalogRetriever
+from agent.retrieve.catalog.index_path import resolve_index_path
+from agent.retrieve.from_slots import exact_pool_groups
 from agent.understand.mode import MODE_NLU, MODE_REGEX, configure_understand
 from agent.understand.observation.hybrid import extract_from_regex, regex_is_high_confidence
 from agent.understand.observation.llm_nlu import OllamaNluClient, load_nlu_env
@@ -38,7 +57,7 @@ HELP = """
 Commands (prefix /). Anything else is this turn's user message.
 
   /help                 this text
-  /state                session fields sent to NLU + history
+  /state                typed slots + NLU context + history (not regex ranking)
   /reset                empty session (keeps apply/raw settings)
   /category TEXT        set category (empty TEXT clears)
   /constraints A; B     set locked constraints (semicolon-separated)
@@ -52,8 +71,12 @@ Commands (prefix /). Anything else is this turn's user message.
   /apply nlu|regex|hybrid|none
                         what to write into SessionState after a turn
                         (hybrid prefers NLU when the model returned JSON).
-                        Live NLU also runs the override LLM (call 1) then
-                        writeback; --no-live only accumulates the extract.
+                        With a catalog: override LLM first. Override replaces
+                        session, probes once, skips buying/browsing, then
+                        retrieve scores that set. Otherwise probe before/after
+                        delta, classify buying/browsing, then retrieve.
+                        --no-retrieve: override LLM then writeback only.
+  /pool                 last exact-pool sample (or exact is None)
   /raw on|off           print model JSON before span grounding
   /quit                 exit
 
@@ -63,6 +86,43 @@ or play turns with /apply nlu so the next call sees updated locks.
 
 APPLY_CHOICES = ("nlu", "regex", "hybrid", "none")
 MODE_CHOICES = ("all", "nlu", "regex")
+EXACT_SAMPLE = 15
+RETRIEVE_TOP = 10
+
+
+def _is_json_primitive(value: object) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def format_console_json(payload: object, *, indent: int = 2) -> str:
+    """Pretty-print JSON, but keep arrays of primitives on one line.
+
+    Default ``json.dumps(indent=2)`` splits ``canonical: ["orange"]`` across
+    three lines and fills the console with closing brackets.
+    """
+
+    def encode(value: object, level: int) -> str:
+        pad = " " * (indent * level)
+        child = " " * (indent * (level + 1))
+        if isinstance(value, dict):
+            if not value:
+                return "{}"
+            parts = [
+                f"{child}{json.dumps(str(key), ensure_ascii=False)}: {encode(item, level + 1)}"
+                for key, item in value.items()
+            ]
+            return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
+        if isinstance(value, (list, tuple)):
+            items = list(value)
+            if not items:
+                return "[]"
+            if all(_is_json_primitive(item) for item in items):
+                return "[" + ", ".join(encode(item, level) for item in items) + "]"
+            parts = [f"{child}{encode(item, level + 1)}" for item in items]
+            return "[\n" + ",\n".join(parts) + f"\n{pad}]"
+        return json.dumps(value, ensure_ascii=False)
+
+    return encode(payload, 0)
 
 
 def split_constraints(text: str) -> list[str]:
@@ -79,16 +139,6 @@ def labeled_constraints(values: tuple[str, ...] | list[str]) -> list[dict[str, s
     return [
         {"span": item, "attribute": classify_constraint(item)} for item in values
     ]
-
-
-def labeled_slots(slots) -> list[dict[str, str]]:
-    return [{"span": slot.surface, "attribute": slot.attribute} for slot in slots]
-
-
-def labeled_locked(state: SessionState) -> list[dict[str, str]]:
-    if state.typed_constraints:
-        return labeled_slots(state.typed_constraints)
-    return labeled_constraints(state.active_constraints)
 
 
 def slot_rows(extract: ObservationExtract) -> list[dict[str, object]]:
@@ -136,6 +186,49 @@ def grounding_drops(
     return dropped
 
 
+def hard_groups_payload(state: SessionState) -> list[dict[str, Any]]:
+    return [
+        {"attribute": attribute, "values": list(values)}
+        for attribute, values in exact_pool_groups(state)
+    ]
+
+
+def router_payload(state: SessionState, exact: set[str] | None) -> dict[str, Any]:
+    overridden = state.intention == "override"
+    before = None if overridden else state.candidate_count_before_delta
+    after = state.candidate_count
+    sample = None if exact is None else sorted(exact)[:EXACT_SAMPLE]
+    ratio = None if overridden else pool_ratio(after, before)
+    return {
+        "intention": state.intention,
+        "override": overridden,
+        "route_llm": "skipped" if overridden else state.intention,
+        "pool_before": before,
+        "pool_after": after,
+        "ratio": None if ratio is None else round(ratio, 4),
+        "exact": None if exact is None else len(exact),
+        "exact_sample": sample,
+        "hard_groups": hard_groups_payload(state),
+    }
+
+
+def retrieve_payload(hits: list, exact: set[str] | None) -> dict[str, Any]:
+    top: list[dict[str, Any]] = []
+    for hit in hits[:RETRIEVE_TOP]:
+        top.append(
+            {
+                "parent_asin": hit.parent_asin,
+                "score": round(float(hit.score), 4),
+                "matched_constraints": list(hit.matched_constraints),
+            }
+        )
+    return {
+        "hit_count": len(hits),
+        "top": top,
+        "scored_exact": exact is not None,
+    }
+
+
 def state_snapshot(state: SessionState) -> dict[str, Any]:
     return {
         "turn": state.turn,
@@ -154,9 +247,6 @@ def state_snapshot(state: SessionState) -> dict[str, Any]:
         },
         "candidate_count": state.candidate_count,
         "preference_tags": list(state.preference_tags),
-        "active_constraints": labeled_locked(state),
-        "legacy_hints": list(state.legacy_hints),
-        "ranking_constraints": labeled_constraints(state.ranking_constraints),
         "last_ask": state.last_ask,
         "gate_open": state.gate_open,
         "override_seen": state.override_seen,
@@ -167,7 +257,7 @@ def state_snapshot(state: SessionState) -> dict[str, Any]:
         ],
         "model_context": {
             "category": state.category,
-            "locked_constraints": list(state.active_constraints),
+            "locked_constraints": list(state.locked_constraint_strings()),
             "last_ask": state.last_ask,
             "note": "Ollama sees only these three fields plus the current message.",
         },
@@ -188,22 +278,37 @@ class NluConsole:
         *,
         show_raw: bool = False,
         out: TextIO | None = None,
+        retriever: CatalogRetriever | None = None,
     ) -> None:
         self.client = client
         self.show_raw = show_raw
         self.out = sys.stdout if out is None else out
+        self.retriever = retriever
+        self.organizer = None if retriever is None else CandidateOrganizer(retriever)
         self.mode = "all"
         self.apply_mode = "nlu" if client is not None else "regex"
         self.state = SessionState("nlu-console", {})
+        self.last_exact: set[str] | None = None
+        self.last_router: dict[str, Any] | None = None
+        self.last_retrieve: dict[str, Any] | None = None
 
     def reset_session(self) -> None:
         self.state = SessionState("nlu-console", {})
+        self.last_exact = None
+        self.last_router = None
+        self.last_retrieve = None
+
+    def close(self) -> None:
+        if self.retriever is not None:
+            self.retriever.close()
+            self.retriever = None
+            self.organizer = None
 
     def _write(self, text: str) -> None:
         self.out.write(text if text.endswith("\n") else text + "\n")
 
     def print_json(self, payload: object) -> None:
-        self._write(json.dumps(payload, indent=2, ensure_ascii=False))
+        self._write(format_console_json(payload))
 
     def run_turn(self, message: str) -> None:
         message = message.strip()
@@ -224,7 +329,7 @@ class NluConsole:
             nlu_payload, nlu_extract = self.client.inspect(
                 message,
                 category=self.state.category,
-                constraints=tuple(self.state.active_constraints),
+                constraints=self.state.locked_constraint_strings(),
                 last_ask=self.state.last_ask,
             )
             nlu_ms = (time.perf_counter() - started) * 1000
@@ -286,34 +391,40 @@ class NluConsole:
         self.state.latest_message = message
         self.state.message_history.append(message)
         self.state.turn_delta = None if chosen.empty else chosen
-        if self.client is None:
+        applied: dict[str, Any] = {
+            "delta": None
+            if self.state.turn_delta is None
+            else {
+                "category": self.state.turn_delta.category,
+                "slots": slot_rows(self.state.turn_delta),
+            },
+        }
+        if self.retriever is not None and self.organizer is not None:
+            exact = route_intention(self.state, self.retriever)
+            hits = self.organizer.apply(self.state, exact)
+            self.last_exact = exact
+            self.last_router = router_payload(self.state, exact)
+            self.last_retrieve = retrieve_payload(hits, exact)
+            applied["router"] = self.last_router
+            applied["retrieve"] = self.last_retrieve
+        elif self.client is None:
             apply_delta(self.state)
         elif classify_override(self.state):
             replace_with_delta(self.state)
             self.state.intention = "override"
         else:
             apply_delta(self.state)
+        applied["session"] = {
+            "category": self.state.category,
+            "typed_constraints": [
+                slot.as_dict() if hasattr(slot, "as_dict") else slot
+                for slot in self.state.typed_constraints
+            ],
+            "intention": self.state.intention,
+            "last_ask": self.state.last_ask,
+        }
         self._write(f"# applied {self.apply_mode} extract; turn={self.state.turn}")
-        delta = self.state.turn_delta
-        self.print_json(
-            {
-                "delta": None
-                if delta is None
-                else {
-                    "category": delta.category,
-                    "slots": slot_rows(delta),
-                },
-                "session": {
-                    "category": self.state.category,
-                    "typed_constraints": [
-                        slot.as_dict() if hasattr(slot, "as_dict") else slot
-                        for slot in self.state.typed_constraints
-                    ],
-                    "intention": self.state.intention,
-                    "last_ask": self.state.last_ask,
-                },
-            }
-        )
+        self.print_json(applied)
 
     def handle_command(self, line: str) -> bool:
         """Return False to exit the loop."""
@@ -322,12 +433,29 @@ class NluConsole:
         if not stripped:
             return True
         if stripped in {"/quit", "/exit", "/q"}:
+            self.close()
             return False
         if stripped in {"/help", "/h", "/?"}:
             self._write(HELP)
             return True
         if stripped == "/state":
-            self.print_json(state_snapshot(self.state))
+            snap = state_snapshot(self.state)
+            if self.last_router is not None:
+                snap["router"] = self.last_router
+            if self.last_retrieve is not None:
+                snap["retrieve"] = self.last_retrieve
+            self.print_json(snap)
+            return True
+        if stripped == "/pool":
+            if self.last_exact is None:
+                self._write("# exact is None")
+            else:
+                self.print_json(
+                    {
+                        "exact": len(self.last_exact),
+                        "sample": sorted(self.last_exact)[:EXACT_SAMPLE],
+                    }
+                )
             return True
         if stripped == "/reset":
             self.reset_session()
@@ -441,19 +569,32 @@ class NluConsole:
                 f"# live NLU on  model={self.client.model}  "
                 f"host={self.client.host}  apply={self.apply_mode}"
             )
+        if self.retriever is None:
+            self._write("# retrieve off; apply is override writeback only.")
+        else:
+            sidecar = (
+                "attached" if self.retriever._slots_attached else "not attached"
+            )
+            self._write(
+                f"# retrieve on  catalog={self.retriever.catalog_path}  "
+                f"sidecar={sidecar}"
+            )
         self._write("# type /state after seeding, then a shopper sentence.")
-        while True:
-            try:
-                line = input(f"nlu t{self.state.turn}> ")
-            except (EOFError, KeyboardInterrupt):
-                self._write("")
-                return
-            stripped = line.strip()
-            if stripped.startswith("/"):
-                if not self.handle_command(stripped):
+        try:
+            while True:
+                try:
+                    line = input(f"nlu t{self.state.turn}> ")
+                except (EOFError, KeyboardInterrupt):
+                    self._write("")
                     return
-                continue
-            self.run_turn(line)
+                stripped = line.strip()
+                if stripped.startswith("/"):
+                    if not self.handle_command(stripped):
+                        return
+                    continue
+                self.run_turn(line)
+        finally:
+            self.close()
 
 
 def _configure_stdio() -> None:
@@ -478,6 +619,16 @@ def main() -> None:
         action="store_true",
         help="Start with /raw on.",
     )
+    parser.add_argument(
+        "--catalog",
+        default="data/catalog.jsonl",
+        help="Catalog JSONL for router probe and retrieve (default data/catalog.jsonl).",
+    )
+    parser.add_argument(
+        "--no-retrieve",
+        action="store_true",
+        help="Skip catalog load; apply is override writeback only.",
+    )
     args = parser.parse_args()
     _configure_stdio()
     client: OllamaNluClient | None = None
@@ -489,7 +640,20 @@ def main() -> None:
         ensure_llm_runtime()
         client = OllamaNluClient.from_env()
         warmup_intent_router()
-    NluConsole(client, show_raw=args.raw).loop()
+    retriever: CatalogRetriever | None = None
+    if not args.no_retrieve:
+        catalog_path = Path(args.catalog)
+        if not catalog_path.is_file():
+            print(f"# catalog not found ({catalog_path}); retrieve off", flush=True)
+        else:
+            print("# loading catalog index (reuses cache when unchanged)...", flush=True)
+            retriever = CatalogRetriever(
+                catalog_path,
+                index_path=resolve_index_path(catalog_path),
+            )
+            if not retriever._slots_attached:
+                print("# sidecar not attached; probe may return None", flush=True)
+    NluConsole(client, show_raw=args.raw, retriever=retriever).loop()
 
 
 if __name__ == "__main__":

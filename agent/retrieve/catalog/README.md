@@ -15,6 +15,7 @@ Index build uses an independent `intent_card` copy in `protocol_copy.py` and doe
 | `signatures.py` | Build response signatures from product metadata; normalize constraints/budget. |
 | `index_path.py` | `AGENT_INDEX_PATH` / `AGENT_CACHE_DIR` → on-disk path. |
 | `index.py` | Schema, fingerprint, FTS + signature tables from JSONL. |
+| `slots_sidecar.py` | ATTACH precomputed `product_slots` (no extraction). |
 | `scoring.py` | Structured scores for a given ASIN pool (no recall). |
 | `search.py` | FTS5 BM25 ∪ signature hits, then scoring. |
 | `retriever.py` | Facade: open DB, exact lookup, `predict_reply`, `search`. |
@@ -28,6 +29,7 @@ Agent.__init__
     resolve_index_path → CatalogRetriever(catalog, index_path)
         fingerprint unchanged: open existing SQLite
         else: index.build writes products / product_fts / signature_values
+        ATTACH product_slots sidecar when fingerprint matches
 
 At query time
     intent_router probe: retriever.signature_candidates(...)

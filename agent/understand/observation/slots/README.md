@@ -33,7 +33,7 @@ One utterance may still emit `canonical: ["blue", "orange", "pink"]`. Writeback 
 
 | Attribute | Handler | Grounding |
 |---|---|---|
-| `category` | `attributes/category.py` | Top-level span or a category slot. Hard and soft category names may coexist. |
+| `category` | `attributes/category.py` | **Cite** a span of the original sentence (node label, slug, tag, or a content token from them). No cite → drop the row. Tree `canonical` tags are classify keys for sidecar probe only. Walk is L1 roots, then one prompt of all selected L1 children, then one prompt of all selected L2 children. A layer may return no ids. A pick must be broader than or equal to the shopper's product (unstated kids/gender/age is dropped). Summary is the last hard cited row. |
 | `color` | `attributes/color.py` | Each `canonical` member ∈ closed color list. Surface may be a synonym; grey/gray are one bucket. Missing canonical and surface not already a list member → drop. |
 | `material` | `attributes/material.py` | Same pattern against `MATERIALS`. |
 | `size` | `attributes/size.py` | See below. Never one shared XS–XXL class for shoes and boxes. Letter `canonical` is a 1-tuple. |
@@ -103,4 +103,4 @@ On session: `typed_constraints` (list of slots, including category). `active_con
 - Per-attribute rules: `attributes/<name>.py`
 - Upsert: `merge_or_attribute_slots` / `split_value_rows` in `merge.py`
 - Retrieve mapping: `slot_search_values` / `constraint_groups` in `retrieve/from_slots.py`
-- Model contract: system prompt in `../llm_nlu.py` (must stay aligned with this README)
+- Model contract: attribute prompt in `../llm_nlu.py`; category ids from the committed tree (must stay aligned with this README)

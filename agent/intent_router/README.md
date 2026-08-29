@@ -40,7 +40,7 @@ Override never uses pool size. Buying vs browsing never runs after override. Har
 - Probe uses **hard** slots only; soft slots score later in retrieve
 - `router_prompt_tokens` / `router_completion_tokens` (this turn)
 
-Tests mock `classify_override` and `classify_route`. They do not assert regex templates.
+[`tests/test_intent_router.py`](../../tests/test_intent_router.py) mocks `classify_override` and `classify_route`. They do not assert regex templates. [`tests/test_understand_router_smoke.py`](../../tests/test_understand_router_smoke.py) stitches observe into this router with a tiny sidecar: scripted HTTP in CI, live Ollama only when `AGENT_SMOKE_LIVE=1`.
 
 ## Core code
 

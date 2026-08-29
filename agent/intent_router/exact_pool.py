@@ -80,7 +80,12 @@ def exact_pool_from_groups(
     *,
     response_only: bool = True,
 ) -> set[str] | None:
-    """Intersect groups. Values inside a group are a union (OR)."""
+    """Intersect groups. Values inside a group are a union (OR).
+
+    A category phrase that misses the index is skipped when other hard
+    groups remain (NLU category is often not a sidecar node). Category-only
+    miss still returns None.
+    """
 
     sets: list[set[str]] = []
     if isinstance(category, str):
@@ -90,10 +95,17 @@ def exact_pool_from_groups(
     if categories:
         hits: set[str] = set()
         for value in categories:
-            hits.update(retriever.signature_candidates("category", value))
-        if not hits:
+            hits.update(
+                retriever.signature_candidates(
+                    "category",
+                    value,
+                    response_only=response_only,
+                )
+            )
+        if hits:
+            sets.append(hits)
+        elif not groups:
             return None
-        sets.append(hits)
     for attribute, alternatives in groups:
         hits = set()
         for value in alternatives:

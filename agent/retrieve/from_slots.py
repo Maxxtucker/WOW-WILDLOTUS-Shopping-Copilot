@@ -60,12 +60,16 @@ def uses_typed_slots(state: SessionState) -> bool:
 
 
 def uses_search_aliases(state: SessionState) -> bool:
-    """Regex-like slots have no closed canonicals; keep response_only signatures."""
+    """True when typed slots carry sidecar canonicals (including category tags).
+
+    Budget amounts are not sidecar keys. Regex-like slots with no canonicals
+    keep response_only signatures.
+    """
 
     return any(
         slot.canonical
         for slot in state.typed_constraints
-        if slot.attribute not in {"category", "budget"}
+        if slot.attribute != "budget"
     )
 
 

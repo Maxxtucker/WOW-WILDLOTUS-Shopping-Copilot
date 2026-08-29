@@ -11,3 +11,13 @@ The competition package does not contain images, videos, account credentials, pr
 
 Participants must follow the source dataset's applicable terms and use the data only for the competition, research, and other permitted purposes. The competition organizer does not claim ownership of the underlying Amazon review or product content.
 
+## Catalog slot aliases (offline preprocess)
+
+These sources are used only by `scripts/build_aliases_color.py` and
+`scripts/build_aliases_material.py` to build committed lookup JSON. They are
+not loaded by the Agent at scoring time, and they do not define user NLU.
+
+- [NacerKr/colors-normalized](https://huggingface.co/datasets/NacerKr/colors-normalized) (MIT): messy color names mapped to a 20-color palette, then to the evaluator 11-color list.
+- [kobo-labs-open-source/textile-fiber-database](https://github.com/kobo-labs-open-source/textile-fiber-database) (MIT): fiber and FTC/EU labelling names mapped to the evaluator material list, plus a small leather/typo table.
+
+

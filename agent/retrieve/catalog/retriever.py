@@ -20,6 +20,7 @@ from .protocol_copy import DEFAULT_FIELD_WEIGHTS, SEARCH_FIELDS, normalise_attri
 from .scoring import ScoringMixin
 from .search import SearchMixin
 from .signatures import value_aliases
+from .slots_sidecar import attach_product_slots
 from .types import ResponseSignature
 
 
@@ -37,6 +38,10 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         Force rebuilding a persistent index.
     field_weights:
         Optional per-field BM25 weights; unspecified fields keep the defaults.
+    slots_path:
+        Optional preprocess sidecar from ``scripts/extract_catalog_slots.py``.
+        ``None`` uses ``AGENT_SLOTS_PATH`` / the default cache path. The
+        retriever only ATTACH-es that file; it never extracts catalog slots.
     """
 
     def __init__(
@@ -46,6 +51,7 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         index_path: str | Path | None = None,
         rebuild: bool = False,
         field_weights: Mapping[str, float] | None = None,
+        slots_path: str | Path | None = None,
     ) -> None:
         self.catalog_path = Path(catalog_path)
         if not self.catalog_path.is_file():
@@ -67,10 +73,18 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         self.connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._closed = False
+        self._slots_attached = False
+        self._slots_path = None
         self._configure_connection()
         if rebuild or not self._index_is_current():
             self._build_index()
         self._load_stats()
+        self._slots_path = attach_product_slots(
+            self.connection,
+            self.catalog_path,
+            slots_path=slots_path,
+        )
+        self._slots_attached = self._slots_path is not None
 
     def __len__(self) -> int:
         return self.product_count
@@ -126,7 +140,8 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         """Find products with a normalized exact signature value.
 
         ``response_only=True`` restricts matches to values the simulator can
-        actually disclose.  The default searches broader catalog aliases.
+        actually disclose.  The default searches broader catalog aliases and,
+        when a matching preprocess sidecar is ATTACH-ed, ``slots.product_slots``.
         """
 
         attr = normalise_attribute(attribute)
@@ -159,7 +174,29 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
             parameters.append(max(0, int(limit)))
         with self._lock:
             rows = self.connection.execute(sql, parameters).fetchall()
-        return tuple(str(row["parent_asin"]) for row in rows)
+            found = [str(row["parent_asin"]) for row in rows]
+            if not response_only and getattr(self, "_slots_attached", False):
+                slot_sql = (
+                    "SELECT DISTINCT parent_asin FROM slots.product_slots "
+                    f"WHERE attribute = ? AND canonical IN ({placeholders}) "
+                    "ORDER BY parent_asin"
+                )
+                slot_parameters: list[object] = [attr, *aliases]
+                if limit is not None:
+                    slot_sql += " LIMIT ?"
+                    slot_parameters.append(max(0, int(limit)))
+                slot_rows = self.connection.execute(
+                    slot_sql, slot_parameters
+                ).fetchall()
+                seen = set(found)
+                for row in slot_rows:
+                    parent_asin = str(row["parent_asin"])
+                    if parent_asin not in seen:
+                        seen.add(parent_asin)
+                        found.append(parent_asin)
+        if limit is not None:
+            found = found[: max(0, int(limit))]
+        return tuple(found)
 
     def predict_reply(
         self,

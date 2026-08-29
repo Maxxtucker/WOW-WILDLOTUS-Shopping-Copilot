@@ -1,7 +1,7 @@
 """Purpose: mutable memory for one session (constraints, misses, conversion gate, intention).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
-Output: ranking_constraints, typed_constraints, preference_tags, excluded_asins, gate_open, intention, and related fields.
+Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
 preference_tags is a reset-time copy of the aggregate profile; retrieve does not read it yet.
@@ -84,10 +84,30 @@ class SessionState:
 
     @property
     def ranking_constraints(self) -> tuple[str, ...]:
+        """Cited-string union for the regex / kit path only.
+
+        NLU retrieve and the NLU console use ``typed_constraints``.
+        """
+
         values = [*self.active_constraints]
         if not self.override_seen:
             values.extend(self.legacy_hints)
         return tuple(dict.fromkeys(values))
+
+    def locked_constraint_strings(self) -> tuple[str, ...]:
+        """Surfaces the attribute LLM should treat as already locked.
+
+        NLU uses typed slot surfaces. Regex and ``/constraints`` seed still
+        use ``active_constraints``.
+        """
+
+        if self.typed_constraints:
+            return tuple(
+                slot.surface.strip()
+                for slot in self.typed_constraints
+                if str(slot.surface).strip()
+            )
+        return tuple(self.active_constraints)
 
     def begin_turn(self, message: str, turn: int) -> None:
         """Apply guaranteed previous-miss feedback, then parse this observation."""

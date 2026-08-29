@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from ..from_slots import (
     exact_pool_groups,
-    preferred_pairs,
+    preferred_groups,
     required_and_budget,
     uses_typed_slots,
 )
@@ -47,10 +47,6 @@ def _hard_categories(state: SessionState) -> tuple[str, ...]:
     return ()
 
 
-def _preferred(state: SessionState, profile_tags: list) -> list:
-    return [*preferred_pairs(state), *profile_tags[:2]]
-
-
 def retrieve_candidates(
     retriever: CatalogRetriever,
     state: SessionState,
@@ -59,24 +55,34 @@ def retrieve_candidates(
     groups, budget = required_and_budget(state)
     routing = routing_for(state.intention)
     categories = _hard_categories(state)
-    if exact is not None:
-        _, profile_tags = rewrite_query(state)
+    query, _profile_tags = rewrite_query(state)
+    soft_groups = preferred_groups(state)
+    if exact:
+        lexical = retriever.lexical_scores(query, routing.candidate_limit)
         hits = retriever.score_candidates(
             exact,
+            lexical_scores={
+                parent_asin: score
+                for parent_asin, score in lexical.items()
+                if parent_asin in exact
+            },
             required_groups=groups,
-            preferred=_preferred(state, profile_tags),
+            preferred_groups=soft_groups,
             categories=categories,
             budget=budget,
             exclude_asins=state.excluded_asins,
             weights=routing.weights,
+            hard_budget=routing.hard_budget,
         )
         return hits[: routing.limit]
 
-    query, profile_tags = rewrite_query(state)
+    # None means no reliable exact signal; an empty set means the strict
+    # intersection over-pruned. Both need lexical recovery rather than an
+    # empty recommendation slate.
     return retriever.search(
         query,
         required_groups=groups,
-        preferred=_preferred(state, profile_tags),
+        preferred_groups=soft_groups,
         categories=categories,
         budget=budget,
         exclude_asins=state.excluded_asins,
@@ -84,4 +90,5 @@ def retrieve_candidates(
         candidate_limit=routing.candidate_limit,
         weights=routing.weights,
         hard_required=False,
+        hard_budget=routing.hard_budget,
     )

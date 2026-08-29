@@ -905,15 +905,25 @@ class IntentionRoutingTest(unittest.TestCase):
         retriever.score_candidates.assert_called_once()
         self.assertEqual([item.parent_asin for item in hits], ["A"])
 
-    def test_retrieve_empty_exact_does_not_bm25(self) -> None:
+    def test_retrieve_empty_exact_uses_lexical_recovery(self) -> None:
         state = SessionState("s", {})
         state.intention = "buying"
         retriever = MagicMock()
-        retriever.score_candidates.return_value = []
+        retriever.search.return_value = []
         hits = retrieve_candidates(retriever, state, set())
-        retriever.search.assert_not_called()
-        retriever.score_candidates.assert_called_once()
+        retriever.search.assert_called_once()
+        retriever.score_candidates.assert_not_called()
         self.assertEqual(hits, [])
+
+    def test_profile_dimensions_are_not_literal_search_terms(self) -> None:
+        state = SessionState("s", {"preference_tags": ["fit", "comfort"]})
+        state.category = "running shoes"
+        state.latest_message = "forget boots; I need running shoes"
+        query, tags = rewrite_query(state)
+        self.assertEqual(query, "running shoes")
+        self.assertEqual(tags, ["fit", "comfort"])
+        self.assertNotIn("forget", query)
+        self.assertNotIn("comfort", query)
 
     def test_override_matches_buying_weights(self) -> None:
         buying = routing_for("buying")

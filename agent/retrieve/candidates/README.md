@@ -2,23 +2,26 @@
 
 ## Purpose
 
-Pipeline stage after the intention router. Score the router's exact ASIN set, or BM25 when that set is `None`. Buying / browsing / override share this skeleton. Weights and caps come from `routing.py`.
+Pipeline stage after the intention router. Score the router's exact ASIN set,
+or use hybrid BM25/signature recall when that set is unavailable or empty.
+Buying / browsing / override share this skeleton. Weights and caps come from
+`routing.py`.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `query.py` | category + slot search values (or active_constraints) + current message + profile tags → BM25 query. |
+| `query.py` | current category + committed slot search values → BM25 query; raw message is fallback-only. |
 | `routing.py` | `routing_for(intention)`: SearchWeights and limit. |
 | `retrieve.py` | `CandidateOrganizer` / `retrieve_candidates`. |
 
 ## Collaboration
 
 ```text
-exact is not None (any intention, including empty set):
+exact is non-empty:
+    BM25 tie-break inside exact pool
     retriever.score_candidates(exact)[:150 or 500]
-    do not BM25 the full catalog
-exact is None:
+exact is None or empty:
     rewrite_query → retriever.search(..., hard_required=False)
 ```
 
@@ -29,7 +32,10 @@ exact is None:
 - Input: `SessionState`, `exact: set[str] | None`
 - Output: `list[SearchHit]` (Buying/override cap 150, Browsing 500)
 - Query string: see `rewrite_query` (typed search values when slots exist)
-- Required: hard groups from `from_slots.required_and_budget` (OR inside an attribute, AND across; plus hard budget interval). Soft slots go to `preferred`.
+- Required: hard groups from `from_slots.required_and_budget` (OR inside an attribute, AND across).
+- Preferred: soft slot groups use OR semantics inside one attribute and never prune candidates.
+- Buying/override treats a known out-of-range price as a hard failure. Missing prices remain eligible because absence is not evidence of failure.
+- `preference_tags` are not copied into BM25 as literal product words; the optional semantic ranker uses them only as weak personalization evidence.
 
 ## Core code
 

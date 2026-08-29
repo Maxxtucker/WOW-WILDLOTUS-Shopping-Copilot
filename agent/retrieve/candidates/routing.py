@@ -36,13 +36,19 @@ class TrackRouting:
     limit: int
     exact_first: bool
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
+    hard_budget: bool = False
 
 
 def routing_for(intention: str | None) -> TrackRouting:
     """Unset intention keeps the historical exact-first cap of 500."""
 
     if intention in {"buying", "override"}:
-        return TrackRouting(BUYING_WEIGHTS, BUYING_LIMIT, exact_first=True)
+        return TrackRouting(
+            BUYING_WEIGHTS,
+            BUYING_LIMIT,
+            exact_first=True,
+            hard_budget=True,
+        )
     if intention == "browsing":
         return TrackRouting(BROWSING_WEIGHTS, BROWSING_LIMIT, exact_first=True)
     return TrackRouting(SearchWeights(), DEFAULT_LIMIT, exact_first=True)

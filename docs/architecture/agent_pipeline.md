@@ -85,9 +85,10 @@ user_message
     ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ 3. IntentRouter  (intent_router/)                             │
-│    LLM: override?  (no catalog, no regex)                     │
-│    yes → replace state with delta, probe once, intention=override │
-│    no  → probe old → apply_delta → probe new → LLM buying/browsing │
+│    LLM L1? keep only if this turn's category is distant            │
+│    else L2 replace-vs-add (skip both if no prior intent)          │
+│    L1/L2 → clear or drop-delta-fields, apply_delta, open gate      │
+│    else  → probe old → apply_delta → probe new → LLM buying/browsing │
 │    fail-safe: gate closed at turn≥4 → open gate only          │
 └───────────────────────────────────────────────────────────────┘
     │
@@ -124,22 +125,22 @@ user_message
 Orchestration code:
 
 ```41:53:agent/pipeline.py
-    def run(
-        self,
-        state: SessionState,
-        user_message: str,
-        turn: int,
-        top_k: int,
-    ) -> dict:
+    def run(...) -> dict:
+        response, _trace = self.run_traced(...)
+        return response
+
+    def run_traced(...) -> tuple[dict, TurnTrace]:
         self.state_detector.apply(state, user_message, turn)
         exact = self.intent_router.apply(state, self.retriever)
         hits = self.organizer.apply(state, exact)
-        ranked = self.ranker.apply(hits)
+        ranked = self.ranker.apply(hits, state)
         plan, slate = self.clarifier.apply(state, ranked, top_k)
-        return self.responder.apply(state, self.retriever, hits, plan, slate)
+        return self.responder.apply(
+            state, self.retriever, [hit.parent_asin for hit in hits], plan, slate
+        ), TurnTrace(...)
 ```
 
-Observe stores `turn_delta`. The intention router classifies override with a separate local model (no regex). Catalog features may legally contain `instead` / `forget`; that is handled by the override prompt and by tests that mock `override=false`.
+Observe stores `turn_delta`. The intention router classifies override with a separate local model (no regex). L1 is kept only when this turn names a category that is far from the committed one (sandal vs backpack); attribute-only turns and close-family category swaps cannot be L1. L2 replaces only the fields present on this turn's delta, and only when the utterance clearly overturns a preference. Adding alternatives is not override. Catalog features may legally contain `instead` / `forget`; that is handled by the L2 prompt and by tests that mock accumulate. Both override levels open the conversion gate. The override LLMs are skipped when no committed prior intent exists.
 
 ---
 
@@ -149,8 +150,9 @@ Observe stores `turn_delta`. The intention router classifies override with a sep
 | --- | --- | --- |
 | Official entry | `starter/agent.py` | Evaluator import; re-exports `agent.Agent` |
 | Orchestrator | `agent/orchestrator.py` | Session dict, index path, hand `respond` to pipeline |
-| One-turn loop | `agent/pipeline.py` | Observe, route, retrieve, rank, plan, respond |
-| Stage contracts | `agent/stages.py` | Swappable Protocols for a later LLM implementation |
+| One-turn loop | `agent/pipeline.py` | Observe, route, retrieve, rank, plan, respond. `run_traced` also returns `TurnTrace` |
+| Stage summaries | `agent/trace.py` | Compact per-stage dicts for the console chatbot |
+| Stage contracts | `agent/stages.py` | Swappable Protocols, including `ResponseStage` |
 | Dialogue memory | `agent/understand/state/` | `SessionState` dataclass; miss / fail-safe / begin_turn |
 | Intention router | `agent/intent_router/` | Override LLM, delta commit, exact-pool probes, buying/browsing |
 | Conversion gate | `agent/understand/state/gate.py` | Open gate and clear leftover / exclusions |
@@ -305,10 +307,11 @@ Regex templates (kit tests and NLU fallback) still live in `understand/observati
 
 **Package:** `agent/intent_router/`. Independent Ollama JSON client (same host/model/timeout as observation, separate conversation state).
 
-1. Call 1, no catalog: `{"override": true|false}`.
-2. If override: treat `turn_delta` as the full new intent, probe the exact pool once, set `intention=override`, skip buying/browsing.
-3. If not: probe the **old** state, `apply_delta`, probe again, then call 2 with counts and ratio → `buying` | `browsing`. Pass the after-delta exact set to retrieve.
-4. Fail-safe after writeback. Three failed router extracts: not-override and `browsing`. No regex routing.
+1. If there is no committed prior intent (category / typed_constraints / active_constraints / leftover), skip both override LLMs and accumulate.
+2. Otherwise call L1 (`{"full": true|false}`). Keep L1 only when this turn names a category that is far from the committed one. Attribute-only turns and close-family category swaps discard L1 and call L2 (`{"override": true|false}`). L2 is also called when L1 is false. No catalog.
+3. L1 clears all typed constraints then `apply_delta`. L2 drops only delta field names then `apply_delta`. Both open the conversion gate, probe the exact pool once, set `intention=override`, skip buying/browsing.
+4. If not: probe the **old** state, `apply_delta`, probe again, then call the route LLM with counts and ratio → `buying` | `browsing`. Pass the after-delta exact set to retrieve.
+5. Fail-safe after writeback. Three failed router extracts: not-override and `browsing`. No regex routing.
 
 Tests patch `agent.intent_router.router.classify_override` and `classify_route`.
 

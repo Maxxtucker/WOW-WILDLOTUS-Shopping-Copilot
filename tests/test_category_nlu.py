@@ -27,7 +27,14 @@ from agent.understand.observation.category_tree import (
     walk_category_tree,
 )
 from agent.understand.observation.coordinator import observe
-from agent.understand.observation.llm_nlu import OllamaNluClient, _CATEGORY_LAYER_PROMPT
+from agent.understand.observation.llm_nlu import (
+    OllamaNluClient,
+    _CATEGORY_LAYER_PROMPT,
+    category_payload_from_nodes,
+)
+from agent.understand.observation.slots.attributes.category import (
+    node_category_canonicals,
+)
 from agent.understand.observation.rewrite import AliasHit, merge_alias_hits, rewrite_for_nlu
 from agent.understand.observation.schema import parse_observation_payload
 from agent.understand.observation.slots import ConstraintSlot
@@ -492,6 +499,69 @@ class AliasRewriteTest(unittest.TestCase):
         self.assertNotIn("orpiment", rewritten)
 
 
+class CategoryIdentityTagsTest(unittest.TestCase):
+    def test_women_bodysuits_keeps_identity_and_grounded_leaf(self) -> None:
+        women = CategoryNode(id="Women", label="Women", catalog_tags=("woman",))
+        clothing = CategoryNode(
+            id="clothing",
+            label="Clothing",
+            catalog_tags=(
+                "clothing",
+                "jeans",
+                "bra",
+                "trench",
+                "sock",
+                "bodysuit",
+            ),
+        )
+        message = "Women Bodysuits"
+        self.assertEqual(
+            node_category_canonicals(
+                message,
+                label=women.label,
+                node_id=women.id,
+                tags=women.catalog_tags,
+            ),
+            ("woman",),
+        )
+        self.assertEqual(
+            node_category_canonicals(
+                message,
+                label=clothing.label,
+                node_id=clothing.id,
+                tags=clothing.catalog_tags,
+            ),
+            ("bodysuit",),
+        )
+        rows = category_payload_from_nodes((women, clothing), message)
+        tags = [tag for row in rows for tag in row["canonical"]]
+        self.assertEqual(tags, ["woman", "bodysuit"])
+
+    def test_women_only_writes_identity(self) -> None:
+        women = CategoryNode(id="Women", label="Women", catalog_tags=("woman",))
+        self.assertEqual(
+            node_category_canonicals(
+                "just something for women",
+                label=women.label,
+                node_id=women.id,
+                tags=women.catalog_tags,
+            ),
+            ("woman",),
+        )
+
+    def test_womens_clothing_keeps_both_identities(self) -> None:
+        women = CategoryNode(id="Women", label="Women", catalog_tags=("woman",))
+        clothing = CategoryNode(
+            id="clothing",
+            label="Clothing",
+            catalog_tags=("clothing",),
+        )
+        message = "women's clothing"
+        rows = category_payload_from_nodes((women, clothing), message)
+        tags = [tag for row in rows for tag in row["canonical"]]
+        self.assertEqual(tags, ["woman", "clothing"])
+
+
 class SplitNluTest(unittest.TestCase):
     def test_category_surface_cites_shopper_span(self) -> None:
         extract = parse_observation_payload(
@@ -560,10 +630,11 @@ class SplitNluTest(unittest.TestCase):
                 ],
                 "empty": False,
             },
+            {"empty": False},
         ]
         with patch.object(client, "_complete", side_effect=layers) as mocked:
             raw, extract = client.inspect("I want blue running shoes.")
-        self.assertEqual(mocked.call_count, 3)
+        self.assertEqual(mocked.call_count, 4)
         first_prompt = mocked.call_args_list[0].args[0]
         self.assertIn("Clothing_Shoes_and_Jewelry", first_prompt)
         self.assertNotIn("Westlake", first_prompt)
@@ -616,6 +687,7 @@ class SplitNluTest(unittest.TestCase):
                 ],
                 "empty": False,
             },
+            {"empty": False},
         ]
         state = SessionState("observe-layers", {})
         with (

@@ -35,6 +35,7 @@ class ObservationExtract:
     empty: bool = False
     source: ExtractSource = "regex"
     repair_rounds: int = 0
+    disclosure_empty: bool | None = None
 
 
 def span_grounded(value: str, message: str) -> bool:

@@ -33,7 +33,7 @@ One utterance may still emit `canonical: ["blue", "orange", "pink"]`. Writeback 
 
 | Attribute | Handler | Grounding |
 |---|---|---|
-| `category` | `attributes/category.py` | **Cite** a span of the original sentence (node label, slug, tag, or a content token from them). No cite → drop the row. Tree `canonical` tags are classify keys for sidecar probe only. Walk is L1 roots, then one prompt of all selected L1 children, then one prompt of all selected L2 children. A layer may return no ids. A pick must be broader than or equal to the shopper's product (unstated kids/gender/age is dropped). Summary is the last hard cited row. |
+| `category` | `attributes/category.py` | **Cite** a span of the original sentence (node label, slug, tag, or a content token from them). No cite → drop the row. Each node's `canonical` is that node's identity tag or the catalog tags that cite the message — not the subtree union. More than five unique tags in the turn go through `category_cap` (LLM filter with `fold_category` match, three retries, then sidecar `df`). Walk is L1 roots, then one prompt of all selected L1 children, then one prompt of all selected L2 children. A layer may return no ids. A pick must be broader than or equal to the shopper's product (unstated kids/gender/age is dropped). Summary is the last hard cited row. |
 | `color` | `attributes/color.py` | Each `canonical` member ∈ closed color list. Surface may be a synonym; grey/gray are one bucket. Missing canonical and surface not already a list member → drop. |
 | `material` | `attributes/material.py` | Same pattern against `MATERIALS`. |
 | `size` | `attributes/size.py` | See below. Never one shared XS–XXL class for shoes and boxes. Letter `canonical` is a 1-tuple. |

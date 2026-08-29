@@ -9,7 +9,7 @@ function Thumb({ card, large }) {
   const {
     title = "",
     store = "",
-    accent = "#4A7C59",
+    accent = "#ff2b7a",
     image_url = null,
   } = card || {};
   const [failed, setFailed] = useState(false);
@@ -26,12 +26,12 @@ function Thumb({ card, large }) {
         borderRadius: large ? 14 : 10,
         overflow: "hidden",
         background: showImage
-          ? "#1A1A1A"
-          : `linear-gradient(145deg, ${accent} 0%, #1F1F1F 100%)`,
+          ? "#101010"
+          : `linear-gradient(145deg, ${accent} 0%, #101010 100%)`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        border: "1px solid #404040",
+        border: "1px solid rgba(255,255,255,0.08)",
       }}
     >
       {showImage ? (
@@ -80,9 +80,9 @@ function HeroCard({ card }) {
         gap: 16,
         padding: 16,
         borderRadius: 16,
-        background: "#2A2A2A",
-        border: "1px solid #525252",
-        boxShadow: "0 0 0 1px rgba(255,255,255,0.04)",
+        background: "linear-gradient(180deg, #151515 0%, #101010 100%)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
       }}
     >
       <Thumb card={card} large />
@@ -92,7 +92,7 @@ function HeroCard({ card }) {
             fontSize: 11,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
-            color: "#FBBF24",
+            color: "#ff2b7a",
             fontWeight: 600,
             marginBottom: 6,
           }}
@@ -104,7 +104,7 @@ function HeroCard({ card }) {
             fontWeight: 600,
             fontSize: 16,
             lineHeight: 1.35,
-            color: "#FAFAFA",
+            color: "#f5f7fb",
           }}
         >
           {title}
@@ -118,11 +118,11 @@ function HeroCard({ card }) {
             fontSize: 15,
           }}
         >
-          <span style={{ fontWeight: 700, color: "#FFFFFF" }}>
+          <span style={{ fontWeight: 700, color: "#f5f7fb" }}>
             {formatPrice(price)}
           </span>
           {ratingText ? (
-            <span style={{ color: "#D4D4D4" }}>★ {ratingText}</span>
+            <span style={{ color: "rgba(255,255,255,0.64)" }}>★ {ratingText}</span>
           ) : null}
         </div>
         {blurb ? (
@@ -131,7 +131,7 @@ function HeroCard({ card }) {
               marginTop: 8,
               fontSize: 13,
               lineHeight: 1.45,
-              color: "#C4C4C4",
+              color: "rgba(255,255,255,0.68)",
             }}
           >
             {blurb}
@@ -151,9 +151,9 @@ function HeroCard({ card }) {
                 key={tag}
                 style={{
                   fontSize: 12,
-                  color: "#E5E5E5",
-                  background: "#3A3A3A",
-                  border: "1px solid #525252",
+                  color: "#d6fff3",
+                  background: "rgba(32,201,151,0.12)",
+                  border: "1px solid rgba(32,201,151,0.26)",
                   borderRadius: 999,
                   padding: "3px 10px",
                 }}
@@ -175,12 +175,13 @@ function MiniCard({ card }) {
   return (
     <div
       style={{
-        flex: "0 0 auto",
-        width: 148,
+        minWidth: 0,
+        width: "100%",
         padding: 10,
         borderRadius: 12,
-        background: "#242424",
-        border: "1px solid #3F3F3F",
+        background: "linear-gradient(180deg, #151515 0%, #101010 100%)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxSizing: "border-box",
       }}
     >
       <Thumb card={card} large={false} />
@@ -190,7 +191,7 @@ function MiniCard({ card }) {
           fontSize: 12,
           fontWeight: 600,
           lineHeight: 1.3,
-          color: "#F3F3F3",
+          color: "#f5f7fb",
           display: "-webkit-box",
           WebkitLineClamp: 2,
           WebkitBoxOrient: "vertical",
@@ -200,7 +201,7 @@ function MiniCard({ card }) {
       >
         {title}
       </div>
-      <div style={{ marginTop: 6, fontSize: 12, color: "#D4D4D4" }}>
+      <div style={{ marginTop: 6, fontSize: 12, color: "rgba(255,255,255,0.64)" }}>
         {formatPrice(price)}
         {ratingText ? ` · ★ ${ratingText}` : ""}
       </div>
@@ -209,8 +210,9 @@ function MiniCard({ card }) {
 }
 
 export default function ProductShelf() {
+  const message = String(props.message || "").trim();
   const hero = props.hero || null;
-  const others = Array.isArray(props.others) ? props.others : [];
+  const others = (Array.isArray(props.others) ? props.others : []).slice(0, 10);
   const clarifyPrompt = props.clarify_prompt || "";
   const clarifyActions = Array.isArray(props.clarify_actions)
     ? props.clarify_actions
@@ -220,12 +222,34 @@ export default function ProductShelf() {
   const exploreText =
     props.explore_text || "More like this one would be nice";
 
-  if (!hero && others.length === 0) {
+  if (!hero && others.length === 0 && !message) {
     return null;
   }
 
   return (
-    <div style={{ marginTop: 10, maxWidth: 560, color: "#F3F3F3" }}>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 760,
+        marginTop: 10,
+        color: "#f5f7fb",
+        boxSizing: "border-box",
+      }}
+    >
+      {message ? (
+        <div
+          style={{
+            marginBottom: hero || others.length ? 12 : 0,
+            fontSize: 15,
+            lineHeight: 1.5,
+            color: "rgba(255,255,255,0.86)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {message}
+        </div>
+      ) : null}
+
       {hero ? <HeroCard card={hero} /> : null}
 
       {others.length > 0 ? (
@@ -235,20 +259,18 @@ export default function ProductShelf() {
               fontSize: 12,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: "#A3A3A3",
+              color: "rgba(255,255,255,0.48)",
               fontWeight: 600,
               marginBottom: 8,
             }}
           >
-            Other good matches →
+            Other good matches
           </div>
           <div
             style={{
-              display: "flex",
+              display: "grid",
+              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
               gap: 10,
-              overflowX: "auto",
-              paddingBottom: 6,
-              WebkitOverflowScrolling: "touch",
             }}
           >
             {others.map((card) => (
@@ -266,14 +288,14 @@ export default function ProductShelf() {
           style={{
             marginTop: 18,
             paddingTop: 14,
-            borderTop: "1px solid #3F3F3F",
+            borderTop: "1px solid rgba(255,255,255,0.08)",
           }}
         >
           <div
             style={{
               fontSize: 14,
               lineHeight: 1.5,
-              color: "#E5E5E5",
+              color: "rgba(255,255,255,0.82)",
               whiteSpace: "pre-wrap",
             }}
           >
@@ -300,9 +322,9 @@ export default function ProductShelf() {
                   }
                   style={{
                     borderRadius: 999,
-                    border: "1px solid #525252",
-                    background: "#333333",
-                    color: "#F5F5F5",
+                    border: "1px solid rgba(255,43,122,0.28)",
+                    background: "rgba(255,43,122,0.12)",
+                    color: "#ffe1ec",
                     padding: "8px 14px",
                     fontSize: 13,
                     fontWeight: 500,
@@ -324,7 +346,7 @@ export default function ProductShelf() {
               fontSize: 11,
               letterSpacing: "0.05em",
               textTransform: "uppercase",
-              color: "#737373",
+              color: "rgba(255,255,255,0.4)",
               fontWeight: 600,
               marginBottom: 8,
             }}
@@ -341,9 +363,9 @@ export default function ProductShelf() {
             }
             style={{
               borderRadius: 999,
-              border: "1px solid #525252",
-              background: "#333333",
-              color: "#F5F5F5",
+              border: "1px solid rgba(255,43,122,0.28)",
+              background: "rgba(255,43,122,0.12)",
+              color: "#ffe1ec",
               padding: "8px 14px",
               fontSize: 13,
               fontWeight: 500,

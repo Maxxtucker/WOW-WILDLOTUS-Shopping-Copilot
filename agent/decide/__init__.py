@@ -1,6 +1,6 @@
 """Decide layer: posterior rank, pick the most distinguishing question, assemble the official response.
 
-Input: SearchHit list, SessionState, top_k.
+Input: SearchHit list, SessionState, top_k; response writeback uses candidate ASINs.
 Output: {message, ask_attribute, recommendations, usage}, and session writeback.
 Role: hit at rank-1 as early as possible within 10 turns. See README.md.
 """

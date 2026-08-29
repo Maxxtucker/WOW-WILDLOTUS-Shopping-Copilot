@@ -62,9 +62,11 @@ class SessionState:
     asked: list[str] = field(default_factory=list)
     last_ask: str | None = None
     last_slate: list[str] = field(default_factory=list)
+    last_ranked: list[str] = field(default_factory=list)
     last_gate_open: bool = True
     excluded_asins: set[str] = field(default_factory=set)
     shown_asins: set[str] = field(default_factory=set)
+    disclosure_empty: bool | None = None
     informative_replies: int = 0
     last_reply_informative: bool = False
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)

@@ -20,7 +20,9 @@ Understand defaults to local NLU (`understand_mode="nlu"`). `hybrid_extract` cal
 | `category_merch.py` | Detect Amazon promo / merchandising category labels. |
 | `category_tree.py` | Load the fold-pruned 3-level tree (promo children omitted). Walk L1 roots, then concat selected children per layer. A layer with no children, or an empty id list, does not start another category LLM round. |
 | `category_scope.py` | Drop L2+ branches that add kids/gender/age the shopper did not state. |
-| `llm_nlu.py` | Ollama JSON client. HTTP only. Rewrite gates, layered category JSON, then a separate attribute JSON. No override keys. |
+| `category_cap.py` | After identity emit, if this turn still has more than five unique category tags, keep five that cover the item (`fold_category` match, three retries, then sidecar `df`). |
+| `llm_nlu.py` | Ollama JSON client. HTTP only. Rewrite gates, layered category JSON, category cap, then a separate attribute JSON. No override keys. |
+| `disclosure.py` | After category+attribute, void the delta when the original utterance disclosed neither a category nor any attribute direction. |
 | `runtime.py` | Ping Ollama, spawn `serve` if needed, load the configured model. No pull. |
 | `hybrid.py` | NLU up to three attempts when mode is nlu; else regex. |
 | `coordinator.py` | `observe`: store `turn_delta`. Does not apply constraints, override, or intention. |
@@ -30,7 +32,7 @@ Understand defaults to local NLU (`understand_mode="nlu"`). `hybrid_extract` cal
 ```text
 every turn:
     hybrid_extract
-        nlu mode → rewrite (+ word-class gates) + layered category LLM + attribute LLM (3 attempts)
+        nlu mode → rewrite (+ word-class gates) + layered category LLM + category cap + attribute LLM (3 attempts) + disclosure
         regex mode, or all attempts None → classify.py
     colon_fallback      → last-resort constraint parse (regex path, no constraints yet)
     state.turn_delta    → extract, or None when empty
@@ -51,7 +53,7 @@ python scripts/nlu_console.py
 
 `python scripts/nlu_probe.py --live` loads the same file. Keys: `AGENT_NLU_MODEL`, `AGENT_NLU_HOST`, `AGENT_NLU_TIMEOUT`, optional `AGENT_UNDERSTAND_MODE`, optional `AGENT_NLU_ENABLED=0` to force regex when mode is not pinned.
 
-The console loads `data/catalog.jsonl` by default. After apply it calls production `route_intention`: override first (replace + one probe, skip buying/browsing), else probe before/after delta then buying/browsing, then retrieve scores that exact pool (`/pool` dumps a sample). `--no-retrieve` keeps extract + override writeback only.
+The console loads `data/catalog.jsonl` by default and runs production `TurnPipeline` (understand → router → retrieve → rank → decide). It prints each stage and the agent reply, with catalog titles on the slate. `/pool` dumps the last exact-pool sample. `--no-retrieve` keeps extract + override writeback only.
 
 ## Core code
 

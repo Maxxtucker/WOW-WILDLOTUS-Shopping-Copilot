@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from ...domain import MATERIALS
+from ...progress import emit, skip_nodes
 from .slots.attributes.color import CLOSED_COLOR_SET
 
 _ALIASES_DIR = (
@@ -54,30 +55,91 @@ def rewrite_for_nlu(
 ) -> str:
     """Casefold ``message`` and replace known color/material phrases."""
 
+    emit("understand", "casefold", "running")
     folded = (message or "").casefold()
+    emit("understand", "casefold", "completed", {"text": folded})
     if not folded.strip():
+        skip_nodes(
+            "understand",
+            "color_map",
+            "material_map",
+            "color_verify",
+            "material_verify",
+            "merge_rewrite",
+        )
         return folded
     spans = [(match.start(), match.end(), match.group()) for match in _WORD_RE.finditer(folded)]
     if not spans:
+        skip_nodes(
+            "understand",
+            "color_map",
+            "material_map",
+            "color_verify",
+            "material_verify",
+            "merge_rewrite",
+        )
         return folded
     color_map, color_n = _load_color_mapping()
     material_map, material_n = _load_material_mapping()
+    emit("understand", "color_map", "running")
+    emit("understand", "material_map", "running")
     color_hits = collect_hits(spans, color_map, color_n)
     material_hits = collect_hits(spans, material_map, material_n)
+    emit("understand", "color_map", "completed", {"hits": _alias_rows(color_hits)})
+    emit(
+        "understand",
+        "material_map",
+        "completed",
+        {"hits": _alias_rows(material_hits)},
+    )
+    color_work = _has_nontrivial(color_hits)
+    material_work = _has_nontrivial(material_hits)
     if (
         verify_color is not None
         and verify_material is not None
-        and any(hit.phrase != hit.replacement for hit in color_hits)
-        and any(hit.phrase != hit.replacement for hit in material_hits)
+        and color_work
+        and material_work
     ):
+        before_color = list(color_hits)
+        before_material = list(material_hits)
+        emit("understand", "color_verify", "running")
+        emit("understand", "material_verify", "running")
         color_hits, material_hits = gate_hits_parallel(
             color_hits, material_hits, verify_color, verify_material
         )
+        emit(
+            "understand",
+            "color_verify",
+            "completed",
+            {"hits": _alias_rows(before_color, color_hits)},
+        )
+        emit(
+            "understand",
+            "material_verify",
+            "completed",
+            {"hits": _alias_rows(before_material, material_hits)},
+        )
     else:
-        color_hits = _gate_hits(color_hits, verify_color)
-        material_hits = _gate_hits(material_hits, verify_material)
+        color_hits = _gate_with_progress(
+            "color_verify", color_hits, verify_color
+        )
+        material_hits = _gate_with_progress(
+            "material_verify", material_hits, verify_material
+        )
+    emit("understand", "merge_rewrite", "running")
     merged = merge_alias_hits(color_hits, material_hits)
-    return _apply_hits(folded, spans, merged)
+    rewritten = _apply_hits(folded, spans, merged)
+    emit(
+        "understand",
+        "merge_rewrite",
+        "completed",
+        {
+            "original": message,
+            "rewritten": rewritten,
+            "hits": _alias_rows(merged),
+        },
+    )
+    return rewritten
 
 
 def collect_hits(
@@ -158,6 +220,46 @@ def merge_alias_hits(
         used.update(range(hit.start, hit.end))
     picked.sort(key=lambda hit: hit.start)
     return picked
+
+
+def _has_nontrivial(hits: Sequence[AliasHit]) -> bool:
+    return any(hit.phrase != hit.replacement for hit in hits)
+
+
+def _alias_rows(
+    hits: Sequence[AliasHit],
+    kept: Sequence[AliasHit] | None = None,
+) -> list[dict[str, object]]:
+    kept_keys = (
+        None
+        if kept is None
+        else {(hit.start, hit.end, hit.phrase) for hit in kept}
+    )
+    rows: list[dict[str, object]] = []
+    for hit in hits:
+        row: dict[str, object] = {
+            "phrase": hit.phrase,
+            "replacement": hit.replacement,
+        }
+        if kept_keys is not None:
+            row["kept"] = (hit.start, hit.end, hit.phrase) in kept_keys
+        rows.append(row)
+    return rows
+
+
+def _gate_with_progress(
+    node: str,
+    hits: list[AliasHit],
+    verify: AliasVerify | None,
+) -> list[AliasHit]:
+    if verify is None or not hits or not _has_nontrivial(hits):
+        skip_nodes("understand", node)
+        return _gate_hits(hits, verify)
+    before = list(hits)
+    emit("understand", node, "running")
+    kept = _gate_hits(hits, verify)
+    emit("understand", node, "completed", {"hits": _alias_rows(before, kept)})
+    return kept
 
 
 def _gate_hits(hits: list[AliasHit], verify: AliasVerify | None) -> list[AliasHit]:

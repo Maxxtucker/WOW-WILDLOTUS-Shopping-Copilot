@@ -1,2 +1,3 @@
 # Extra deps for the local Chainlit shopping demo (not required for evaluation).
-chainlit>=1.3.0,<3
+# Pin 2.12: unpinned installs resolve literalai -> traceloop-sdk and hang pip.
+chainlit==2.12.0

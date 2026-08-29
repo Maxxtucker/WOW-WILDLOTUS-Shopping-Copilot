@@ -17,6 +17,7 @@ from .patterns import (
     OVERRIDE_RE,
 )
 from ...domain import classify_constraint
+from ...progress import skip_nodes, UNDERSTAND_NLU_NODES
 from ..mode import MODE_NLU, current_understand_mode
 from .classify import extract_category, extract_constraints
 from .llm_nlu import extract_with_llm
@@ -87,4 +88,5 @@ def hybrid_extract(state: SessionState, message: str) -> ObservationExtract:
             llm_extract = extract_with_llm(state, message)
             if llm_extract is not None:
                 return llm_extract
+    skip_nodes("understand", *UNDERSTAND_NLU_NODES)
     return extract_from_regex(state, message)

@@ -6,6 +6,7 @@ Role: structural contract; there is no second implementation yet.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from .retrieve.catalog.retriever import CatalogRetriever
@@ -50,4 +51,16 @@ class ClarificationStage(Protocol):
         ranked: list[RankedCandidate],
         top_k: int,
     ) -> tuple[Plan, list[str]]:
+        ...
+
+
+class ResponseStage(Protocol):
+    def apply(
+        self,
+        state: SessionState,
+        retriever: CatalogRetriever,
+        candidate_asins: Sequence[str],
+        plan: Plan,
+        slate: list[str],
+    ) -> dict:
         ...

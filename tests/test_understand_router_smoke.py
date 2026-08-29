@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.request import Request
 
-from agent.intent_router.llm import OVERRIDE_SYSTEM, ROUTE_SYSTEM
+from agent.intent_router.llm import ROUTE_SYSTEM
 from agent.intent_router.probe import probe_exact_pool
 from agent.intent_router.router import route_intention
 from agent.retrieve.candidates.retrieve import CandidateOrganizer
@@ -43,7 +43,7 @@ from agent.understand.state import SessionState
 BLUE_SHOE = "BLUE_SHOE"
 PINK_SHOE = "PINK_SHOE"
 BOOK = "BOOK"
-SHOE_TAGS = ("clothing shoe jewelry", "woman", "shoe")
+SHOE_TAGS = ("clothing shoe jewelry", "woman", "shoe", "sandal")
 TURN1 = "I'm looking for women's sandals."
 TURN2 = "Those sandals in navy, please."
 TURN3 = "Ignore my earlier preference. I want leather sandals instead."
@@ -196,6 +196,20 @@ def _category_reply(user: str) -> dict:
     return {"ids": [], "stop": True}
 
 
+def _category_cap_reply(user: str) -> dict:
+    ids: list[str] = []
+    for line in user.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        tag = stripped[2:].split(" (products:", 1)[0].strip()
+        if tag:
+            ids.append(tag)
+        if len(ids) == 5:
+            break
+    return {"ids": ids}
+
+
 def _attribute_reply(user: str) -> dict:
     text = user.casefold()
     if "leather" in text:
@@ -225,10 +239,6 @@ def _attribute_reply(user: str) -> dict:
     return {"constraints": [], "empty": False}
 
 
-def _override_reply(user: str) -> dict:
-    return {"override": "ignore my earlier preference" in user.casefold()}
-
-
 def _route_reply(user: str) -> dict:
     match = re.search(r"Candidate pool after this turn's delta: (\S+)", user)
     after = match.group(1) if match else "null"
@@ -256,12 +266,18 @@ def _kind(system: str, user: str) -> str:
         return "alias_material"
     if system.startswith("You assign this shopping message"):
         return "category"
+    if system.startswith("You filter catalog category tags"):
+        return "category_cap"
     if system.startswith("You extract this turn's shopping attributes"):
         if user.startswith("The previous JSON failed span checks"):
             return "repair"
         return "attribute"
-    if system.startswith("You decide whether this customer message replaces"):
-        return "override"
+    if system.startswith("You judge whether this shopper utterance discloses"):
+        return "disclosure"
+    if system.startswith("You judge whether this shopper utterance discards ALL"):
+        return "override_l1"
+    if system.startswith("You judge whether this utterance replaces some"):
+        return "override_l2"
     if system.startswith("You choose buying vs browsing"):
         return "route"
     return "unknown"
@@ -328,12 +344,25 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
             reply = _alias_keep_reply(user)
         elif kind == "category":
             reply = _category_reply(user)
+        elif kind == "category_cap":
+            reply = _category_cap_reply(user)
         elif kind == "attribute":
             reply = _attribute_reply(user)
         elif kind == "repair":
             reply = {"constraints": [], "empty": False}
-        elif kind == "override":
-            reply = _override_reply(user)
+        elif kind == "disclosure":
+            reply = {"empty": False}
+        elif kind == "override_l1":
+            reply = {"full": "ignore my earlier preference" in user.casefold()}
+        elif kind == "override_l2":
+            text = user.casefold()
+            reply = {
+                "override": (
+                    "instead" in text
+                    or "forget" in text
+                    or "ignore my earlier preference" in text
+                )
+            }
         elif kind == "route":
             reply = _route_reply(user)
         else:
@@ -366,7 +395,7 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.assertIsNone(state.category)
         self.assertEqual(
             self._kinds(),
-            ["category", "category", "category", "attribute"],
+            ["category", "category", "category", "attribute", "disclosure"],
             msg=[(call.kind, call.user[:160]) for call in self.calls],
         )
         self.assertEqual(self.calls[0].system, _CATEGORY_LAYER_PROMPT)
@@ -396,7 +425,7 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.assertEqual(state.candidate_count, 2)
         self.assertEqual({hit.parent_asin for hit in hits}, {BLUE_SHOE, PINK_SHOE})
         session_tags = _category_canonicals(state.typed_constraints)
-        self.assertIn("shoe", session_tags)
+        self.assertTrue(session_tags & {"shoe", "sandal"})
         self.assertIn("woman", session_tags)
         groups = dict(exact_pool_groups(state))
         self.assertIn("category", groups)
@@ -406,14 +435,14 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.assertIn("Candidate pool after this turn's delta: 2", route_calls[0].user)
         self.assertIn("Ratio after/before: null", route_calls[0].user)
         self.assertGreater(state.router_prompt_tokens, 0)
-        self.assertTrue(self.calls[len(nlu_calls)].system.startswith(OVERRIDE_SYSTEM[:40]))
+        self.assertEqual(self.calls[len(nlu_calls)].kind, "route")
         self.assertTrue(route_calls[0].system.startswith(ROUTE_SYSTEM[:40]))
 
         self.calls.clear()
         state.begin_turn(TURN2, 2)
         self.assertEqual(
             self._kinds(),
-            ["alias_color", "category", "category", "attribute"],
+            ["alias_color", "category", "category", "attribute", "disclosure"],
         )
         self.assertEqual(self.calls[0].system, _COLOR_WORD_PROMPT)
         self.assertIsNotNone(state.turn_delta)
@@ -437,7 +466,9 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.assertEqual(state.candidate_count_before_delta, 2)
         self.assertEqual(state.candidate_count, 1)
         self.assertEqual([hit.parent_asin for hit in hits], [BLUE_SHOE])
-        self.assertIn("shoe", _category_canonicals(state.typed_constraints))
+        self.assertTrue(
+            _category_canonicals(state.typed_constraints) & {"shoe", "sandal"}
+        )
         colors = [slot for slot in state.typed_constraints if slot.attribute == "color"]
         self.assertEqual(len(colors), 1)
         self.assertEqual(colors[0].canonical, ("blue",))
@@ -459,15 +490,18 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         search.assert_not_called()
         self.assertEqual(probe.call_count, 1)
         self.assertNotIn("route", self._kinds())
-        self.assertEqual(self._kinds().count("override"), 1)
+        self.assertEqual(self._kinds().count("override_l1"), 1)
+        self.assertEqual(self._kinds().count("override_l2"), 1)
         self.assertEqual(state.intention, "override")
         self.assertTrue(state.gate_open)
         self.assertIsNone(state.candidate_count_before_delta)
-        self.assertEqual(exact, {BLUE_SHOE, PINK_SHOE})
-        self.assertEqual({hit.parent_asin for hit in hits}, {BLUE_SHOE, PINK_SHOE})
-        self.assertFalse(
-            any(slot.attribute == "color" for slot in state.typed_constraints)
-        )
+        self.assertEqual(exact, {BLUE_SHOE})
+        self.assertEqual({hit.parent_asin for hit in hits}, {BLUE_SHOE})
+        colors = [
+            slot for slot in state.typed_constraints if slot.attribute == "color"
+        ]
+        self.assertEqual(len(colors), 1)
+        self.assertEqual(colors[0].canonical, ("blue",))
         materials = [
             slot for slot in state.typed_constraints if slot.attribute == "material"
         ]

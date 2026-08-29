@@ -33,7 +33,7 @@ StateDetector.begin_turn
           write turn_delta only
 
 IntentRouter.apply   (agent/intent_router, after understand)
-    classify override (independent LLM; no regex)
+    classify override (independent LLM; no regex; true only for a product/category switch or explicit reset)
     replace or accumulate, probe exact pool, label intention
     failsafe: gate still closed and turn>=4 → open the gate only
 ```

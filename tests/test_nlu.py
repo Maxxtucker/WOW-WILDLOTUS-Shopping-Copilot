@@ -139,7 +139,7 @@ class SpanGroundingTest(unittest.TestCase):
             patch.object(
                 client,
                 "_complete",
-                side_effect=[{"keep": []}, payload, None],
+                side_effect=[{"keep": []}, payload, None, {"empty": False}],
             ),
         ):
             raw, extract = client.inspect("Need leather running shoes.")
@@ -686,10 +686,12 @@ class RepairLoopTest(unittest.TestCase):
         message = "I want a yellow dress."
         with (
             patch.object(client, "_category_picks", return_value=()),
-            patch.object(client, "_complete", side_effect=[first, repair]) as mocked,
+            patch.object(
+                client, "_complete", side_effect=[first, repair, {"empty": False}]
+            ) as mocked,
         ):
             raw, extract = client.inspect(message)
-        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(mocked.call_count, 3)
         assert extract is not None
         self.assertEqual(extract.constraints, ("yellow",))
         self.assertEqual(extract.repair_rounds, 1)
@@ -707,10 +709,14 @@ class RepairLoopTest(unittest.TestCase):
         message = "I want a yellow dress."
         with (
             patch.object(client, "_category_picks", return_value=()),
-            patch.object(client, "_complete", side_effect=[bad, bad, bad, bad]) as mocked,
+            patch.object(
+                client,
+                "_complete",
+                side_effect=[bad, bad, bad, bad, {"empty": False}],
+            ) as mocked,
         ):
             _raw, extract = client.inspect(message)
-        self.assertEqual(mocked.call_count, 4)
+        self.assertEqual(mocked.call_count, 5)
         assert extract is not None
         self.assertTrue(extract.empty)
         self.assertEqual(extract.repair_rounds, 3)

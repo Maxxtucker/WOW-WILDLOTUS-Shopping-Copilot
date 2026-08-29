@@ -15,8 +15,11 @@ _IMAGE_INDEX = load_image_index()
 
 
 def format_assistant_text(result: dict, cards: list[dict[str, Any]]) -> str:
-    """Lead copy only — clarify prompt renders under the product shelf."""
+    """Official agent message. Clarify chips still render under the shelf."""
 
+    official = str(result.get("message") or "").strip()
+    if official:
+        return official
     if not cards:
         return (
             "I couldn't find a strong match yet.\n\n"
@@ -28,6 +31,7 @@ def format_assistant_text(result: dict, cards: list[dict[str, Any]]) -> str:
 def build_elements(
     cards: list[dict[str, Any]],
     *,
+    message: str = "",
     clarify_prompt: str | None = None,
     clarify_actions: list[dict[str, str]] | None = None,
 ) -> list[cl.CustomElement]:
@@ -37,8 +41,9 @@ def build_elements(
         cl.CustomElement(
             name="ProductShelf",
             props={
+                "message": message,
                 "hero": cards[0],
-                "others": cards[1:],
+                "others": cards[1:11],
                 "clarify_prompt": clarify_prompt or "",
                 "clarify_actions": clarify_actions or [],
                 "explore_label": MORE_LIKE_THIS["label"],
@@ -123,9 +128,12 @@ def prepare_reply(
     if use_custom_elements:
         elements = build_elements(
             cards,
+            message=content,
             clarify_prompt=clarify,
             clarify_actions=clarify_actions,
         )
+        if elements:
+            content = " "
     else:
         elements = []
         md = cards_as_markdown(cards, clarify_prompt=clarify)

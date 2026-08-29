@@ -14,8 +14,8 @@ begin_turn
         hybrid_extract  → ObservationExtract   (no constraint writes)
         turn_delta      → extract, or None if empty
 IntentRouter
-    classify_override (independent Ollama client; no regex)
-    replace_with_delta or apply_delta
+    classify_override L1/L2 (independent Ollama client; no regex; skip if no prior intent)
+    clear_typed+apply_delta, drop_typed+apply_delta, or apply_delta
     probe exact pool; maybe classify buying/browsing
 ```
 
@@ -107,7 +107,7 @@ Do not set these as user/system environment variables if you want kit tests to s
 
 | Script | Role |
 | --- | --- |
-| `scripts/nlu_console.py` | Interactive observe, then override-first `route_intention` (skip buying/browsing when override) and retrieve on the exact pool. Per-turn dump: `nlu` / `delta` / `router` / `retrieve`. `--no-retrieve` is override writeback only. |
+| `scripts/nlu_console.py` | Interactive shopper chatbot. With a catalog each turn is production `TurnPipeline` (understand → router → retrieve → rank → decide). Prints stage summaries plus the agent message and titled recommendations. `/raw` dumps JSON. `--no-retrieve` is extract + override writeback only. |
 | `scripts/nlu_probe.py --live` | Fixture spans vs live model |
 
 ## Tests
@@ -116,7 +116,8 @@ Do not set these as user/system environment variables if you want kit tests to s
 - [`tests/test_intent_router.py`](../../tests/test_intent_router.py): patches `classify_override` / `classify_route` / `probe_exact_pool`.
 - [`tests/test_nlu.py`](../../tests/test_nlu.py): regex by default in hybrid tests; nlu tests `configure_understand("nlu")` and patch `hybrid.extract_with_llm`. Three `None` returns then regex. Agent nlu constructs with `ensure_llm_runtime` mocked. No live Ollama in CI.
 - [`tests/test_category_nlu.py`](../../tests/test_category_nlu.py): committed tree, child→parent map, alias rewrite, mocked layered category HTTP.
-- [`tests/test_nlu_console.py`](../../tests/test_nlu_console.py): patches console `classify_override` when retrieve is off; tiny-catalog tests exercise override-first `route_intention` + retrieve.
+- [`tests/test_nlu_console.py`](../../tests/test_nlu_console.py): patches console `classify_override` when retrieve is off; tiny-catalog tests exercise the full pipeline through the official reply.
+- [`tests/test_pipeline_smoke.py`](../../tests/test_pipeline_smoke.py): one-turn `TurnPipeline` smoke (buying, browsing, miss exclusion, override, empty, turn 10, BM25 fallback, console chatbot print).
 - [`tests/test_understand_router_smoke.py`](../../tests/test_understand_router_smoke.py): observe → `turn_delta` → override/writeback → sidecar probe → buying/browsing → retrieve scores the exact set. Offline tests script `/api/chat`. Live Ollama is opt-in: `AGENT_SMOKE_LIVE=1` (fails if `/api/tags` is down).
 
 ## Files

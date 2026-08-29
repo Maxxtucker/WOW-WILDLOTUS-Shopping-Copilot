@@ -17,14 +17,14 @@ Each subdirectory has its own README. Each `.py` file starts with Purpose / Inpu
 ## Collaboration
 
 ```text
-Ranker.apply(hits)
-    belief_from_hits → normalize_probabilities → RankedCandidate[]
+Ranker.apply(hits, state)
+    optional semantic head, else belief_from_hits → RankedCandidate[]
 
 Clarifier.apply(state, ranked, top_k)
     ├─ predict_reply partitions → ScoreAwarePlanner.plan → Plan
     └─ apply_sequential_gate → usually keep rank-1 (full Top-K on turn 10)
 
-ResponseBuilder.apply(state, retriever, hits, plan, slate)
+ResponseBuilder.apply(state, retriever, candidate_asins, plan, slate)
     ├─ persist_turn: set_reply_options + record_action
     └─ build_response: message + ask_attribute + recommendations
 ```

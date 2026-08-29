@@ -7,8 +7,9 @@ Role: pipeline stage 5. Does not recompute the hard intersection.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from ...progress import emit, skip_nodes
 from ..catalog.types import DimensionSpec
 from ..from_slots import (
     exact_pool_groups,
@@ -51,16 +52,62 @@ def _hard_categories(state: SessionState) -> tuple[str, ...]:
     return ()
 
 
+def _group_rows(groups: object) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in groups or ():
+        attribute, values = item
+        rows.append({"attribute": str(attribute), "values": list(values)})
+    return rows
+
+
 def retrieve_candidates(
     retriever: CatalogRetriever,
     state: SessionState,
     exact: set[str] | None = None,
 ) -> list[SearchHit]:
+    emit("retrieve", "slot_groups", "running")
     groups, budget = required_and_budget(state)
+    soft_groups = preferred_groups(state)
+    emit(
+        "retrieve",
+        "slot_groups",
+        "completed",
+        {
+            "input": {"intention": state.intention},
+            "output": {
+                "required": _group_rows(groups),
+                "preferred": _group_rows(soft_groups),
+                "budget": None if budget is None else {"low": budget[0], "high": budget[1]},
+            },
+        },
+    )
+    emit("retrieve", "rewrite_query", "running")
     routing = routing_for(state.intention)
     categories = _hard_categories(state)
     query, _profile_tags = rewrite_query(state)
-    soft_groups = preferred_groups(state)
+    emit(
+        "retrieve",
+        "rewrite_query",
+        "completed",
+        {
+            "input": {"category": state.category},
+            "output": {"query": query[:160]},
+        },
+    )
+    emit("retrieve", "routing", "running")
+    emit(
+        "retrieve",
+        "routing",
+        "completed",
+        {
+            "input": {"intention": state.intention},
+            "output": {
+                "limit": routing.limit,
+                "candidate_limit": routing.candidate_limit,
+                "exact_first": routing.exact_first,
+            },
+        },
+    )
     text_query = " ".join(soft_text_terms(state))
     hard_budget = session_budget(state, hard_only=True) is not None
     dim = session_dimension(state)
@@ -90,26 +137,87 @@ def retrieve_candidates(
         "profile_tags": state.preference_tags,
     }
     if exact:
+        skip_nodes(
+            "retrieve",
+            "hybrid_search",
+            why="exact pool is nonempty",
+        )
+        emit("retrieve", "lexical_in_pool", "running")
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
+        in_pool = {
+            parent_asin: score
+            for parent_asin, score in lexical.items()
+            if parent_asin in exact
+        }
+        emit(
+            "retrieve",
+            "lexical_in_pool",
+            "completed",
+            {
+                "input": {"exact": len(exact), "query": query[:120]},
+                "output": {"lexical_in_pool": len(in_pool)},
+            },
+        )
+        emit("retrieve", "score_exact", "running")
         hits = retriever.score_candidates(
             exact,
-            lexical_scores={
-                parent_asin: score
-                for parent_asin, score in lexical.items()
-                if parent_asin in exact
-            },
+            lexical_scores=in_pool,
             in_exact_pool=True,
             **score_kwargs,
         )
-        return hits[: routing.limit]
+        emit(
+            "retrieve",
+            "score_exact",
+            "completed",
+            {"output": {"scored": len(hits)}},
+        )
+        capped = hits[: routing.limit]
+        emit(
+            "retrieve",
+            "cap_hits",
+            "completed",
+            {
+                "input": {"scored": len(hits), "limit": routing.limit},
+                "output": {"hit_count": len(capped), "path": "exact"},
+                "hit_count": len(capped),
+            },
+        )
+        return capped
 
     # None means no reliable exact signal; an empty set means the strict
     # intersection over-pruned. Both need lexical recovery rather than an
     # empty recommendation slate.
-    return retriever.search(
+    skip_nodes(
+        "retrieve",
+        "lexical_in_pool",
+        "score_exact",
+        why="exact pool is empty or missing",
+    )
+    emit("retrieve", "hybrid_search", "running")
+    hits = retriever.search(
         query,
         limit=routing.limit,
         candidate_limit=routing.candidate_limit,
         hard_required=False,
         **score_kwargs,
     )
+    emit(
+        "retrieve",
+        "hybrid_search",
+        "completed",
+        {
+            "input": {"query": query[:120], "limit": routing.limit},
+            "output": {"hit_count": len(hits)},
+        },
+    )
+    emit(
+        "retrieve",
+        "cap_hits",
+        "completed",
+        {
+            "input": {"limit": routing.limit},
+            "output": {"hit_count": len(hits), "path": "hybrid"},
+            "hit_count": len(hits),
+        },
+    )
+    return hits

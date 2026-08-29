@@ -31,6 +31,7 @@ def begin_turn(state: SessionState, message: str, turn: int) -> None:
     state.message_history.append(state.latest_message)
     state.last_reply_informative = False
     state.turn_delta = None
+    state.disclosure_empty = None
     state.candidate_count_before_delta = None
     state.router_prompt_tokens = 0
     state.router_completion_tokens = 0

@@ -3,7 +3,8 @@
 Input: host/model/timeout from env plus one user message and compact session context.
 Output: ObservationExtract, or None on timeout/parse/network failure.
 Role: HTTP only. Rewrites color/material aliases (word-class gates in parallel),
-walks the category tree, then extracts attributes. Does not classify override.
+walks the category tree, caps a bloated category list, extracts attributes,
+then judges whether the original utterance disclosed a category or attribute.
 Agent nlu mode constructs the client once.
 """
 
@@ -21,7 +22,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
 from ...domain import MATERIALS
+from ...progress import emit, skip_nodes
 from ..mode import MODE_NLU, current_understand_mode
+from .category_cap import cap_category_payload
+from .disclosure import apply_disclosure
 from .category_scope import (
     filter_layer_decision,
     node_adds_unstated_audience,
@@ -45,7 +49,7 @@ from .slots import (
     collect_failures,
     merge_repair_payload,
 )
-from .slots.attributes.category import cite_category_node
+from .slots.attributes.category import cite_category_node, node_category_canonicals
 
 if TYPE_CHECKING:
     from ..state.session import SessionState
@@ -235,15 +239,23 @@ class OllamaNluClient:
             verify_material=self._verify_material_hits,
         )
         picks = self._category_picks(message)
+        category_rows = cap_category_payload(
+            message,
+            category_payload_from_nodes(picks, message),
+            complete=self._complete,
+        )
+        emit("understand", "attribute_llm", "running")
         payload = self._complete(
             _user_prompt(rewritten, category, constraints, last_ask),
             system=_ATTRIBUTE_SYSTEM_PROMPT,
         )
         if payload is None:
+            emit("understand", "attribute_llm", "error")
+            skip_nodes("understand", "repair_1", "repair_2", "repair_3", "disclosure")
             return None, None
+        emit("understand", "attribute_llm", "completed")
         working = copy.deepcopy(payload)
         _drop_category_constraints(working)
-        category_rows = category_payload_from_nodes(picks, message)
         if category_rows:
             working["category"] = category_rows
             working["empty"] = False
@@ -253,20 +265,36 @@ class OllamaNluClient:
             if not failures:
                 break
             repair_rounds += 1
+            node = f"repair_{repair_rounds}"
+            emit("understand", node, "running")
             repair = self._complete(
                 _repair_prompt(rewritten, failures),
                 system=_ATTRIBUTE_SYSTEM_PROMPT,
             )
             if repair is None:
+                emit("understand", node, "error")
                 break
             working = merge_repair_payload(working, repair, failures)
             _drop_category_constraints(working)
             if category_rows:
                 working["category"] = category_rows
+            emit("understand", node, "completed")
+        skip_nodes(
+            "understand",
+            *[
+                f"repair_{index}"
+                for index in range(repair_rounds + 1, MAX_REPAIR_ROUNDS + 1)
+            ],
+        )
         extract = parse_observation_payload(
             working, rewritten, category_message=message
         )
-        return working, replace(extract, repair_rounds=repair_rounds)
+        extract = apply_disclosure(
+            replace(extract, repair_rounds=repair_rounds),
+            message,
+            complete=self._complete,
+        )
+        return working, extract
 
     def extract(
         self,
@@ -439,11 +467,19 @@ def category_payload_from_nodes(
         )
         if not cited:
             continue
+        canonicals = node_category_canonicals(
+            message,
+            label=node.label,
+            node_id=node.id,
+            tags=node.catalog_tags,
+        )
+        if not canonicals:
+            continue
         items.append(
             {
                 "surface": cited,
                 "is_hard": True,
-                "canonical": list(node.catalog_tags),
+                "canonical": list(canonicals),
             }
         )
     return items
@@ -572,6 +608,13 @@ def _loads_json_object(content: str) -> dict | None:
 
 
 _client: OllamaNluClient | None = None
+
+
+def set_nlu_client(client: OllamaNluClient | None) -> None:
+    """Install the process-wide NLU client. Console and tests inject here."""
+
+    global _client
+    _client = client
 
 
 def warmup_nlu() -> OllamaNluClient | None:

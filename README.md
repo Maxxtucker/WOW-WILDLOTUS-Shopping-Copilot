@@ -107,7 +107,7 @@ scripts/
   extract_catalog_slots.py
   catalog_preprocess/  offline catalog slot extractors
 
-  nlu_console.py    interactive observe (NLU vs regex)
+  nlu_console.py    interactive full-pipeline shopper chatbot
   nlu_probe.py      fixture probe; --live calls Ollama
   nlu.env           local model/host/timeout (not loaded on import)
 tests/
@@ -115,6 +115,7 @@ tests/
   test_intent_router.py
   test_nlu.py
   test_nlu_console.py
+  test_pipeline_smoke.py
 evaluator/          unchanged official evaluator
 data/public_set.jsonl
 ```
@@ -221,6 +222,11 @@ The default is a four-turn Intent Override example. It prints each simulated
 customer message, the structured attribute asked, the recommendation slate,
 and the first-hit turn/rank, making it suitable for a backend walkthrough
 video.
+
+The live Chainlit circuit (`demo/chainlit_app.py`) also prints each pipeline
+stage to the same terminal when that stage lights up: turn_delta, session
+snapshot, router output, retrieve/rank top 10, then decide recommendations
+and the official respond dict.
 
 ## Implementation highlights
 

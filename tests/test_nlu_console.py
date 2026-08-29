@@ -61,6 +61,12 @@ class _FakeNluClient:
         }
         return payload, parse_observation_payload(payload, message)
 
+    def extract(self, message, *, category, constraints, last_ask):
+        _payload, parsed = self.inspect(
+            message, category=category, constraints=constraints, last_ask=last_ask
+        )
+        return parsed
+
 
 class ConsoleHelperTest(unittest.TestCase):
     def test_print_json_keeps_short_canonical_on_one_line(self) -> None:
@@ -299,6 +305,12 @@ class _ScriptedNluClient:
         payload, grounding = self._payloads.pop(0)
         return payload, parse_observation_payload(payload, grounding or message)
 
+    def extract(self, message, *, category, constraints, last_ask):
+        _payload, parsed = self.inspect(
+            message, category=category, constraints=constraints, last_ask=last_ask
+        )
+        return parsed
+
 
 class ConsoleRetrieveHandoffTest(unittest.TestCase):
     """Tiny catalog + sidecar. Mock override/route LLMs. Real probe and retrieve."""
@@ -385,9 +397,13 @@ class ConsoleRetrieveHandoffTest(unittest.TestCase):
         top_asins = {row["parent_asin"] for row in console.last_retrieve["top"]}
         self.assertTrue(top_asins <= {"BLUE_SHOE"})
         self.assertNotIn("BOOK", top_asins)
+        self.assertIsNotNone(console.last_trace)
+        self.assertIn("message", console.last_trace.response)
+        self.assertTrue(console.last_trace.response["recommendations"])
         text = out.getvalue()
-        self.assertIn('"pool_after": 1', text)
-        self.assertIn('"intention": "buying"', text)
+        self.assertIn("--- agent ---", text)
+        self.assertIn("BLUE_SHOE", text)
+        self.assertIn("intention=buying", text)
 
     def test_override_skips_route_llm_and_still_retrieves(self) -> None:
         first = {
@@ -460,6 +476,8 @@ class ConsoleRetrieveHandoffTest(unittest.TestCase):
         top_asins = {row["parent_asin"] for row in console.last_retrieve["top"]}
         self.assertEqual(top_asins, {"BLUE_SHOE", "PINK_SHOE"})
         self.assertTrue(console.last_retrieve["scored_exact"])
+        self.assertEqual(console.state.intention, "override")
+        self.assertTrue(console.last_trace.response["recommendations"])
         console.handle_command("/pool")
         self.assertIn("BLUE_SHOE", console.out.getvalue())
 

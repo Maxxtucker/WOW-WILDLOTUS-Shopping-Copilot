@@ -5,8 +5,15 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from agent.intent_router.llm import (
+    OverrideDecision,
+    classify_override,
+    has_committed_intent,
+    _override_user_prompt,
+)
 from agent.intent_router.router import route_intention
 from agent.understand.observation.schema import ObservationExtract
+from agent.understand.observation.slots import ConstraintSlot
 from agent.understand.state import SessionState
 
 _OVERRIDE = "agent.intent_router.router.classify_override"
@@ -130,6 +137,80 @@ class IntentRouterTest(unittest.TestCase):
         self.assertTrue(state.gate_open)
         self.assertFalse(state.override_seen)
         self.assertEqual(state.intention, "browsing")
+
+
+class ClassifyOverrideGuardTest(unittest.TestCase):
+    def test_skips_llm_without_committed_intent(self) -> None:
+        state = SessionState("s", {})
+        state.latest_message = "I'm looking for sandals."
+        state.turn_delta = ObservationExtract(category="sandals", source="regex")
+        self.assertFalse(has_committed_intent(state))
+        client = MagicMock()
+        with patch(
+            "agent.intent_router.llm.get_intent_router_client",
+            return_value=client,
+        ):
+            self.assertEqual(classify_override(state), OverrideDecision(0))
+        client.complete.assert_not_called()
+
+    def test_calls_llm_when_prior_intent_exists(self) -> None:
+        state = SessionState("s", {})
+        state.category = "sandals"
+        state.latest_message = "Forget sandals. I want a backpack."
+        state.turn_delta = ObservationExtract(category="backpack", source="regex")
+        self.assertTrue(has_committed_intent(state))
+        client = MagicMock()
+        client.complete.return_value = {"full": True}
+        client.last_prompt_tokens = 0
+        client.last_completion_tokens = 0
+        with patch(
+            "agent.intent_router.llm.get_intent_router_client",
+            return_value=client,
+        ):
+            self.assertEqual(classify_override(state), OverrideDecision(1))
+        client.complete.assert_called_once()
+        user = client.complete.call_args.args[1]
+        self.assertIn("Prior category: sandals", user)
+        self.assertIn("This turn category: backpack", user)
+        self.assertIn("Committed inventory:", user)
+        self.assertIn("This turn delta fields:", user)
+        self.assertNotIn("Same-category attribute edit", user)
+
+    def test_leftover_hint_counts_as_committed_intent(self) -> None:
+        state = SessionState("s", {})
+        state.legacy_hints = ["Prefer an old style."]
+        state.latest_message = "That earlier request no longer applies."
+        client = MagicMock()
+        client.complete.side_effect = [{"full": True}, {"override": False}]
+        client.last_prompt_tokens = 0
+        client.last_completion_tokens = 0
+        with patch(
+            "agent.intent_router.llm.get_intent_router_client",
+            return_value=client,
+        ):
+            self.assertEqual(classify_override(state), OverrideDecision(0))
+        self.assertEqual(client.complete.call_count, 2)
+
+    def test_user_prompt_lists_delta_fields(self) -> None:
+        state = SessionState("s", {})
+        state.category = "sandals"
+        state.latest_message = "Make them navy instead of pink."
+        state.turn_delta = ObservationExtract(
+            category="sandals",
+            slots=(
+                ConstraintSlot(
+                    attribute="color",
+                    surface="navy",
+                    canonical="navy",
+                    is_hard=True,
+                ),
+            ),
+            source="llm",
+        )
+        prompt = _override_user_prompt(state)
+        self.assertIn("This turn delta fields: color", prompt)
+        self.assertIn("Committed inventory:", prompt)
+        self.assertNotIn("Same-category attribute edit", prompt)
 
 
 class HardSoftConstraintTest(unittest.TestCase):

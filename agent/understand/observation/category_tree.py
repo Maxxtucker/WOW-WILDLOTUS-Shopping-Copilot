@@ -19,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Sequence
 
+from ...progress import emit, skip_nodes
 from .category_merch import is_merchandising_label
 
 TREE_PATH = (
@@ -105,33 +106,70 @@ def walk_category_tree(
     dropped. Fan-out is capped per layer.
     """
 
+    def _skip_from(layer: int) -> None:
+        skip_nodes(
+            "understand",
+            *[f"category_l{index}" for index in range(layer, max_depth + 1)],
+        )
+
     level = tuple(roots) if roots is not None else load_category_tree()
     if not level:
+        _skip_from(1)
         return ()
+    emit("understand", "category_l1", "running")
     first = classify(message, None, level)
     if first is None:
+        emit("understand", "category_l1", "error")
+        _skip_from(2)
         return ()
     selected = _drop_unknown(_resolve_choice(first.ids, level, max_fanout))
+    emit(
+        "understand",
+        "category_l1",
+        "completed",
+        {
+            "labels": [node.label for node in selected],
+            "ids": [node.id for node in selected],
+        },
+    )
     if not selected:
+        _skip_from(2)
         return ()
     collected: list[CategoryNode] = list(selected)
     if first.stop or max_depth <= 1:
+        _skip_from(2)
         return _unique_nodes(collected)
 
     current = selected
     depth = 1
     while depth < max_depth:
+        node_id = f"category_l{depth + 1}"
         pool = _concat_children(current)
         if not pool:
+            _skip_from(depth + 1)
             break
+        emit("understand", node_id, "running")
         decision = classify(message, None, pool)
         if decision is None:
+            emit("understand", node_id, "error")
+            _skip_from(depth + 2)
             break
         nxt = _drop_unknown(_resolve_choice(decision.ids, pool, max_fanout))
+        emit(
+            "understand",
+            node_id,
+            "completed",
+            {
+                "labels": [node.label for node in nxt],
+                "ids": [node.id for node in nxt],
+            },
+        )
         if not nxt:
+            _skip_from(depth + 2)
             break
         collected.extend(nxt)
         if decision.stop:
+            _skip_from(depth + 2)
             break
         current = nxt
         depth += 1

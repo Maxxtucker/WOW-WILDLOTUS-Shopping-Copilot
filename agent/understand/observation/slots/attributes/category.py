@@ -3,8 +3,8 @@
 Input: raw category value plus the original user message, or a parsed item.
 Output: a copied span, or a ConstraintSlot with optional sidecar canonicals.
 Role: surface is a span of the original shopper sentence (label, slug, tag, or
-a token from those strings). catalog_tags stay classify keys for sidecar probe
-and are not required to appear as a whole phrase.
+a token from those strings). Emitted canonicals are this node's identity or
+the catalog tags that cite the message, not the subtree union.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
+from ...category_fold import fold_category
 from ...schema import ground_span
 from ..text import clean_surface
 from ..types import ConstraintSlot, ParsedItem
@@ -92,3 +93,55 @@ def cite_category_node(
         *tag_list,
         *cite_tokens(label, slug, *tag_list),
     )
+
+
+def node_identity_tag(node_id: str = "", tags: Sequence[str] = ()) -> str:
+    """This node's own category key: first catalog tag, else the folded id."""
+
+    for tag in tags:
+        cleaned = str(tag).strip()
+        if cleaned:
+            return cleaned
+    slug = node_id.replace("_", " ").strip()
+    return fold_category(slug) or fold_category(node_id) or slug.casefold()
+
+
+def grounded_catalog_tags(message: str, tags: Sequence[str]) -> tuple[str, ...]:
+    """Catalog tags that cite a span of ``message``, first-fold wins."""
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        cleaned = str(tag).strip()
+        if not cleaned:
+            continue
+        if surface_for_tags(message, cleaned) is None:
+            continue
+        key = fold_category(cleaned) or cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(cleaned)
+    return tuple(found)
+
+
+def node_category_canonicals(
+    message: str,
+    *,
+    label: str,
+    node_id: str = "",
+    tags: Sequence[str] = (),
+) -> tuple[str, ...]:
+    """Identity or message-grounded tags for one tree node. Never the subtree dump.
+
+    Grounded catalog tags win. If none cite but the node itself does (label or
+    id), write only the node identity. Uncited nodes return empty.
+    """
+
+    if not cite_category_node(message, label=label, node_id=node_id, tags=tags):
+        return ()
+    grounded = grounded_catalog_tags(message, tags)
+    if grounded:
+        return grounded
+    identity = node_identity_tag(node_id, tags)
+    return (identity,) if identity else ()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...progress import emit, skip_nodes
 from .belief import BELIEF_TEMPERATURE, belief_from_hits
 from .normalize import RankedCandidate, normalize_probabilities
 from .semantic import (
@@ -43,10 +44,70 @@ class Ranker:
         state: SessionState | None = None,
     ) -> list[RankedCandidate]:
         if state is not None and self.retriever is not None:
+            emit("retrieve", "qwen_rerank", "running")
             semantic = self.semantic.belief(state, hits, self.retriever)
             if semantic is not None:
-                return normalize_probabilities(semantic)
-        return normalize_probabilities(belief_from_hits(hits))
+                emit(
+                    "retrieve",
+                    "qwen_rerank",
+                    "completed",
+                    {
+                        "input": {"hits": len(hits)},
+                        "output": {"reranked": len(semantic)},
+                    },
+                )
+                skip_nodes(
+                    "retrieve",
+                    "belief_hits",
+                    why="Qwen reranker available",
+                )
+                ranked = normalize_probabilities(semantic)
+                emit(
+                    "retrieve",
+                    "normalize",
+                    "completed",
+                    {
+                        "input": {"path": "qwen"},
+                        "output": {"count": len(ranked)},
+                        "count": len(ranked),
+                    },
+                )
+                return ranked
+            emit(
+                "retrieve",
+                "qwen_rerank",
+                "skipped",
+                {"why": "reranker unavailable or off"},
+            )
+        else:
+            skip_nodes(
+                "retrieve",
+                "qwen_rerank",
+                why="no session or catalog for semantic head",
+            )
+        emit("retrieve", "belief_hits", "running")
+        weights = belief_from_hits(hits)
+        emit(
+            "retrieve",
+            "belief_hits",
+            "completed",
+            {
+                "input": {"hits": len(hits)},
+                "output": {"weighted": len(weights)},
+            },
+        )
+        ranked = normalize_probabilities(weights)
+        emit(
+            "retrieve",
+            "normalize",
+            "completed",
+            {
+                "input": {"path": "belief"},
+                "output": {"count": len(ranked)},
+                "count": len(ranked),
+            },
+        )
+        return ranked
 
 
 __all__ = [

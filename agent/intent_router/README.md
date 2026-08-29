@@ -13,7 +13,7 @@ Classification is a local Qwen JSON client. There is no regex intention fallback
 | `llm.py` | Independent Ollama client. `classify_override`, `classify_route`. |
 | `writeback.py` | `apply_delta` / `replace_with_delta`. Upsert slots by `(attribute, value)`; later hardness wins. |
 | `probe.py` | Pool counts. `None` is not count 0. |
-| `exact_pool.py` | Hard signature intersection (group OR, groups AND). |
+| `exact_pool.py` | Hard signature intersection (group OR, groups AND), then hard budget / LWH / weight numeric filter. |
 | `router.py` | `route_intention`: override LLM, then one of the two probe branches. |
 
 ## Collaboration

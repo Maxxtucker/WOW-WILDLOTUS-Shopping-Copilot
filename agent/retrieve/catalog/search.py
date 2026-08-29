@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from .protocol_copy import SEARCH_FIELDS, tokenize
 from .signatures import coerce_constraints
-from .types import BudgetInput, ConstraintInput, SearchHit, SearchWeights
+from .types import BudgetInput, ConstraintInput, DimensionSpec, SearchHit, SearchWeights
 
 if TYPE_CHECKING:
     from .retriever import CatalogRetriever
@@ -79,6 +79,10 @@ class SearchMixin:
         hard_required: bool = False,
         hard_exclusions: bool = True,
         hard_budget: bool = False,
+        dimensions: DimensionSpec | None = None,
+        hard_dimension: bool = False,
+        text_query: str = "",
+        profile_tags: Sequence[str] = (),
     ) -> list[SearchHit]:
         """Retrieve and rank products.
 
@@ -181,6 +185,11 @@ class SearchMixin:
             weights=weights,
             hard_exclusions=hard_exclusions,
             hard_budget=hard_budget,
+            dimensions=dimensions,
+            hard_dimension=hard_dimension,
+            in_exact_pool=False,
+            text_query=text_query,
+            profile_tags=profile_tags,
         )
         return hits[:limit]
 

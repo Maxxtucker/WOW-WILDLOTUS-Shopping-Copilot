@@ -9,20 +9,47 @@ MATERIAL_DETAIL_KEYS = frozenset(
     {"material", "fabric type", "fabric", "fiber", "fibre", "outer material"}
 )
 SIZE_DETAIL_KEYS = frozenset({"size", "size name", "size map"})
-DIMENSION_DETAIL_KEYS = frozenset(
-    {
-        "product dimensions",
-        "package dimensions",
-        "item package dimensions l x w x h",
-        "item dimensions lxwxh",
-        "item dimensions  lxwxh",
-    }
-)
-BRAND_DETAIL_KEYS = frozenset({"brand", "brand name"})
-STYLE_DETAIL_KEYS = frozenset(
-    {"style", "fit type", "neck style", "closure type", "pattern"}
-)
-FEATURE_DETAIL_KEYS = frozenset({"special feature", "special features"})
+
+
+def _fold_detail_key(key: str) -> str:
+    return " ".join(str(key or "").casefold().split())
+
+
+def is_dimension_detail_key(key: str) -> bool:
+    """True when a details key names object or package measurements."""
+
+    return "dimension" in _fold_detail_key(key)
+
+
+def is_brand_detail_key(key: str) -> bool:
+    """True when a details key is a brand field (brand, product brand, …)."""
+
+    return "brand" in _fold_detail_key(key)
+
+
+def _detail_tokens(key: str) -> list[str]:
+    return _fold_detail_key(key).replace("-", " ").split()
+
+
+def is_style_detail_key(key: str) -> bool:
+    """True when a details key names a style field (not lifestyle)."""
+
+    return "style" in _detail_tokens(key)
+
+
+def is_feature_detail_key(key: str) -> bool:
+    """True when a details key names a feature field."""
+
+    return "feature" in _detail_tokens(key)
+
+
+def is_weight_detail_key(key: str) -> bool:
+    """True when a details key names item or package weight (not lightweight)."""
+
+    return "weight" in _detail_tokens(key)
+
+
+STYLE_DETAIL_KEYS = frozenset({"fit type", "closure type", "pattern"})
 USE_CASE_DETAIL_KEYS = frozenset({"sport type", "sport", "occasion", "theme"})
 SKIP_OTHER_KEYS = frozenset(
     {

@@ -18,10 +18,10 @@ Two kinds of fields. Mixing them is the usual bug.
 
 | Role | Fields | After the model returns |
 |---|---|---|
-| **Cite** (must appear in the message) | `surface`; optional `surfaces[]`; budget/size `amount`; dimension `length` / `width` / `height` as the **original** numbers | Drop the slot (or the invented number) if the span/digit is missing |
-| **Classify** (official key, not a shopper word) | color/material `canonical` list; size `kind`; size `system`; apparel letter `canonical`; dimension `unit` | Accept only closed-list keys. Do not span-check `blue`, `shoe`, `us`, `mm`, or converted millimetres |
+| **Cite** (must appear in the message) | `surface`; optional `surfaces[]`; budget/size `amount`; dimension `length` / `width` / `height` / `weight` as the **original** numbers | Drop the slot (or the invented number) if the span/digit is missing |
+| **Classify** (official key, not a shopper word) | color/material `canonical` list; size `kind`; size `system`; apparel letter `canonical`; dimension `unit` | Accept only closed-list keys. Do not span-check `blue`, `shoe`, `us`, or converted inches |
 
-`navy` → `blue` is classify. The cited word is still `navy`. Same split for `extra small` → `xs` (model `canonical` only) and `21 cm` → `unit=mm`, `length=210` (cite `21 cm`, do not cite `210`).
+`navy` → `blue` is classify. The cited word is still `navy`. Same split for `extra small` → `xs` (model `canonical` only) and `21 cm` → `unit=in`, `length≈8.27` (cite `21 cm`, do not cite the converted inches).
 
 ### OR alternatives
 
@@ -48,10 +48,10 @@ Catalog `details.Size` mixes garment letters, US/UK/EU footwear, clothing numeri
 |---|---|---|
 | `shoe` | Footwear | `system` ∈ {us, uk, eu} when that label sits near the size digits (either side, short window). `amount` is the number. Letter `canonical` is null. |
 | `apparel` | Clothes and pants | Letter: model `canonical` ∈ {xs, s, m, l, xl, xxl, xxxl, one_size}, or surface that **already is** that key (`XL`). Numeric clothing (`US 4`, waist 32): `amount` plus optional `system`. Not a shoe size. |
-| `dimension` | Object L/W/H | `unit` ∈ {in, mm}. cm → mm (×10). Copy original numbers; convert after cite-check. |
+| `dimension` | Object L/W/H and optional weight | Stored `unit` is `in`. cm / mm convert to inches after cite-check. Weight is stored in pounds (`weight`); oz / kg / g convert after cite-check. Copy original numbers. Do not invent L/W/H when only a weight is named. |
 | null | Product type unclear | Keep `surface`. Do not guess shoe vs dress from `US 10` alone. |
 
-`kind` comes from the model (`shoes` folds to `shoe`). Code infers `dimension` only when the **size surface** is a measurement (`3 x 3`, `21 cm`), not from product words like `hoodie` / `boots`.
+`kind` comes from the model (`shoes` folds to `shoe`). Code infers `dimension` only when the **size surface** is a measurement (`3 x 3`, `21 cm`, `1.52 pounds`), not from product words like `hoodie` / `boots`.
 
 `system` is evidence near the number (`US 10`, `size 10 US`). Invented `system: "us"` with no nearby US/UK/EU is dropped. Two scales in one phrase (`US 11 / UK 10`) → `system` null, keep the full surface.
 
@@ -81,7 +81,7 @@ llm_nlu / regex payload
     ground_surface          # cite
     attributes.HANDLERS[name].ground
         color / material    # classify canonical list
-        size                # kind + system / letters / mm|in
+        size                # kind + system / letters / inches
         budget              # amount + op
         free strings
     merge_or_attribute_slots    # one row per (attribute, value)

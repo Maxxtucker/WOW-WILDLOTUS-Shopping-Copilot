@@ -78,7 +78,7 @@ material, color, size, style, brand, budget, feature, use_case, other.
 Do not emit category. Do not invent a product-type phrase.
 
 constraints is a list of objects. Omit null fields. Shape:
-{{"attribute": "<name>", "surface": "<span from the message>", "is_hard": true|false, "surfaces": ["<optional alternative spans>"], "canonical": ["<mapped values>"], "amount": <number>, "op": "lte"|"gte"|"eq", "system": "us"|"uk"|"eu", "kind": "shoe"|"apparel"|"dimension", "unit": "in"|"mm", "length": <number>, "width": <number>, "height": <number>}}
+{{"attribute": "<name>", "surface": "<span from the message>", "is_hard": true|false, "surfaces": ["<optional alternative spans>"], "canonical": ["<mapped values>"], "amount": <number>, "op": "lte"|"gte"|"eq", "system": "us"|"uk"|"eu", "kind": "shoe"|"apparel"|"dimension", "unit": "in", "length": <number>, "width": <number>, "height": <number>, "weight": <number>}}
 
 Value types:
 - color: canonical MUST be a JSON array of buckets from: {colors}. You choose the nearest bucket (for example navy → blue). grey and gray are the same bucket. Alternatives (blue or orange or pink) are ONE constraint with canonical: ["blue", "orange", "pink"]. Do not emit three color objects. surface is the shopper phrase, copied from the message. Optional surfaces lists each alternative span.
@@ -87,7 +87,7 @@ Value types:
 - size: copy surface from the message. Set kind to one of: {kinds}. Code does not infer shoe vs apparel from product words.
   shoe: footwear (shoes, boots, sandals). system is one of: {systems} when named. amount is the number. EUR maps to eu. Do not guess US/UK/EU.
   apparel: clothes and pants. Letter sizes: canonical MUST be a one-item array from: {letters}. You choose the bucket (extra small → xs, 2XL → xxl). Numeric clothing (US 4, waist 32) uses amount and optional system; that is not a shoe size.
-  dimension: object length/width/height (3 x 3 inches, 21 cm). unit MUST be one of: {units}. You choose the bucket (cm → mm, inch → in). Copy the original numbers from the message into length, width, height. Do not write converted millimetres.
+  dimension: object length/width/height and optional weight (3 x 3 inches, 21 cm, 1.52 pounds, 24 oz). Copy the original numbers from the message into length, width, height, and weight. Do not convert. Do not invent L/W/H when the shopper only named a weight. Stored size unit is {units} after code converts cm/mm to inches. Weight is stored in pounds after code converts oz/kg/g.
   If more than one shoe/clothing scale is named, system is omitted and surface keeps the full phrase. If the product type is unclear, omit kind.
 - brand, style, use_case, feature, other: free strings. Copy a message span into surface. Alternatives (Nike or Adidas) are ONE constraint with canonical as a JSON array of the alternative strings. Do not emit one object per brand name.
 

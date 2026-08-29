@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..catalog.types import DimensionSpec
 from ..from_slots import (
     exact_pool_groups,
     preferred_groups,
     required_and_budget,
+    session_budget,
+    session_dimension,
+    soft_text_terms,
     uses_typed_slots,
 )
 from .query import rewrite_query
@@ -57,6 +61,34 @@ def retrieve_candidates(
     categories = _hard_categories(state)
     query, _profile_tags = rewrite_query(state)
     soft_groups = preferred_groups(state)
+    text_query = " ".join(soft_text_terms(state))
+    hard_budget = session_budget(state, hard_only=True) is not None
+    dim = session_dimension(state)
+    dim_spec = (
+        DimensionSpec(
+            length=dim.length,
+            width=dim.width,
+            height=dim.height,
+            weight=dim.weight,
+            op=dim.op,
+        )
+        if dim is not None
+        else None
+    )
+    hard_dimension = bool(dim is not None and dim.is_hard)
+    score_kwargs = {
+        "required_groups": groups,
+        "preferred_groups": soft_groups,
+        "categories": categories,
+        "budget": budget,
+        "exclude_asins": state.excluded_asins,
+        "weights": routing.weights,
+        "hard_budget": hard_budget,
+        "dimensions": dim_spec,
+        "hard_dimension": hard_dimension,
+        "text_query": text_query,
+        "profile_tags": state.preference_tags,
+    }
     if exact:
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
         hits = retriever.score_candidates(
@@ -66,13 +98,8 @@ def retrieve_candidates(
                 for parent_asin, score in lexical.items()
                 if parent_asin in exact
             },
-            required_groups=groups,
-            preferred_groups=soft_groups,
-            categories=categories,
-            budget=budget,
-            exclude_asins=state.excluded_asins,
-            weights=routing.weights,
-            hard_budget=routing.hard_budget,
+            in_exact_pool=True,
+            **score_kwargs,
         )
         return hits[: routing.limit]
 
@@ -81,14 +108,8 @@ def retrieve_candidates(
     # empty recommendation slate.
     return retriever.search(
         query,
-        required_groups=groups,
-        preferred_groups=soft_groups,
-        categories=categories,
-        budget=budget,
-        exclude_asins=state.excluded_asins,
         limit=routing.limit,
         candidate_limit=routing.candidate_limit,
-        weights=routing.weights,
         hard_required=False,
-        hard_budget=routing.hard_budget,
+        **score_kwargs,
     )

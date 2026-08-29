@@ -154,6 +154,8 @@ Alias JSON is committed under `scripts/catalog_preprocess/aliases/`
 keys are folded (`fold_category`: lowercase, no punctuation, no glue words,
 singular tokens) so `Shoes` and `shoe` share one sidecar value. The sidecar
 defaults to `.cache/catalog_preprocess/product_slots.sqlite3` (gitignored).
+Sidecar schema version is `catalog-slots-v4` (`slot_stats` IDF, `product_text`,
+and dimension weight extras). Re-run `extract_catalog_slots.py` after extractor changes.
 Override with `AGENT_SLOTS_PATH`. Set `AGENT_SLOTS_PATH=:none:` to skip ATTACH.
 A missing or stale sidecar is not rebuilt in-process; exact lookup then uses
 the existing signature index only.

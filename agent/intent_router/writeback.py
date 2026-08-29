@@ -50,6 +50,10 @@ def replace_with_delta(state: SessionState) -> None:
 
     delta = state.turn_delta
     if delta is None or delta.empty:
+        state.active_constraints.clear()
+        state.typed_constraints.clear()
+        state.legacy_hints.clear()
+        state.category = None
         open_conversion_gate(state)
         return
     state.active_constraints.clear()

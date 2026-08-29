@@ -261,7 +261,7 @@ Key fields:
 | `gate_open` | Conversion gate. When closed, showing the target **does not** end the session and cannot count as a miss |
 | `active_constraints` | Current locked constraints |
 | `typed_constraints` | Slot rows including optional category. Each row has `is_hard`. Hard slots prune; soft slots only score |
-| `preference_tags` | Reset-time copy of aggregate `user_profile` tags. Soft long-term preferences; retrieve does not read this field yet |
+| `preference_tags` | Reset-time copy of aggregate `user_profile` tags. Soft long-term preferences; retrieve uses them only as a weak surface cosine tie-break, never as BM25 or exact-pool terms |
 | `legacy_hints` | Pre-override leftover preference; dropped after override |
 | `disclosed` | Values the simulator already revealed; not treated as new evidence in planning |
 | `excluded_asins` | ASINs proven missed after the gate opened |
@@ -347,7 +347,8 @@ query terms
     candidate union (intersect required only when hard_required and the
     index has an exact hit)
          ↓
-    score_candidates: lexical + required/preferred/category/budget + rating/popularity
+    score_candidates: Path A hard required unweighted; Path B hard hit/miss × rarity;
+    both paths soft preferred × rarity; BM25 + soft-only text_fit + profile cosine + prior
          ↓
     sort by score, required_coverage, lexical, asin; truncate to limit
 ```

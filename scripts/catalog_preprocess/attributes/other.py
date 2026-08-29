@@ -5,15 +5,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ..sources import (
-    BRAND_DETAIL_KEYS,
     COLOR_DETAIL_KEYS,
-    DIMENSION_DETAIL_KEYS,
-    FEATURE_DETAIL_KEYS,
     MATERIAL_DETAIL_KEYS,
     SIZE_DETAIL_KEYS,
     SKIP_OTHER_KEYS,
     STYLE_DETAIL_KEYS,
     USE_CASE_DETAIL_KEYS,
+    is_brand_detail_key,
+    is_dimension_detail_key,
+    is_feature_detail_key,
+    is_style_detail_key,
+    is_weight_detail_key,
 )
 from ..text import categories_list, details_map, fold_key
 from ..types import SlotRecord
@@ -25,10 +27,7 @@ ROUTED_KEYS = (
     COLOR_DETAIL_KEYS
     | MATERIAL_DETAIL_KEYS
     | SIZE_DETAIL_KEYS
-    | DIMENSION_DETAIL_KEYS
-    | BRAND_DETAIL_KEYS
     | STYLE_DETAIL_KEYS
-    | FEATURE_DETAIL_KEYS
     | USE_CASE_DETAIL_KEYS
     | SKIP_OTHER_KEYS
 )
@@ -47,7 +46,14 @@ def extract(product: Mapping[str, object]) -> list[SlotRecord]:
     rows: list[SlotRecord | None] = []
     details = details_map(product)
     for key, value in details.items():
-        if key in ROUTED_KEYS:
+        if (
+            key in ROUTED_KEYS
+            or is_dimension_detail_key(key)
+            or is_brand_detail_key(key)
+            or is_style_detail_key(key)
+            or is_feature_detail_key(key)
+            or is_weight_detail_key(key)
+        ):
             continue
         if len(value) > MAX_SURFACE or value.lower().startswith("http"):
             continue

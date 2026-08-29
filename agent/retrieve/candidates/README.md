@@ -34,8 +34,9 @@ exact is None or empty:
 - Query string: see `rewrite_query` (typed search values when slots exist)
 - Required: hard groups from `from_slots.required_and_budget` (OR inside an attribute, AND across).
 - Preferred: soft slot groups use OR semantics inside one attribute and never prune candidates.
-- Buying/override treats a known out-of-range price as a hard failure. Missing prices remain eligible because absence is not evidence of failure.
-- `preference_tags` are not copied into BM25 as literal product words; the optional semantic ranker uses them only as weak personalization evidence.
+- Hard budget slots drop missing-price and out-of-range products. Soft budget never drops; missing and out-of-range get no budget bonus. No budget slot means no price filter.
+- `preference_tags` are not copied into BM25 as literal product words. Retrieve may score them against `product_text` surfaces with an optional bi-encoder; the later semantic ranker can also use them as weak personalization.
+- Buying `text=0.5`; `text_fit` uses soft slots only. Path A hard required hits do not multiply IDF.
 
 ## Core code
 

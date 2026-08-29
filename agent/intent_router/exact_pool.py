@@ -11,7 +11,14 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from ..domain import classify_constraint
-from ..retrieve.from_slots import exact_pool_groups, uses_search_aliases, uses_typed_slots
+from ..retrieve.catalog.types import DimensionSpec
+from ..retrieve.from_slots import (
+    exact_pool_groups,
+    session_budget,
+    session_dimension,
+    uses_search_aliases,
+    uses_typed_slots,
+)
 
 if TYPE_CHECKING:
     from ..retrieve.catalog.retriever import CatalogRetriever
@@ -65,11 +72,36 @@ def exact_pool_for_state(
             category_values = values
         else:
             rest.append((attribute, values))
-    return exact_pool_from_groups(
+    pool = exact_pool_from_groups(
         retriever,
         category_values,
         rest,
         response_only=not uses_search_aliases(state) if uses_typed_slots(state) else True,
+    )
+    if pool is None:
+        return None
+    budget = session_budget(state, hard_only=True)
+    dim = session_dimension(state)
+    hard_dimension = bool(dim is not None and dim.is_hard and dim.stated())
+    if budget is None and not hard_dimension:
+        return pool
+    spec = (
+        DimensionSpec(
+            length=dim.length,
+            width=dim.width,
+            height=dim.height,
+            weight=dim.weight,
+            op=dim.op,
+        )
+        if hard_dimension and dim is not None
+        else None
+    )
+    return retriever.filter_hard_numeric(
+        pool,
+        budget=budget,
+        dimensions=spec,
+        hard_budget=budget is not None,
+        hard_dimension=hard_dimension,
     )
 
 

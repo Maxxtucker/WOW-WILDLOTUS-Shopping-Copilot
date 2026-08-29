@@ -1,8 +1,8 @@
-"""Purpose: rewrite current intent into a BM25 query and extract soft profile preferences.
+"""Purpose: rewrite only the active intent into a BM25 query.
 
 Input: SessionState. Optional string constraints override only the regex fallback.
-Output: (query: str, profile_tags: list).
-Role: supply terms to catalog.search when the exact path fails.
+Output: (query: str, profile dimension tags for downstream use).
+Role: supply clean active terms to catalog.search without replaying old/negated text.
 """
 
 from __future__ import annotations
@@ -19,19 +19,21 @@ def rewrite_query(
     state: SessionState,
     constraints: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
-    """Build the BM25 query and the soft profile tags used as preferred constraints."""
+    """Build a query from committed state, not raw dialogue or profile labels."""
 
     terms = constraints if constraints is not None else query_terms(state)
-    profile_tags = state.user_profile.get("preference_tags") or []
-    profile_text = " ".join(str(value) for value in profile_tags[:4])
+    profile_tags = list(state.preference_tags)
     query = " ".join(
         part
         for part in (
             state.category or "",
             *terms,
-            state.latest_message,
-            profile_text,
         )
         if part
     )
+    # A message-only fallback preserves recall when observation extracted no
+    # active evidence. Once slots exist, replaying the raw message can restore
+    # negated or superseded terms after an intent override.
+    if not query.strip():
+        query = state.latest_message.strip()
     return query, list(profile_tags)

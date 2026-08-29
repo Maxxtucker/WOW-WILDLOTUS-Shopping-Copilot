@@ -35,7 +35,11 @@ class CandidateStage(Protocol):
 
 
 class RankingStage(Protocol):
-    def apply(self, hits: list[SearchHit]) -> list[RankedCandidate]:
+    def apply(
+        self,
+        hits: list[SearchHit],
+        state: SessionState | None = None,
+    ) -> list[RankedCandidate]:
         ...
 
 

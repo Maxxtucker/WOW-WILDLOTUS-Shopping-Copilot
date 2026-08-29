@@ -4,7 +4,8 @@ Input: session_id / user_profile at reset; later stages mutate fields in place.
 Output: ranking_constraints, typed_constraints, preference_tags, excluded_asins, gate_open, intention, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
-preference_tags is a reset-time copy of the aggregate profile; retrieve does not read it yet.
+preference_tags is a reset-time copy of the aggregate profile; semantic ranking
+uses it only as weak evidence.
 Observe writes only turn_delta; the intention router commits constraints.
 """
 

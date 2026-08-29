@@ -34,7 +34,7 @@ class TurnPipeline:
         self.state_detector = StateDetector()
         self.intent_router = IntentRouter()
         self.organizer = CandidateOrganizer(retriever)
-        self.ranker = Ranker()
+        self.ranker = Ranker(retriever)
         self.clarifier = Clarifier(retriever, planner)
         self.responder = ResponseBuilder()
 
@@ -48,6 +48,6 @@ class TurnPipeline:
         self.state_detector.apply(state, user_message, turn)
         exact = self.intent_router.apply(state, self.retriever)
         hits = self.organizer.apply(state, exact)
-        ranked = self.ranker.apply(hits)
+        ranked = self.ranker.apply(hits, state)
         plan, slate = self.clarifier.apply(state, ranked, top_k)
         return self.responder.apply(state, self.retriever, hits, plan, slate)

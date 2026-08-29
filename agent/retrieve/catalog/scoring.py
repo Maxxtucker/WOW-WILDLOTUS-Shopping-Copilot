@@ -65,12 +65,14 @@ class ScoringMixin:
         required: ConstraintInput = None,
         required_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         preferred: ConstraintInput = None,
+        preferred_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         excluded: ConstraintInput = None,
         categories: Iterable[str] = (),
         budget: BudgetInput = None,
         exclude_asins: Iterable[str] = (),
         weights: SearchWeights | None = None,
         hard_exclusions: bool = True,
+        hard_budget: bool = False,
     ) -> list[SearchHit]:
         """Score a supplied candidate pool without performing retrieval."""
 
@@ -85,7 +87,16 @@ class ScoringMixin:
             required_or = tuple(
                 (attribute, (value,)) for attribute, value in coerce_constraints(required)
             )
-        preferred_pairs = coerce_constraints(preferred)
+        if preferred_groups is not None:
+            preferred_or = tuple(
+                (str(attribute), tuple(str(value) for value in values if str(value).strip()))
+                for attribute, values in preferred_groups
+                if values
+            )
+        else:
+            preferred_or = tuple(
+                (attribute, (value,)) for attribute, value in coerce_constraints(preferred)
+            )
         excluded_pairs = coerce_constraints(excluded)
         category_pairs = tuple(("category", str(value)) for value in categories if str(value).strip())
         budget_range = coerce_budget(budget)
@@ -128,12 +139,18 @@ class ScoringMixin:
             else:
                 required_coverage = 1.0
 
-            for attribute, value in preferred_pairs:
-                similarity = signature_similarity(
-                    attribute, value, signature.search_values.get(attribute, ())
-                )
-                if similarity > 0:
-                    matched.append(f"preferred:{attribute}={value}")
+            for attribute, values in preferred_or:
+                similarity = 0.0
+                matched_value = None
+                for value in values:
+                    value_score = signature_similarity(
+                        attribute, value, signature.search_values.get(attribute, ())
+                    )
+                    if value_score > similarity:
+                        similarity = value_score
+                        matched_value = value
+                if similarity > 0 and matched_value is not None:
+                    matched.append(f"preferred:{attribute}={matched_value}")
                 structured_score += scoring.preferred * similarity
 
             excluded_match = 0.0
@@ -161,6 +178,12 @@ class ScoringMixin:
                 matched.append("category")
 
             price = None if row["price"] is None else float(row["price"])
+            if hard_budget and price is not None and budget_range is not None:
+                minimum, maximum = budget_range
+                if (minimum is not None and price < minimum) or (
+                    maximum is not None and price > maximum
+                ):
+                    continue
             budget_fit = self._budget_fit(price, budget_range)
             structured_score += scoring.budget * budget_fit
             if budget_fit:

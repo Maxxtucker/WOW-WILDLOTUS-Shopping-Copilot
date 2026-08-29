@@ -22,11 +22,16 @@ agent/
     candidates/       score exact set, else BM25
 
   decide/             SearchHit → official response     see README.md
-    ranking/          temperature-0.12 posterior
+    ranking/          optional Qwen rerank + deterministic posterior fallback
     clarification/    question × slate
     response/         writeback + respond dict
 ```
 
 `pipeline` calls `StateDetector.apply` then `IntentRouter.apply` then `CandidateOrganizer.apply`. Observation classify runs inside the first call.
+
+Retrieval first enforces structured hard evidence and recalls a candidate pool.
+The ranking stage may then use a local cross-encoder on the first 50 candidates
+to resolve semantic soft preferences. Configuration and setup are documented in
+[`decide/ranking/README.md`](decide/ranking/README.md).
 
 Understand defaults to local NLU. Mode, Ollama startup, retries, and regex fallback: [`docs/architecture/understand_nlu.md`](../docs/architecture/understand_nlu.md). Kit tests pin `understand_mode="regex"` and mock the router LLM. Intention routing has no regex fallback.

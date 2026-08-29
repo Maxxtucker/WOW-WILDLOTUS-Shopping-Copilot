@@ -1,8 +1,13 @@
-# retrieve — score the router pool (soft preferred), else BM25
+# retrieve — exact recall, hybrid recovery, and structured scoring
 
 ## Purpose
 
-`retrieve` runs after the intention router has committed `SessionState` and an optional exact ASIN set. Hard intersection already happened in the router. This layer **scores** that set (soft slots preferred, not prune) or BM25 when `exact is None`. It does not choose the question or how many products to show. Buying and override truncate near 150 hits; Browsing keeps up to 500.
+`retrieve` runs after the intention router has committed `SessionState` and an
+optional exact ASIN set. Hard intersection already happened in the router. This
+layer scores a non-empty exact set, or recovers with BM25 plus catalog signature
+recall when strict intersection found nothing. It does not choose the question
+or how many products to show. Buying and override keep up to 150 hits; Browsing
+keeps up to 500 before the smaller semantic reranking head.
 
 The catalog index is process-wide. Candidates read the index and the session exclusion set each turn.
 
@@ -25,8 +30,12 @@ IntentRouter.apply(state, retriever)
     exact → CandidateOrganizer.apply(state, exact)
 
 CandidateOrganizer.apply(state, exact)
-    ├─ exact is not None: score_candidates(exact)[:limit]   (buying, browsing, override)
-    └─ exact is None: rewrite_query → retriever.search(..., hard_required=False)
+    ├─ exact is non-empty: BM25 tie-break + structured score[:limit]
+    └─ exact is None/empty: hybrid search(..., hard_required=False)
+
+Ranker.apply(hits, state)
+    ├─ optional Qwen rerank of first 50
+    └─ deterministic fallback when the model is off/unavailable
 ```
 
 `catalog` has no session dependency. `candidates` read the index only through public `CatalogRetriever` methods.
@@ -34,11 +43,12 @@ CandidateOrganizer.apply(state, exact)
 ## Core variables
 
 - `SearchHit`: `parent_asin`, `score`, lexical/structured/prior, `required_coverage`
-- `ResponseSignature`: protocol fingerprint (response vs search values)
-- `exact: set[str] | None`: router hard intersection; `None` means BM25 (`None` is not count 0). An empty set is scored as empty, not BM25.
-- query string: category + slot search values (or active_constraints) + current message + profile tags
+- `ResponseSignature`: normalized catalog values used by structured lookup
+- `exact: set[str] | None`: router hard intersection; a missing or empty result activates hybrid recall recovery
+- query string: current category + committed slot search values; current message only when no state was extracted
 - required groups: hard slots only (`from_slots.constraint_groups`); same-attribute values OR, attributes AND
-- preferred: soft slots plus profile tags; missing soft does not drop a candidate
+- preferred: soft slots only; missing soft does not drop a candidate
+- profile preference tags: semantic-ranker tie-breakers, never hard filters
 
 ## Core code
 

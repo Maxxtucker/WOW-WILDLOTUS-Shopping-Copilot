@@ -1,8 +1,8 @@
 """Purpose: build retrieve signals from SessionState.typed_constraints.
 
-Input: SessionState (typed slots, or ranking_constraints when slots are empty).
-Output: (attribute, values) groups, BM25 terms, optional budget interval.
-Role: retrieve's view of locked needs. Not stored on SessionState.
+Input: SessionState (typed slots, or active_constraints when slots are empty).
+Output: (attribute, values) groups, BM25 terms, optional budget interval, preferred soft pairs.
+Role: retrieve's view of needs. Hard groups feed the router probe and required scoring; soft pairs only preferred-score. Not stored on SessionState.
 """
 
 from __future__ import annotations
@@ -59,20 +59,76 @@ def uses_typed_slots(state: SessionState) -> bool:
     return bool(state.typed_constraints)
 
 
-def constraint_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
-    """Typed slots win. Empty slots fall back to one AND group per ranking string."""
+def uses_search_aliases(state: SessionState) -> bool:
+    """Regex-like slots have no closed canonicals; keep response_only signatures."""
 
-    if state.typed_constraints:
-        groups: list[ConstraintGroup] = []
-        for slot in state.typed_constraints:
-            values = slot_search_values(slot)
-            if values:
-                groups.append((slot.attribute, values))
-        return tuple(groups)
+    return any(
+        slot.canonical
+        for slot in state.typed_constraints
+        if slot.attribute not in {"category", "budget"}
+    )
+
+
+def _groups_from_slots(
+    slots: list[ConstraintSlot] | tuple[ConstraintSlot, ...],
+    *,
+    skip_budget_interval: bool = False,
+) -> tuple[ConstraintGroup, ...]:
+    """OR values of the same attribute; AND across attributes."""
+
+    by_attr: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+    for slot in slots:
+        if skip_budget_interval and slot.attribute == "budget" and slot.amount is not None:
+            continue
+        values = slot_search_values(slot)
+        if not values:
+            continue
+        bucket = by_attr.setdefault(slot.attribute, [])
+        used = seen.setdefault(slot.attribute, set())
+        for value in values:
+            key = value.casefold()
+            if not value or key in used:
+                continue
+            used.add(key)
+            bucket.append(value)
+    return tuple((attribute, tuple(values)) for attribute, values in by_attr.items() if values)
+
+
+def hard_slots(state: SessionState) -> list[ConstraintSlot]:
+    return [slot for slot in state.typed_constraints if slot.is_hard]
+
+
+def soft_slots(state: SessionState) -> list[ConstraintSlot]:
+    return [slot for slot in state.typed_constraints if not slot.is_hard]
+
+
+def constraint_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
+    """Hard typed slots win. Empty slots fall back to active_constraints (not leftover).
+
+    When typed rows exist, a soft-only table is not a string-path fallback.
+    """
+
+    if uses_typed_slots(state):
+        return _groups_from_slots(hard_slots(state))
     return tuple(
         (classify_constraint(item), (item,))
-        for item in state.ranking_constraints
+        for item in state.active_constraints
         if str(item).strip()
+    )
+
+
+def preferred_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
+    """Soft slots. Same-attribute values are OR for scoring, never an exact prune."""
+
+    return _groups_from_slots(soft_slots(state))
+
+
+def preferred_pairs(state: SessionState) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (attribute, value)
+        for attribute, values in preferred_groups(state)
+        for value in values
     )
 
 
@@ -87,7 +143,7 @@ def constraint_pairs(state: SessionState) -> tuple[tuple[str, str], ...]:
 
 
 def query_terms(state: SessionState) -> tuple[str, ...]:
-    """BM25 terms: every alternative search value, else the locked constraint strings."""
+    """BM25 terms: hard and soft search values, else active constraint strings."""
 
     if state.typed_constraints:
         terms: list[str] = []
@@ -99,10 +155,12 @@ def query_terms(state: SessionState) -> tuple[str, ...]:
                     seen.add(key)
                     terms.append(value)
         return tuple(terms)
-    return state.ranking_constraints
+    return tuple(state.active_constraints)
 
 
-def session_budget(state: SessionState) -> tuple[float | None, float | None] | None:
+def session_budget(
+    state: SessionState, *, hard_only: bool = True
+) -> tuple[float | None, float | None] | None:
     """Budget interval from typed amount/op slots. None means use string required."""
 
     if not state.typed_constraints:
@@ -112,6 +170,8 @@ def session_budget(state: SessionState) -> tuple[float | None, float | None] | N
     found = False
     for slot in state.typed_constraints:
         if slot.attribute != "budget" or slot.amount is None:
+            continue
+        if hard_only and not slot.is_hard:
             continue
         found = True
         amount = slot.amount
@@ -131,17 +191,29 @@ def session_budget(state: SessionState) -> tuple[float | None, float | None] | N
 def required_and_budget(
     state: SessionState,
 ) -> tuple[tuple[ConstraintGroup, ...], tuple[float | None, float | None] | None]:
-    """Required groups plus structured budget. Budget slots are not double-counted."""
+    """Hard groups plus structured hard budget. Budget slots are not double-counted."""
 
     groups = constraint_groups(state)
-    budget = session_budget(state)
+    budget = session_budget(state, hard_only=True)
     if budget is not None:
         groups = tuple(group for group in groups if group[0] != "budget")
+    groups = tuple(group for group in groups if group[0] != "category")
     return groups, budget
 
 
 def exact_pool_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
-    """Signals to intersect. Typed budget is scored as an interval, not an exact key."""
+    """Hard signals to intersect, including hard category values (OR).
 
-    groups, _budget = required_and_budget(state)
+    Leftover / ``ranking_constraints`` strings are not used here.
+    """
+
+    if uses_typed_slots(state):
+        return _groups_from_slots(hard_slots(state), skip_budget_interval=True)
+    groups = tuple(
+        (classify_constraint(item), (item,))
+        for item in state.active_constraints
+        if str(item).strip()
+    )
+    if state.category:
+        return (("category", (state.category,)), *groups)
     return groups

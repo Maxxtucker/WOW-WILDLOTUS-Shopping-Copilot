@@ -41,7 +41,8 @@ def eligible_questions(
         if attribute != "other" and attribute in state.asked:
             continue
         if attribute != "other" and any(
-            slot.attribute == attribute for slot in state.typed_constraints
+            slot.attribute == attribute and slot.is_hard
+            for slot in state.typed_constraints
         ):
             continue
         result.append(attribute)

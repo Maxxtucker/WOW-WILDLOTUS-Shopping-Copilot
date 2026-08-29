@@ -1,14 +1,16 @@
-"""Purpose: union OR-attribute slots that share an attribute name.
+"""Purpose: identify slots by (attribute, value) and split multi-canonical rows.
 
 Input: grounded ConstraintSlot rows from one extract or a later turn.
-Output: at most one slot per color/material/style/brand/feature/use_case/other.
-Role: alternatives are a list on one slot; size and budget stay separate rows.
+Output: one row per (attribute, value_id). Same value later overwrites hardness.
+Role: alternatives from one utterance become separate rows so hard/soft can coexist.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .text import fold_key
-from .types import ConstraintSlot, OR_ATTRIBUTES
+from .types import ConstraintSlot
 
 
 def union_values(*groups: tuple[str, ...] | None) -> tuple[str, ...] | None:
@@ -33,8 +35,30 @@ def slot_or_values(slot: ConstraintSlot) -> tuple[str, ...]:
     return (cleaned,) if cleaned else ()
 
 
+def slot_value_id(slot: ConstraintSlot) -> str:
+    """Identity for upsert: first canonical, else surface."""
+
+    values = slot_or_values(slot)
+    if values:
+        return fold_key(values[0])
+    return fold_key(slot.surface)
+
+
+def slot_identity(slot: ConstraintSlot) -> tuple[str, str]:
+    return (slot.attribute, slot_value_id(slot))
+
+
+def split_value_rows(slot: ConstraintSlot) -> list[ConstraintSlot]:
+    """One row per canonical (or surface) so hardness can change per value."""
+
+    values = slot.canonical
+    if values and len(values) > 1:
+        return [replace(slot, canonical=(value,)) for value in values]
+    return [slot]
+
+
 def merge_or_slot(left: ConstraintSlot, right: ConstraintSlot) -> ConstraintSlot:
-    """Combine two same-attribute OR slots. Surfaces are joined when they differ."""
+    """Kept for tests that union two same-attribute rows. Prefer split_value_rows."""
 
     values = union_values(slot_or_values(left), slot_or_values(right))
     surfaces: list[str] = []
@@ -55,24 +79,24 @@ def merge_or_slot(left: ConstraintSlot, right: ConstraintSlot) -> ConstraintSlot
         length=left.length if left.length is not None else right.length,
         width=left.width if left.width is not None else right.width,
         height=left.height if left.height is not None else right.height,
+        is_hard=right.is_hard,
     )
 
 
 def merge_or_attribute_slots(
     slots: list[ConstraintSlot] | tuple[ConstraintSlot, ...],
 ) -> list[ConstraintSlot]:
-    """Collapse same-attribute OR rows from one extract into one slot each."""
+    """Dedup by (attribute, value_id). Later rows overwrite earlier ones."""
 
     result: list[ConstraintSlot] = []
-    index: dict[str, int] = {}
+    index: dict[tuple[str, str], int] = {}
     for slot in slots:
-        if slot.attribute in OR_ATTRIBUTES:
-            existing = index.get(slot.attribute)
+        for row in split_value_rows(slot):
+            key = slot_identity(row)
+            existing = index.get(key)
             if existing is None:
-                index[slot.attribute] = len(result)
-                result.append(slot)
+                index[key] = len(result)
+                result.append(row)
             else:
-                result[existing] = merge_or_slot(result[existing], slot)
-            continue
-        result.append(slot)
+                result[existing] = row
     return result

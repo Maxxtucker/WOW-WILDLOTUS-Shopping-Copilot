@@ -1,8 +1,8 @@
-"""Purpose: Buying vs Browsing retrieval weights, truncation, and exact-first policy.
+"""Purpose: Buying vs Browsing retrieval weights and truncation.
 
-Input: SessionState.track (language-inferred; never an evaluator scenario label).
+Input: SessionState.intention (router-labeled; never an evaluator scenario label).
 Output: TrackRouting consumed by retrieve_candidates.
-Role: light routing over the existing exact-pool and BM25 fusion paths.
+Role: score weights and hit caps. Hard intersection lives on the router probe.
 """
 
 from __future__ import annotations
@@ -38,11 +38,11 @@ class TrackRouting:
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
 
 
-def routing_for(track: str | None) -> TrackRouting:
-    """Unset track keeps the historical exact-first cap of 500."""
+def routing_for(intention: str | None) -> TrackRouting:
+    """Unset intention keeps the historical exact-first cap of 500."""
 
-    if track == "buying":
+    if intention in {"buying", "override"}:
         return TrackRouting(BUYING_WEIGHTS, BUYING_LIMIT, exact_first=True)
-    if track == "browsing":
-        return TrackRouting(BROWSING_WEIGHTS, BROWSING_LIMIT, exact_first=False)
+    if intention == "browsing":
+        return TrackRouting(BROWSING_WEIGHTS, BROWSING_LIMIT, exact_first=True)
     return TrackRouting(SearchWeights(), DEFAULT_LIMIT, exact_first=True)

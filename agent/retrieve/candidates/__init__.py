@@ -2,7 +2,7 @@
 
 Input: CatalogRetriever, SessionState, optional exact set.
 Output: at most 500 SearchHit values.
-Role: fold filter results or BM25 recall into one list. See README.md.
+Role: score the router exact set, or BM25 when that set is None. See README.md.
 """
 
 from .query import rewrite_query

@@ -2,7 +2,7 @@
 
 Input: host/model/timeout from env plus one user message and compact session context.
 Output: ObservationExtract, or None on timeout/parse/network failure.
-Role: HTTP only. Agent nlu mode constructs the client once. Does not write SessionState.
+Role: HTTP only. Does not classify override. Agent nlu mode constructs the client once.
 """
 
 from __future__ import annotations
@@ -51,40 +51,39 @@ def _system_prompt() -> str:
     letters = ", ".join(APPAREL_LETTERS)
     units = ", ".join(SIZE_UNITS)
     return f"""\
-You extract shopping intent from one customer message.
-Return a JSON object with exactly these keys:
-category, provisional_hint, constraints, override, override_value, track, empty.
+You extract this turn's shopping delta from one customer message.
+Do not decide override, buying, or browsing. Return JSON with exactly these keys:
+category, constraints, empty.
 
 Attribute names (use these strings only):
 category, material, color, size, style, brand, budget, feature, use_case, other.
 
-category is a top-level copied span of the product type, not a constraint object.
+category is a product-type span, not a color or brand. It may be a copied span string
+(treated as hard) or a list of {{"surface": "<span>", "is_hard": true|false}}.
+Color words (blue, pink, navy) are color constraints, never category.
 
-constraints is a list of objects:
-{{"attribute": "<name>", "surface": "<span from the message>", "surfaces": ["<optional alternative spans>"], "canonical": ["<mapped values>"] or null, "amount": <number or null>, "op": "lte"|"gte"|"eq"|null, "system": "<us|uk|eu or null>", "kind": "<shoe|apparel|dimension or null>", "unit": "<in|mm or null>", "length": <number or null>, "width": <number or null>, "height": <number or null>}}
+constraints is a list of objects. Omit null fields. Shape:
+{{"attribute": "<name>", "surface": "<span from the message>", "is_hard": true|false, "surfaces": ["<optional alternative spans>"], "canonical": ["<mapped values>"], "amount": <number>, "op": "lte"|"gte"|"eq", "system": "us"|"uk"|"eu", "kind": "shoe"|"apparel"|"dimension", "unit": "in"|"mm", "length": <number>, "width": <number>, "height": <number>}}
 
 Value types:
 - color: canonical MUST be a JSON array of buckets from: {colors}. You choose the nearest bucket (for example navy → blue). grey and gray are the same bucket. Alternatives (blue or orange or pink) are ONE constraint with canonical: ["blue", "orange", "pink"]. Do not emit three color objects. surface is the shopper phrase, copied from the message. Optional surfaces lists each alternative span.
 - material: canonical MUST be a JSON array of buckets from: {materials}. Same OR rule as color (leather or canvas → one object, canonical: ["leather", "canvas"]).
-- budget: keep a number in amount. op is lte for under/max, gte for over/min, else eq. surface is a copied span or the digits that appear in the message. canonical is null.
+- budget: keep a number in amount. op is lte for under/max, gte for over/min, else eq. surface is a copied span or the digits that appear in the message.
 - size: copy surface from the message. Set kind to one of: {kinds}. Code does not infer shoe vs apparel from product words.
-  shoe: footwear (shoes, boots, sandals). system is one of: {systems} when named. amount is the number. canonical, unit, length, width, height are null. EUR maps to eu. Do not guess US/UK/EU.
+  shoe: footwear (shoes, boots, sandals). system is one of: {systems} when named. amount is the number. EUR maps to eu. Do not guess US/UK/EU.
   apparel: clothes and pants. Letter sizes: canonical MUST be a one-item array from: {letters}. You choose the bucket (extra small → xs, 2XL → xxl). Numeric clothing (US 4, waist 32) uses amount and optional system; that is not a shoe size.
-  dimension: object length/width/height (3 x 3 inches, 21 cm). unit MUST be one of: {units}. You choose the bucket (cm → mm, inch → in). Copy the original numbers from the message into length, width, height. Do not write converted millimetres. system is null.
-  If more than one shoe/clothing scale is named, system is null and surface keeps the full phrase. If the product type is unclear, kind is null. Do not treat a dress US size as a shoe size, or a letter as a box size.
-- brand, style, use_case, feature, other: free strings. Copy a message span into surface. Alternatives (Nike or Adidas) are ONE constraint with canonical as a JSON array of the alternative strings. Optional surfaces lists each span. kind, system, unit, length, width, height are null.
+  dimension: object length/width/height (3 x 3 inches, 21 cm). unit MUST be one of: {units}. You choose the bucket (cm → mm, inch → in). Copy the original numbers from the message into length, width, height. Do not write converted millimetres.
+  If more than one shoe/clothing scale is named, system is omitted and surface keeps the full phrase. If the product type is unclear, omit kind.
+- brand, style, use_case, feature, other: free strings. Copy a message span into surface. Alternatives (Nike or Adidas) are ONE constraint with canonical as a JSON array of the alternative strings. Do not emit one object per brand name.
 
 Rules:
 - surface MUST appear in the user message. Do not invent words. Each surfaces[] entry MUST also appear in the message.
-- canonical is a JSON array for color, material, style, brand, feature, use_case, and other. Size letter canonical is a one-item array. Budget canonical is null.
+- Extract only this message. Do not repeat constraints already in the locked list unless this message restates them.
+- canonical is a JSON array for color, material, style, brand, feature, use_case, and other. Size letter canonical is a one-item array.
 - canonical may differ from surface for color, material, and apparel letter mapping. Do not span-check canonical.
 - Alternatives use one object and a canonical array. Do not emit one object per alternative for the same attribute.
-- system is us, uk, or eu when that label appears near the size number. Do not span-check system.
-- kind is shoe, apparel, or dimension. Do not span-check kind.
-- unit is in or mm. cm maps to mm. Do not span-check unit or converted millimetre amounts.
 - empty: true for non-answers (no preference, use your judgment, not quite right).
-- override: true only if the shopper replaces an earlier preference.
-- track: "buying" if they locked a hard need; "browsing" if exploring or vague.
+- is_hard defaults to true. Set false only for the span whose wording is prefer / maybe / nice to have / also ok / better to be / still exploring. A preferably on color does not make size or budget soft. Do not infer hardness from product copy or catalog text.
 - Do not mention products or ASINs.
 """
 
@@ -286,8 +285,6 @@ def _repair_prompt(message: str, failures: GroundingFailures) -> str:
         failed_names.append("category")
     if failures.provisional_hint:
         failed_names.append("provisional_hint")
-    if failures.override_value:
-        failed_names.append("override_value")
     if failures.constraints:
         failed_names.append("constraints")
     failed_json = json.dumps(failures.constraints, ensure_ascii=False, default=str)

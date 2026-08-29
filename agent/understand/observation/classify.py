@@ -1,8 +1,8 @@
-"""Purpose: extract category, locked constraints, and override from one message.
+"""Purpose: extract category and locked constraints from one message.
 
 Input: stripped message; extract_constraints also reads SessionState for semicolon restore.
-Output: CategoryHit | constraint strings | OverrideHit; None/empty when the sentence has none.
-Role: regex extractors only. hybrid.hybrid_extract decides when to call them. Does not write SessionState.
+Output: CategoryHit | constraint strings; None/empty when the sentence has none.
+Role: regex extractors only. Does not classify override. hybrid.hybrid_extract decides when to call them.
 """
 
 from __future__ import annotations
@@ -13,13 +13,12 @@ from typing import TYPE_CHECKING
 from ...domain import canonical
 from ..attributes.lookup import resolve_matters_pieces
 from ..attributes.parsers import MATTERS_RE
-from ..intention.parsers import (
+from .patterns import (
     EXPLORING_RE,
     GENERIC_CATEGORY_RE,
     INITIAL_OTHER_RE,
     KEY_REQUIREMENT_RE,
     OVERRIDE_RE,
-    OVERRIDE_SIGNAL_RE,
     OVERRIDE_VALUE_RE,
 )
 
@@ -78,25 +77,34 @@ def extract_constraints(state: SessionState, message: str) -> list[str]:
         if tail and tail != message:
             return [tail]
 
+    need = extract_new_need(message)
+    if need:
+        return [need]
     return []
 
 
+def extract_new_need(message: str) -> str | None:
+    """New-need span from kit phrasing. Not an override routing bit."""
+
+    match = OVERRIDE_RE.search(message)
+    if match:
+        cleaned = match.group(1).strip(" \t\n.;")
+        return cleaned or None
+    match = OVERRIDE_VALUE_RE.search(message)
+    if match:
+        cleaned = match.group(1).strip(" \t\n.;")
+        return cleaned or None
+    return None
+
+
 def parse_override(message: str, *, gate_closed: bool) -> OverrideHit | None:
-    override = OVERRIDE_RE.search(message)
-    override_signal = OVERRIDE_SIGNAL_RE.search(message)
-    generic_value = OVERRIDE_VALUE_RE.search(message)
-    explicit_earlier_preference = "ignore my earlier preference" in message.casefold()
-    should_override = bool(
-        override
-        or explicit_earlier_preference
-        or (override_signal and (gate_closed or generic_value is not None))
-    )
-    if not should_override:
+    """Unused by observe. Kept for import compatibility. Does not route."""
+
+    del gate_closed
+    need = extract_new_need(message)
+    if need is None:
         return None
-    extracted = override.group(1) if override else None
-    if extracted is None and generic_value:
-        extracted = generic_value.group(1)
-    return OverrideHit(extracted)
+    return OverrideHit(need)
 
 
 def colon_fallback(state: SessionState, message: str) -> list[str]:

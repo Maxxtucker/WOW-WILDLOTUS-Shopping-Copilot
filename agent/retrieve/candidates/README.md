@@ -1,35 +1,35 @@
-# retrieve/candidates — exact pool and BM25 fusion
+# retrieve/candidates — score the router pool or BM25
 
 ## Purpose
 
-Pipeline stage 5. Fold filter results into a truncated `SearchHit` list. Buying scores the exact pool first; Browsing always unions BM25. Weights and caps come from `routing.py`.
+Pipeline stage after the intention router. Score the router's exact ASIN set, or BM25 when that set is `None`. Buying / browsing / override share this skeleton. Weights and caps come from `routing.py`.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `query.py` | category + slot search values (or ranking_constraints) + current message + profile tags → BM25 query. |
-| `routing.py` | `routing_for(track)`: SearchWeights, limit, exact-first flag. |
+| `query.py` | category + slot search values (or active_constraints) + current message + profile tags → BM25 query. |
+| `routing.py` | `routing_for(intention)`: SearchWeights and limit. |
 | `retrieve.py` | `CandidateOrganizer` / `retrieve_candidates`. |
 
 ## Collaboration
 
 ```text
-Buying / unset track:
-    exact non-empty → retriever.score_candidates(exact)[:150 or 500]
-    exact empty or scored empty → rewrite_query → retriever.search(..., hard_required=False)
-Browsing:
-    rewrite_query → retriever.search(..., hard_required=False, limit=500)
+exact is not None (any intention, including empty set):
+    retriever.score_candidates(exact)[:150 or 500]
+    do not BM25 the full catalog
+exact is None:
+    rewrite_query → retriever.search(..., hard_required=False)
 ```
 
-`excluded_asins` are dropped in scoring/search. This package does not choose the question or slate length. `track` is language-inferred session state, not an evaluator scenario label.
+`excluded_asins` are dropped in scoring/search. This package does not choose the question or slate length. `intention` is router-labeled session state, not an evaluator scenario label.
 
 ## Core variables
 
 - Input: `SessionState`, `exact: set[str] | None`
-- Output: `list[SearchHit]` (Buying cap 150, otherwise 500)
+- Output: `list[SearchHit]` (Buying/override cap 150, Browsing 500)
 - Query string: see `rewrite_query` (typed search values when slots exist)
-- Required: `from_slots.required_and_budget` (groups: OR inside, AND across; plus budget interval)
+- Required: hard groups from `from_slots.required_and_budget` (OR inside an attribute, AND across; plus hard budget interval). Soft slots go to `preferred`.
 
 ## Core code
 

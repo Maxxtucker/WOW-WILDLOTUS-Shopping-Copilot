@@ -21,7 +21,6 @@ from agent.understand.observation.hybrid import extract_from_regex, regex_is_hig
 from agent.understand.observation.llm_nlu import OllamaNluClient, load_nlu_env
 from agent.understand.observation.schema import (
     ObservationExtract,
-    infer_track,
     span_grounded,
 )
 from agent.understand.state import SessionState
@@ -92,9 +91,7 @@ def _regex_summary(message: str) -> dict[str, object]:
     return {
         "high_confidence": regex_is_high_confidence(message),
         "category": extract.category,
-        "constraints": list(extract.constraints),
-        "override": extract.override,
-        "track": infer_track(extract),
+        "slots": [slot.as_dict() for slot in extract.slots],
         "empty": extract.empty,
     }
 
@@ -106,10 +103,7 @@ def _extract_summary(extract: ObservationExtract | None, elapsed_ms: float) -> d
         "ok": True,
         "empty": extract.empty,
         "category": extract.category,
-        "constraints": list(extract.constraints),
-        "override": extract.override,
-        "override_value": extract.override_value,
-        "track": infer_track(extract),
+        "slots": [slot.as_dict() for slot in extract.slots],
         "elapsed_ms": round(elapsed_ms, 1),
     }
 
@@ -140,7 +134,7 @@ def main() -> None:
         if errors:
             fixture_errors += 1
         regex = _regex_summary(message)
-        if regex["category"] or regex["constraints"] or regex["override"]:
+        if regex["category"] or regex["slots"]:
             regex_hits += 1
         row: dict[str, object] = {
             "id": case["id"],

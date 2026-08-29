@@ -103,7 +103,7 @@ After the miss and answer, the integration builds a new planning state:
 
 ```math
 S_{t+1}^{y,k_t}
-=\operatorname{UpdateAndRetrieve}(S_t,a_t,k_t,y).
+=\mathrm{UpdateAndRetrieve}(S_t,a_t,k_t,y).
 ```
 
 The finite-horizon recursion is:
@@ -127,7 +127,7 @@ The proposed policy uses two answer observations:
 
 ```math
 (a_t^*,k_t^*)
-=\operatorname*{arg\,max}_{a_t,k_t}
+=\underset{a_t,k_t}{\mathrm{arg\,max}}\;
 Q_t^{(2)}(S_t,a_t,k_t).
 ```
 

@@ -18,6 +18,7 @@ from agent.intent_router import apply_delta, replace_with_delta
 from agent.retrieve.candidates.routing import (
     BROWSING_LIMIT,
     BUYING_LIMIT,
+    LIBRARY_MIN,
     routing_for,
 )
 from agent.decide.clarification import NO_ADDITIONAL, eligible_questions
@@ -134,7 +135,14 @@ class SpanGroundingTest(unittest.TestCase):
             "track": "buying",
             "empty": False,
         }
-        with patch.object(client, "_complete", side_effect=[payload, None]):
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(
+                client,
+                "_complete",
+                side_effect=[{"keep": []}, payload, None, {"empty": False}],
+            ),
+        ):
             raw, extract = client.inspect("Need leather running shoes.")
         self.assertEqual(raw, payload)
         assert extract is not None
@@ -484,7 +492,7 @@ class SlotGroundingTest(unittest.TestCase):
         self.assertIsNone(slot.system)
         self.assertIsNone(slot.canonical)
 
-    def test_cm_maps_to_mm_and_converts_amount(self) -> None:
+    def test_cm_maps_to_inches_and_converts_amount(self) -> None:
         extract = parse_observation_payload(
             {
                 "constraints": [
@@ -492,7 +500,7 @@ class SlotGroundingTest(unittest.TestCase):
                         "attribute": "size",
                         "surface": "21 cm",
                         "length": 21,
-                        "unit": "mm",
+                        "unit": "in",
                     }
                 ],
                 "track": "buying",
@@ -502,19 +510,90 @@ class SlotGroundingTest(unittest.TestCase):
         slot = extract.slots[0]
         self.assertEqual(slot.surface, "21 cm")
         self.assertEqual(slot.kind, "dimension")
-        self.assertEqual(slot.unit, "mm")
-        self.assertEqual(slot.length, 210.0)
-        self.assertEqual(slot.amount, 210.0)
+        self.assertEqual(slot.unit, "in")
+        self.assertAlmostEqual(slot.length or 0, 21 / 2.54, places=5)
+        self.assertAlmostEqual(slot.amount or 0, 21 / 2.54, places=5)
 
-    def test_converted_mm_amount_is_not_span_checked(self) -> None:
+    def test_ounces_map_to_pounds(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {
+                        "attribute": "size",
+                        "surface": "24 oz",
+                        "kind": "dimension",
+                        "weight": 24,
+                    }
+                ]
+            },
+            "Keep it under 24 oz.",
+        )
+        slot = extract.slots[0]
+        self.assertEqual(slot.kind, "dimension")
+        self.assertAlmostEqual(slot.weight or 0, 1.5, places=5)
+        self.assertIsNone(slot.length)
+
+    def test_weight_only_does_not_invent_box_size(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {
+                        "attribute": "size",
+                        "surface": "under 2 pounds",
+                        "kind": "dimension",
+                        "weight": 2,
+                    }
+                ]
+            },
+            "Something under 2 pounds.",
+        )
+        slot = extract.slots[0]
+        self.assertEqual(slot.kind, "dimension")
+        self.assertAlmostEqual(slot.weight or 0, 2.0)
+        self.assertIsNone(slot.length)
+        self.assertIsNone(slot.width)
+
+    def test_invented_weight_recovers_from_surface(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {
+                        "attribute": "size",
+                        "surface": "under 2 pounds",
+                        "kind": "dimension",
+                        "weight": 99,
+                    }
+                ]
+            },
+            "Something under 2 pounds.",
+        )
+        self.assertAlmostEqual(extract.slots[0].weight or 0, 2.0)
+
+    def test_invented_weight_without_surface_digits_is_dropped(self) -> None:
+        extract = parse_observation_payload(
+            {
+                "constraints": [
+                    {
+                        "attribute": "size",
+                        "surface": "light",
+                        "kind": "dimension",
+                        "weight": 99,
+                    }
+                ]
+            },
+            "I want something light.",
+        )
+        self.assertIsNone(extract.slots[0].weight)
+
+    def test_converted_inch_amount_is_not_span_checked(self) -> None:
         extract = parse_observation_payload(
             {
                 "constraints": [
                     {
                         "attribute": "size",
                         "surface": "21 cm",
-                        "length": 210,
-                        "unit": "mm",
+                        "length": 8.2677,
+                        "unit": "in",
                     }
                 ],
                 "track": "buying",
@@ -523,8 +602,8 @@ class SlotGroundingTest(unittest.TestCase):
         )
         slot = extract.slots[0]
         self.assertEqual(slot.surface, "21 cm")
-        self.assertEqual(slot.unit, "mm")
-        self.assertEqual(slot.length, 210.0)
+        self.assertEqual(slot.unit, "in")
+        self.assertAlmostEqual(slot.length or 0, 21 / 2.54, places=5)
 
     def test_size_phrase_without_number_still_grounds(self) -> None:
         extract = parse_observation_payload(
@@ -606,9 +685,14 @@ class RepairLoopTest(unittest.TestCase):
             ]
         }
         message = "I want a yellow dress."
-        with patch.object(client, "_complete", side_effect=[first, repair]) as mocked:
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(
+                client, "_complete", side_effect=[first, repair, {"empty": False}]
+            ) as mocked,
+        ):
             raw, extract = client.inspect(message)
-        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(mocked.call_count, 3)
         assert extract is not None
         self.assertEqual(extract.constraints, ("yellow",))
         self.assertEqual(extract.repair_rounds, 1)
@@ -624,9 +708,16 @@ class RepairLoopTest(unittest.TestCase):
             "track": "buying",
         }
         message = "I want a yellow dress."
-        with patch.object(client, "_complete", side_effect=[bad, bad, bad, bad]) as mocked:
+        with (
+            patch.object(client, "_category_picks", return_value=()),
+            patch.object(
+                client,
+                "_complete",
+                side_effect=[bad, bad, bad, bad, {"empty": False}],
+            ) as mocked,
+        ):
             _raw, extract = client.inspect(message)
-        self.assertEqual(mocked.call_count, 4)
+        self.assertEqual(mocked.call_count, 5)
         assert extract is not None
         self.assertTrue(extract.empty)
         self.assertEqual(extract.repair_rounds, 3)
@@ -865,6 +956,21 @@ class HybridObserveTest(unittest.TestCase):
         self.assertEqual(state.legacy_hints, [])
         self.assertEqual(state.intention, None)
 
+    def test_empty_override_clears_old_constraints(self) -> None:
+        state = SessionState("s", {})
+        state.category = "Shoes"
+        state.active_constraints = ["brown"]
+        state.typed_constraints = [
+            ConstraintSlot(attribute="color", surface="brown", canonical=("brown",))
+        ]
+        state.turn_delta = None
+        replace_with_delta(state)
+        self.assertEqual(state.typed_constraints, [])
+        self.assertEqual(state.active_constraints, [])
+        self.assertIsNone(state.category)
+        self.assertTrue(state.gate_open)
+        self.assertTrue(state.override_seen)
+
 
 class IntentionRoutingTest(unittest.TestCase):
     def test_buying_is_exact_first_with_tight_cap(self) -> None:
@@ -881,26 +987,88 @@ class IntentionRoutingTest(unittest.TestCase):
         self.assertGreater(browsing.weights.lexical, buying.weights.lexical)
         self.assertGreater(browsing.weights.missing_required, buying.weights.missing_required)
 
-    def test_retrieve_scores_passed_exact_without_catalog_search(self) -> None:
-        hit = SearchHit("A", 1.0, 0.0, 1.0, 0.0, 1.0)
+    def test_retrieve_fills_small_exact_keeps_hard_first(self) -> None:
+        exact_hits = [
+            SearchHit("E1", 2.0, 0.0, 1.0, 0.0, 1.0),
+            SearchHit("E2", 1.5, 0.0, 1.0, 0.0, 1.0),
+        ]
+        fill_hits = [
+            SearchHit("F1", 9.0, 0.0, 0.0, 0.0, 0.0),
+            SearchHit("F2", 8.0, 0.0, 0.0, 0.0, 0.0),
+        ]
         state = SessionState("s", {})
-        state.intention = "browsing"
+        state.intention = "buying"
+        state.excluded_asins = {"X"}
         retriever = MagicMock()
-        retriever.score_candidates.return_value = [hit]
-        hits = retrieve_candidates(retriever, state, {"A", "B"})
-        retriever.search.assert_not_called()
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = exact_hits
+        retriever.search.return_value = fill_hits
+        hits = retrieve_candidates(retriever, state, {"E1", "E2"})
         retriever.score_candidates.assert_called_once()
-        self.assertEqual([item.parent_asin for item in hits], ["A"])
+        retriever.search.assert_called_once()
+        kwargs = retriever.search.call_args.kwargs
+        self.assertFalse(kwargs["hard_required"])
+        self.assertEqual(kwargs["limit"], LIBRARY_MIN - 2)
+        exclude = set(kwargs["exclude_asins"])
+        self.assertEqual(exclude, {"X", "E1", "E2"})
+        self.assertEqual(
+            [item.parent_asin for item in hits],
+            ["E1", "E2", "F1", "F2"],
+        )
+        self.assertEqual(len(hits), min(LIBRARY_MIN, 2 + len(fill_hits)))
 
-    def test_retrieve_empty_exact_does_not_bm25(self) -> None:
+    def test_retrieve_skips_hybrid_when_exact_meets_floor(self) -> None:
+        asins = [f"E{index:03d}" for index in range(150)]
+        scored = [
+            SearchHit(asin, 1.0, 0.0, 1.0, 0.0, 1.0) for asin in asins
+        ]
         state = SessionState("s", {})
         state.intention = "buying"
         retriever = MagicMock()
-        retriever.score_candidates.return_value = []
-        hits = retrieve_candidates(retriever, state, set())
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = scored
+        hits = retrieve_candidates(retriever, state, set(asins))
         retriever.search.assert_not_called()
         retriever.score_candidates.assert_called_once()
+        self.assertEqual(len(hits), 150)
+        self.assertEqual(hits[0].parent_asin, "E000")
+
+    def test_retrieve_browsing_fill_uses_wide_cap(self) -> None:
+        exact_hits = [
+            SearchHit("E1", 2.0, 0.0, 1.0, 0.0, 1.0),
+            SearchHit("E2", 1.5, 0.0, 1.0, 0.0, 1.0),
+        ]
+        state = SessionState("s", {})
+        state.intention = "browsing"
+        retriever = MagicMock()
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = exact_hits
+        retriever.search.return_value = []
+        retrieve_candidates(retriever, state, {"E1", "E2"})
+        self.assertEqual(
+            retriever.search.call_args.kwargs["limit"],
+            BROWSING_LIMIT - 2,
+        )
+
+    def test_retrieve_empty_exact_uses_lexical_recovery(self) -> None:
+        state = SessionState("s", {})
+        state.intention = "buying"
+        retriever = MagicMock()
+        retriever.search.return_value = []
+        hits = retrieve_candidates(retriever, state, set())
+        retriever.search.assert_called_once()
+        retriever.score_candidates.assert_not_called()
         self.assertEqual(hits, [])
+
+    def test_profile_dimensions_are_not_literal_search_terms(self) -> None:
+        state = SessionState("s", {"preference_tags": ["fit", "comfort"]})
+        state.category = "running shoes"
+        state.latest_message = "forget boots; I need running shoes"
+        query, tags = rewrite_query(state)
+        self.assertEqual(query, "running shoes")
+        self.assertEqual(tags, ["fit", "comfort"])
+        self.assertNotIn("forget", query)
+        self.assertNotIn("comfort", query)
 
     def test_override_matches_buying_weights(self) -> None:
         buying = routing_for("buying")
@@ -908,6 +1076,8 @@ class IntentionRoutingTest(unittest.TestCase):
         self.assertTrue(override.exact_first)
         self.assertEqual(override.limit, buying.limit)
         self.assertEqual(override.weights, buying.weights)
+        self.assertEqual(buying.weights.text, 0.5)
+        self.assertEqual(buying.weights.profile, 0.3)
 
     def test_unset_intention_keeps_historical_exact_first_cap(self) -> None:
         default = routing_for(None)
@@ -933,7 +1103,7 @@ class IntentionRoutingTest(unittest.TestCase):
             buying_state.active_constraints = ["leather"]
             buying_state.intention = "buying"
             buying_hits = retrieve_candidates(retriever, buying_state)
-            self.assertLessEqual(len(buying_hits), BUYING_LIMIT)
+            self.assertLessEqual(len(buying_hits), LIBRARY_MIN)
             self.assertTrue(buying_hits)
 
             browsing_state = SessionState("browse", {})

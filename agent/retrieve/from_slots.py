@@ -7,16 +7,35 @@ Role: retrieve's view of needs. Hard groups feed the router probe and required s
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..domain import classify_constraint
 from ..understand.observation.slots.text import format_amount
-from ..understand.observation.slots.types import ConstraintSlot
+from ..understand.observation.slots.types import ConstraintOp, ConstraintSlot
 
 if TYPE_CHECKING:
     from ..understand.state.session import SessionState
 
 ConstraintGroup = tuple[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionQuery:
+    """Shopper L/W/H in inches and weight in pounds for structured compare."""
+
+    length: float | None = None
+    width: float | None = None
+    height: float | None = None
+    weight: float | None = None
+    op: ConstraintOp = "eq"
+    is_hard: bool = True
+
+    def stated(self) -> bool:
+        return any(
+            value is not None
+            for value in (self.length, self.width, self.height, self.weight)
+        )
 
 
 def slot_search_values(slot: ConstraintSlot) -> tuple[str, ...]:
@@ -60,19 +79,28 @@ def uses_typed_slots(state: SessionState) -> bool:
 
 
 def uses_search_aliases(state: SessionState) -> bool:
-    """Regex-like slots have no closed canonicals; keep response_only signatures."""
+    """True when typed slots carry sidecar canonicals (including category tags).
+
+    Budget amounts are not sidecar keys. Regex-like slots with no canonicals
+    keep response_only signatures.
+    """
 
     return any(
         slot.canonical
         for slot in state.typed_constraints
-        if slot.attribute not in {"category", "budget"}
+        if slot.attribute != "budget"
     )
+
+
+def _is_structured_dimension(slot: ConstraintSlot) -> bool:
+    return slot.attribute == "size" and slot.kind == "dimension"
 
 
 def _groups_from_slots(
     slots: list[ConstraintSlot] | tuple[ConstraintSlot, ...],
     *,
     skip_budget_interval: bool = False,
+    skip_dimension: bool = False,
 ) -> tuple[ConstraintGroup, ...]:
     """OR values of the same attribute; AND across attributes."""
 
@@ -80,6 +108,8 @@ def _groups_from_slots(
     seen: dict[str, set[str]] = {}
     for slot in slots:
         if skip_budget_interval and slot.attribute == "budget" and slot.amount is not None:
+            continue
+        if skip_dimension and _is_structured_dimension(slot):
             continue
         values = slot_search_values(slot)
         if not values:
@@ -110,7 +140,7 @@ def constraint_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
     """
 
     if uses_typed_slots(state):
-        return _groups_from_slots(hard_slots(state))
+        return _groups_from_slots(hard_slots(state), skip_dimension=True)
     return tuple(
         (classify_constraint(item), (item,))
         for item in state.active_constraints
@@ -121,7 +151,7 @@ def constraint_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
 def preferred_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
     """Soft slots. Same-attribute values are OR for scoring, never an exact prune."""
 
-    return _groups_from_slots(soft_slots(state))
+    return _groups_from_slots(soft_slots(state), skip_dimension=True)
 
 
 def preferred_pairs(state: SessionState) -> tuple[tuple[str, str], ...]:
@@ -188,13 +218,69 @@ def session_budget(
     return (lo, hi)
 
 
+def session_dimension(state: SessionState) -> DimensionQuery | None:
+    """First hard dimension with L/W/H or weight, else first soft."""
+
+    if not state.typed_constraints:
+        return None
+    chosen: ConstraintSlot | None = None
+    for slot in hard_slots(state):
+        if _is_structured_dimension(slot) and (
+            slot.length is not None
+            or slot.width is not None
+            or slot.height is not None
+            or slot.weight is not None
+        ):
+            chosen = slot
+            break
+    if chosen is None:
+        for slot in soft_slots(state):
+            if _is_structured_dimension(slot) and (
+                slot.length is not None
+                or slot.width is not None
+                or slot.height is not None
+                or slot.weight is not None
+            ):
+                chosen = slot
+                break
+    if chosen is None:
+        return None
+    return DimensionQuery(
+        length=chosen.length,
+        width=chosen.width,
+        height=chosen.height,
+        weight=chosen.weight,
+        op=chosen.op or "eq",
+        is_hard=chosen.is_hard,
+    )
+
+
+def soft_text_terms(state: SessionState) -> tuple[str, ...]:
+    """Soft slot search values for product_text overlap. Skips budget/dimension."""
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for slot in soft_slots(state):
+        if slot.attribute == "budget" and slot.amount is not None:
+            continue
+        if _is_structured_dimension(slot):
+            continue
+        for value in slot_search_values(slot):
+            key = value.casefold()
+            if value and key not in seen:
+                seen.add(key)
+                terms.append(value)
+    return tuple(terms)
+
+
 def required_and_budget(
     state: SessionState,
 ) -> tuple[tuple[ConstraintGroup, ...], tuple[float | None, float | None] | None]:
-    """Hard groups plus structured hard budget. Budget slots are not double-counted."""
+    """Hard groups plus a budget interval for scoring. Budget slots are not double-counted."""
 
     groups = constraint_groups(state)
-    budget = session_budget(state, hard_only=True)
+    hard = session_budget(state, hard_only=True)
+    budget = hard if hard is not None else session_budget(state, hard_only=False)
     if budget is not None:
         groups = tuple(group for group in groups if group[0] != "budget")
     groups = tuple(group for group in groups if group[0] != "category")
@@ -208,7 +294,9 @@ def exact_pool_groups(state: SessionState) -> tuple[ConstraintGroup, ...]:
     """
 
     if uses_typed_slots(state):
-        return _groups_from_slots(hard_slots(state), skip_budget_interval=True)
+        return _groups_from_slots(
+            hard_slots(state), skip_budget_interval=True, skip_dimension=True
+        )
     groups = tuple(
         (classify_constraint(item), (item,))
         for item in state.active_constraints

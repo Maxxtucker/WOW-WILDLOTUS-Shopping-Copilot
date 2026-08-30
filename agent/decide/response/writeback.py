@@ -1,19 +1,19 @@
 """Purpose: write this turn's action back into SessionState for next-turn parsing.
 
-Input: state, retriever, hits, Plan, slate.
+Input: state, retriever, candidate ASINs, Plan, slate.
 Output: updates last_slate, last_ask, asked, reply_value_lookup.
 Role: next-turn miss feedback and semicolon restore both depend on this.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from ...understand.attributes.lookup import build_reply_lookup
 
 if TYPE_CHECKING:
     from ...retrieve.catalog.retriever import CatalogRetriever
-    from ...retrieve.catalog.types import SearchHit
     from ..clarification.types import Plan
     from ...understand.state.session import SessionState
 
@@ -36,7 +36,7 @@ def set_reply_options(state: SessionState, options: list[tuple[str, ...]]) -> No
 def persist_turn(
     state: SessionState,
     retriever: CatalogRetriever,
-    hits: list[SearchHit],
+    candidate_asins: Sequence[str],
     plan: Plan,
     slate: list[str],
 ) -> None:
@@ -47,11 +47,11 @@ def persist_turn(
             state,
             [
                 retriever.predict_reply(
-                    hit.parent_asin,
+                    parent_asin,
                     plan.ask_attribute,
                     state.disclosed,
                 )
-                for hit in hits
+                for parent_asin in candidate_asins
             ],
         )
     record_action(state, slate, plan.ask_attribute)

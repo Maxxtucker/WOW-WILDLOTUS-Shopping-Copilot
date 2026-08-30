@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from .protocol_copy import SEARCH_FIELDS, tokenize
 from .signatures import coerce_constraints
-from .types import BudgetInput, ConstraintInput, SearchHit, SearchWeights
+from .types import BudgetInput, ConstraintInput, DimensionSpec, SearchHit, SearchWeights
 
 if TYPE_CHECKING:
     from .retriever import CatalogRetriever
@@ -43,6 +43,15 @@ class SearchMixin:
             for row in rows
         }
 
+    def lexical_scores(
+        self: CatalogRetriever,
+        text: str,
+        limit: int = 1_500,
+    ) -> dict[str, float]:
+        """Public fielded-BM25 scores used to break ties inside exact pools."""
+
+        return self._fts_candidates(text, max(0, int(limit)))
+
     def _popular_candidates(self: CatalogRetriever, limit: int) -> tuple[str, ...]:
         with self._lock:
             rows = self.connection.execute(
@@ -59,6 +68,7 @@ class SearchMixin:
         required: ConstraintInput = None,
         required_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         preferred: ConstraintInput = None,
+        preferred_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
         excluded: ConstraintInput = None,
         categories: Iterable[str] = (),
         budget: BudgetInput = None,
@@ -68,6 +78,11 @@ class SearchMixin:
         weights: SearchWeights | None = None,
         hard_required: bool = False,
         hard_exclusions: bool = True,
+        hard_budget: bool = False,
+        dimensions: DimensionSpec | None = None,
+        hard_dimension: bool = False,
+        text_query: str = "",
+        profile_tags: Sequence[str] = (),
     ) -> list[SearchHit]:
         """Retrieve and rank products.
 
@@ -90,12 +105,21 @@ class SearchMixin:
             required_or = tuple(
                 (attribute, (value,)) for attribute, value in coerce_constraints(required)
             )
-        preferred_pairs = coerce_constraints(preferred)
+        if preferred_groups is not None:
+            preferred_or = tuple(
+                (str(attribute), tuple(str(value) for value in values if str(value).strip()))
+                for attribute, values in preferred_groups
+                if values
+            )
+        else:
+            preferred_or = tuple(
+                (attribute, (value,)) for attribute, value in coerce_constraints(preferred)
+            )
         category_values = tuple(str(value) for value in categories if str(value).strip())
 
         query_parts = [text]
         query_parts.extend(value for _, values in required_or for value in values)
-        query_parts.extend(value for _, value in preferred_pairs)
+        query_parts.extend(value for _, values in preferred_or for value in values)
         query_parts.extend(category_values)
         lexical = self._fts_candidates(" ".join(query_parts), candidate_limit)
         candidates: dict[str, None] = dict.fromkeys(lexical)
@@ -108,7 +132,6 @@ class SearchMixin:
                     self.signature_candidates(
                         attribute,
                         value,
-                        limit=max(candidate_limit * 3, 2_000),
                     )
                 )
                 group_hits.update(matches)
@@ -116,22 +139,16 @@ class SearchMixin:
                     candidates.setdefault(parent_asin, None)
             if group_hits:
                 exact_required_sets.append(group_hits)
-        for attribute, value in preferred_pairs:
-            matches = set(
-                self.signature_candidates(
-                    attribute,
-                    value,
-                    limit=max(candidate_limit * 3, 2_000),
-                )
-            )
-            for parent_asin in matches:
-                candidates.setdefault(parent_asin, None)
+        for attribute, values in preferred_or:
+            for value in values:
+                matches = self.signature_candidates(attribute, value)
+                for parent_asin in matches:
+                    candidates.setdefault(parent_asin, None)
         for value in category_values:
             matches = set(
                 self.signature_candidates(
                     "category",
                     value,
-                    limit=max(candidate_limit * 3, 2_000),
                 )
             )
             for parent_asin in matches:
@@ -148,19 +165,31 @@ class SearchMixin:
             }
 
         if not candidates:
-            candidates = dict.fromkeys(self._popular_candidates(candidate_limit))
+            category_fallback: dict[str, None] = {}
+            for value in category_values:
+                for parent_asin in self.signature_candidates("category", value):
+                    category_fallback.setdefault(parent_asin, None)
+            candidates = category_fallback or dict.fromkeys(
+                self._popular_candidates(candidate_limit)
+            )
 
         hits = self.score_candidates(
             candidates,
             lexical_scores=lexical,
             required_groups=required_or,
-            preferred=preferred_pairs,
+            preferred_groups=preferred_or,
             excluded=excluded,
             categories=category_values,
             budget=budget,
             exclude_asins=exclude_asins,
             weights=weights,
             hard_exclusions=hard_exclusions,
+            hard_budget=hard_budget,
+            dimensions=dimensions,
+            hard_dimension=hard_dimension,
+            in_exact_pool=False,
+            text_query=text_query,
+            profile_tags=profile_tags,
         )
         return hits[:limit]
 

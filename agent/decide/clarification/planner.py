@@ -2,7 +2,7 @@
 
 Input: SessionState, RankedCandidate, top_k, answer_signature.
 Output: Plan (slate + ask_attribute + expected_value).
-Role: dumping an uncertain Top-10 too early loses score; turn 10 is always a full slate with no question.
+Role: dumping an uncertain Top-10 too early loses score; turn 10 and empty disclosure are a full slate with no question.
 """
 
 from __future__ import annotations
@@ -75,6 +75,15 @@ class ScoreAwarePlanner:
         if state.turn >= 10:
             slate = tuple(item.parent_asin for item in candidates[:top_k])
             return Plan(slate, None, self._terminal_value(candidates, state.turn), "final turn")
+
+        if state.empty_disclosure_reveal:
+            slate = tuple(item.parent_asin for item in candidates[:top_k])
+            return Plan(
+                slate,
+                None,
+                self._terminal_value(candidates, state.turn),
+                "empty disclosure",
+            )
 
         questions = self._eligible_questions(state, candidates, answer_signature)
 

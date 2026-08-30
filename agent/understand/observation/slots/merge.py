@@ -79,6 +79,7 @@ def merge_or_slot(left: ConstraintSlot, right: ConstraintSlot) -> ConstraintSlot
         length=left.length if left.length is not None else right.length,
         width=left.width if left.width is not None else right.width,
         height=left.height if left.height is not None else right.height,
+        weight=left.weight if left.weight is not None else right.weight,
         is_hard=right.is_hard,
     )
 

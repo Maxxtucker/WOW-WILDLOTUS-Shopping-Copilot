@@ -5,8 +5,10 @@ tracks the active shopping intent, predicts how each candidate product would
 answer a clarification question, and jointly controls the recommendation slate
 and next question to find the hidden product early and at rank one.
 
-The retrieve and planning stack uses only Python's standard library. It requires
-no LLM API key or paid service. Understand defaults to a **local** Ollama model
+The core retrieve and planning stack uses only Python's standard library. An
+optional local Qwen3 cross-encoder reranks a small candidate head when its
+dependencies and cached weights are installed; otherwise ranking falls back
+automatically. No LLM API key or paid service is required. Understand defaults to a **local** Ollama model
 (`understand_mode="nlu"`). If the daemon is missing, extracts fail three times
 and fall back to regex. Kit tests and the public-set table below use
 `understand_mode="regex"` (no model). Design:
@@ -61,6 +63,9 @@ structured active constraints ── required / leftover / shown
    └── field-aware SQLite FTS5 BM25 fallback
    │
    ▼
+optional Qwen3 semantic reranking of the candidate head
+   │
+   ▼
 ranked candidate belief + no-hit exclusions
    │
    ▼
@@ -97,7 +102,12 @@ scripts/
   download_catalog.py
   check_parity.py
   demo_session.py
-  nlu_console.py    interactive observe (NLU vs regex)
+  build_aliases_color.py
+  build_aliases_material.py
+  extract_catalog_slots.py
+  catalog_preprocess/  offline catalog slot extractors
+
+  nlu_console.py    interactive full-pipeline shopper chatbot
   nlu_probe.py      fixture probe; --live calls Ollama
   nlu.env           local model/host/timeout (not loaded on import)
 tests/
@@ -105,6 +115,7 @@ tests/
   test_intent_router.py
   test_nlu.py
   test_nlu_console.py
+  test_pipeline_smoke.py
 evaluator/          unchanged official evaluator
 data/public_set.jsonl
 ```
@@ -114,7 +125,7 @@ data/public_set.jsonl
 ## Setup
 
 Python 3.10 or later with SQLite FTS5 is required. No `pip install` step is
-needed.
+needed for the deterministic core.
 
 ```bash
 python3 scripts/download_catalog.py
@@ -125,6 +136,33 @@ python3 -m evaluator.local_evaluator
 
 The download script verifies the organizer-published SHA-256 digest before
 decompressing `data/catalog.jsonl`. The catalog is intentionally gitignored.
+
+### Catalog slot preprocess (once)
+
+Color and material aliases plus structured `product_slots` are built **offline**
+in `scripts/`. The Agent never extracts them at `reset` / `respond` time; it
+only `ATTACH`es the sidecar SQLite if the catalog fingerprint matches.
+
+```bash
+python scripts/build_category_tree.py
+python scripts/build_aliases_color.py
+python scripts/build_aliases_material.py
+python scripts/extract_catalog_slots.py
+```
+
+Alias JSON is committed under `scripts/catalog_preprocess/aliases/`
+(`category_tree.json`, `category_parents.json`, color/material maps). Category
+keys are folded (`fold_category`: lowercase, no punctuation, no glue words,
+singular tokens) so `Shoes` and `shoe` share one sidecar value. The sidecar
+defaults to `.cache/catalog_preprocess/product_slots.sqlite3` (gitignored).
+Sidecar schema version is `catalog-slots-v4` (`slot_stats` IDF, `product_text`,
+and dimension weight extras). Re-run `extract_catalog_slots.py` after extractor changes.
+Override with `AGENT_SLOTS_PATH`. Set `AGENT_SLOTS_PATH=:none:` to skip ATTACH.
+A missing or stale sidecar is not rebuilt in-process; exact lookup then uses
+the existing signature index only.
+
+`python scripts/catalog_preprocess/survey_catalog_fields.py` prints details-key
+and category histograms (read-only).
 
 ### Index cache
 
@@ -144,6 +182,22 @@ or index version changes. Do not commit the generated database.
 To force a process-local in-memory index instead, set
 `AGENT_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
 more memory and rebuilds the index on every process start.
+
+### Optional semantic reranker
+
+Install the separate ML dependencies and cache the model before evaluation:
+
+```bash
+python3 -m pip install -r requirements-reranker.txt
+AGENT_RERANKER_LOCAL_FILES_ONLY=0 python3 -c \
+  'from sentence_transformers import CrossEncoder; CrossEncoder("Qwen/Qwen3-Reranker-0.6B", trust_remote_code=False)'
+```
+
+Runtime defaults are in `scripts/reranker.env`. Keep
+`AGENT_RERANKER_LOCAL_FILES_ONLY=1` for offline evaluation. In `auto` mode,
+missing dependencies, weights, or inference support trigger the deterministic
+fallback. Use `AGENT_RERANKER_MODE=required` only when benchmarking and you want
+such failures to stop the run.
 
 ### Local NLU
 
@@ -169,6 +223,11 @@ customer message, the structured attribute asked, the recommendation slate,
 and the first-hit turn/rank, making it suitable for a backend walkthrough
 video.
 
+The live Chainlit circuit (`demo/chainlit_app.py`) also prints each pipeline
+stage to the same terminal when that stage lights up: turn_delta, session
+snapshot, router output, retrieve/rank top 10, then decide recommendations
+and the official respond dict.
+
 ## Implementation highlights
 
 - Exact compatibility with the official `intent_card`, `coarse_category`, and
@@ -184,8 +243,8 @@ resets old negative evidence, and enables conversion on the same turn.
 exclusions.
 - Missing-friendly price handling and soft store/brand matching because catalog
 metadata is sparse and `store` is not guaranteed to be a brand.
-- Deterministic output, zero reported model tokens, and no network dependency at
-scoring time.
+- Offline scoring: local model inference reports no API tokens and never
+  downloads weights when local-only mode is enabled.
 
 See `[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)` for the state machine,
 planning equation, retrieval design, tests, limitations, and private-set
@@ -193,9 +252,10 @@ robustness strategy.
 
 ## Cost and feasibility
 
-- External model/API cost: **$0**
-- Reported prompt/completion tokens: **0 / 0**
-- Runtime dependency: Python standard library only
+- External model/API cost: **$0** for local inference
+- Reported prompt/completion tokens: **0 / 0** for the local reranker
+- Runtime dependency: Python standard library core; optional PyTorch,
+  Transformers, and Sentence Transformers for semantic reranking
 - Evaluation network requirement: none
 - Public 200-session warm-cache runtime observed locally: approximately 7 s;
 a cold run additionally spends about 32 s building a roughly 214 MiB index.
@@ -210,12 +270,12 @@ different private intent-card generator would rely more heavily on BM25 and
 reduce performance.
 - The public set is small and shares one scenario policy, so its score must not
 be treated as an unbiased private-set estimate.
-- The current belief transform is deliberately low-capacity rather than a fully
-calibrated probabilistic model.
+- Qwen reranker scores are used for ordering and are not calibrated purchase
+  probabilities. Latency and memory depend strongly on device and quantization.
 - A persistent SQLite cache is large; it is a development optimization and is
 not included in the submission.
-- No neural semantic reranker is bundled. This keeps the agent offline and
-reproducible, but limits handling of highly subjective paraphrases.
+- Model weights are not bundled. They must be cached before an offline run;
+  otherwise the deterministic ranker remains active.
 
 
 

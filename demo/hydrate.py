@@ -118,10 +118,10 @@ def expand_recommendations_for_ui(
     *,
     limit: int = 8,
 ) -> list[dict[str, str]]:
-    """Keep Agent slate first, then pad with more ranked hits for the demo shelf.
+    """Keep Agent slate first, then pad from this turn's last_ranked.
 
-    The planner often returns a 1-ASIN slate while asking a question. The evaluator
-    still scored the official ``recommendations``; this list is display-only.
+    Do not call retrieve again. A second hybrid pass over the full catalog
+    blocked the Chainlit reply after Decide had already finished.
     """
 
     ordered: list[str] = []
@@ -134,36 +134,12 @@ def expand_recommendations_for_ui(
         seen.add(asin)
 
     if state is not None and len(ordered) < limit:
-        try:
-            from agent.retrieve.candidates.retrieve import retrieve_candidates
-
-            hits = retrieve_candidates(retriever, state, exact=None)
-        except Exception:
-            hits = []
-        for hit in hits:
-            asin = str(getattr(hit, "parent_asin", "") or "").strip()
+        for asin in getattr(state, "last_ranked", None) or []:
+            asin = str(asin or "").strip()
             if not asin or asin in seen:
                 continue
             ordered.append(asin)
             seen.add(asin)
             if len(ordered) >= limit:
                 break
-
-    # Last resort on tiny demo catalogs: fill remaining catalog ASINs.
-    if len(ordered) < limit and hasattr(retriever, "connection"):
-        try:
-            rows = retriever.connection.execute(
-                "SELECT parent_asin FROM products ORDER BY parent_asin"
-            ).fetchall()
-        except Exception:
-            rows = []
-        for row in rows:
-            asin = str(row["parent_asin"] if hasattr(row, "keys") else row[0]).strip()
-            if not asin or asin in seen:
-                continue
-            ordered.append(asin)
-            seen.add(asin)
-            if len(ordered) >= limit:
-                break
-
     return [{"parent_asin": asin} for asin in ordered[:limit]]

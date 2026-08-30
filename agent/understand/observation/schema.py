@@ -35,6 +35,7 @@ class ObservationExtract:
     empty: bool = False
     source: ExtractSource = "regex"
     repair_rounds: int = 0
+    disclosure_empty: bool | None = None
 
 
 def span_grounded(value: str, message: str) -> bool:
@@ -75,9 +76,20 @@ def infer_track(extract: ObservationExtract, *, locked: bool = False) -> str | N
     return None
 
 
-def parse_observation_payload(payload: Any, message: str) -> ObservationExtract:
-    """Coerce a JSON object into ObservationExtract and drop ungrounded spans."""
+def parse_observation_payload(
+    payload: Any,
+    message: str,
+    *,
+    category_message: str | None = None,
+) -> ObservationExtract:
+    """Coerce a JSON object into ObservationExtract and drop ungrounded spans.
+
+    Attribute spans use ``message``. Category surfaces cite ``category_message``
+    when given (the original shopper sentence), otherwise ``message``.
+    """
 
     from .slots import grounded_extract_from_payload
 
-    return grounded_extract_from_payload(payload, message)
+    return grounded_extract_from_payload(
+        payload, message, category_message=category_message
+    )

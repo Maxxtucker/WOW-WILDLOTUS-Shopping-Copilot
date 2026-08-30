@@ -1,0 +1,3425 @@
+{
+  "version": 1,
+  "max_depth": 3,
+  "roots": [
+    {
+      "id": "All_Beauty",
+      "label": "All Beauty",
+      "catalog_tags": []
+    },
+    {
+      "id": "Amazon_Fashion",
+      "label": "Amazon Fashion",
+      "catalog_tags": []
+    },
+    {
+      "id": "Appliances",
+      "label": "Appliances",
+      "catalog_tags": []
+    },
+    {
+      "id": "Arts_Crafts_and_Sewing",
+      "label": "Arts, Crafts and Sewing",
+      "catalog_tags": []
+    },
+    {
+      "id": "Automotive",
+      "label": "Automotive",
+      "catalog_tags": []
+    },
+    {
+      "id": "Baby_Products",
+      "label": "Baby Products",
+      "catalog_tags": [
+        "baby"
+      ],
+      "children": [
+        {
+          "id": "baby_girls",
+          "label": "Baby girls",
+          "catalog_tags": [
+            "baby girls"
+          ]
+        },
+        {
+          "id": "baby_boys",
+          "label": "Baby boys",
+          "catalog_tags": [
+            "baby boys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Beauty_and_Personal_Care",
+      "label": "Beauty and Personal Care",
+      "catalog_tags": []
+    },
+    {
+      "id": "Books",
+      "label": "Books",
+      "catalog_tags": []
+    },
+    {
+      "id": "CDs_and_Vinyl",
+      "label": "CDs and Vinyl",
+      "catalog_tags": []
+    },
+    {
+      "id": "Cell_Phones_and_Accessories",
+      "label": "Cell Phones and Accessories",
+      "catalog_tags": [],
+      "children": [
+        {
+          "id": "phone_accessories",
+          "label": "Phone accessories",
+          "catalog_tags": [],
+          "children": [
+            {
+              "id": "power_banks",
+              "label": "Power banks",
+              "catalog_tags": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Clothing_Shoes_and_Jewelry",
+      "label": "Clothing, Shoes and Jewelry",
+      "catalog_tags": [
+        "clothing shoe jewelry"
+      ],
+      "children": [
+        {
+          "id": "adult_apparel",
+          "label": "Adult Apparel",
+          "catalog_tags": [
+            "adult apparel"
+          ]
+        },
+        {
+          "id": "apparel_and_accessories_made_in_italy",
+          "label": "Apparel and accessories Made in Italy",
+          "catalog_tags": [
+            "apparel accessories made in italy"
+          ],
+          "children": [
+            {
+              "id": "men_s_fashion_made_in_italy",
+              "label": "Men's fashion Made in Italy",
+              "catalog_tags": [
+                "man s fashion made in italy",
+                "bags made in italy"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "baby",
+          "label": "Baby",
+          "catalog_tags": [
+            "baby"
+          ],
+          "children": [
+            {
+              "id": "baby_boys",
+              "label": "Baby Boys",
+              "catalog_tags": [
+                "baby boys",
+                "accessories",
+                "glove mitten",
+                "hats caps",
+                "leg warmer",
+                "sock",
+                "clothing",
+                "bloomer diaper cover underwear",
+                "bodysuit",
+                "bottom",
+                "jeans",
+                "overall",
+                "pants",
+                "shorts",
+                "clothing sets",
+                "pant sets",
+                "short sets",
+                "footy romper",
+                "footy",
+                "romper",
+                "hoody active",
+                "jacket coat",
+                "down down alternative",
+                "fleece",
+                "jacket",
+                "layette sets",
+                "sleepwear robe",
+                "blanket sleeper",
+                "nightgown",
+                "pajama sets",
+                "robe",
+                "snow rainwear",
+                "rain jacket",
+                "snow pants bibs",
+                "snow suit",
+                "suit sport coat",
+                "suit",
+                "tuxedo",
+                "sweater",
+                "swim",
+                "one piece",
+                "rash guard shirt",
+                "sunsuit",
+                "swim diaper",
+                "swimwear sets",
+                "cover up sets",
+                "rash guard sets",
+                "trunk shorts",
+                "trunk",
+                "tops",
+                "button down dress shirt",
+                "polo",
+                "tees",
+                "shoe",
+                "athletic outdoor",
+                "boot",
+                "clog mule",
+                "oxford loafer",
+                "sandal",
+                "slipper",
+                "sneaker"
+              ]
+            },
+            {
+              "id": "baby_girls",
+              "label": "Baby Girls",
+              "catalog_tags": [
+                "baby girls",
+                "accessories",
+                "glove mitten",
+                "hats caps",
+                "leg warmer",
+                "sock",
+                "tights",
+                "clothing",
+                "bloomer diaper cover underwear",
+                "bloomer",
+                "bodysuit",
+                "bottom",
+                "jeans",
+                "leggings",
+                "overall",
+                "pants",
+                "shorts",
+                "skirt skooter skort",
+                "christening",
+                "clothing sets",
+                "pant sets",
+                "short sets",
+                "skirt sets",
+                "dress",
+                "playwear",
+                "special occasion",
+                "footy romper",
+                "footy",
+                "romper",
+                "hoody active",
+                "jacket coat",
+                "down down alternative",
+                "fleece",
+                "jacket",
+                "layette sets",
+                "sleepwear robe",
+                "blanket sleeper",
+                "nightgown",
+                "pajama sets",
+                "snow rainwear",
+                "rain jacket",
+                "snow pants bibs",
+                "snow suit",
+                "sweater",
+                "swim",
+                "cover ups",
+                "one piece",
+                "swim diaper",
+                "swimwear sets",
+                "cover up sets",
+                "rash guard sets",
+                "two piece",
+                "bikini",
+                "tankini",
+                "tops",
+                "tank tops",
+                "tees",
+                "shoe",
+                "athletic outdoor",
+                "boot",
+                "clog mule",
+                "flat",
+                "ballet",
+                "mary jane",
+                "oxford loafer",
+                "sandal",
+                "slipper",
+                "sneaker"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "baby_girls_outerwear",
+          "label": "Baby Girls' Outerwear",
+          "catalog_tags": [
+            "baby girls outerwear"
+          ]
+        },
+        {
+          "id": "big_kid_size_7",
+          "label": "Big Kid Size 7",
+          "catalog_tags": [
+            "big kid size 7"
+          ]
+        },
+        {
+          "id": "big_kid_size_8",
+          "label": "Big Kid Size 8",
+          "catalog_tags": [
+            "big kid size 8"
+          ]
+        },
+        {
+          "id": "birthstone_jewelry_gifts",
+          "label": "Birthstone Jewelry Gifts",
+          "catalog_tags": [
+            "birthstone jewelry gift"
+          ]
+        },
+        {
+          "id": "boot_shop",
+          "label": "Boot Shop",
+          "catalog_tags": [
+            "boot shop"
+          ],
+          "children": [
+            {
+              "id": "boys",
+              "label": "Boys",
+              "catalog_tags": [
+                "boys",
+                "fashion",
+                "combat",
+                "motorcycle",
+                "western",
+                "outdoor work",
+                "hiking trekking",
+                "rain",
+                "snow cold weather"
+              ]
+            },
+            {
+              "id": "girls",
+              "label": "Girls",
+              "catalog_tags": [
+                "girls",
+                "fashion",
+                "chelsea",
+                "chukka",
+                "combat",
+                "dress",
+                "motorcycle",
+                "riding",
+                "shearling",
+                "western",
+                "outdoor work",
+                "rain",
+                "snow cold weather"
+              ]
+            },
+            {
+              "id": "men",
+              "label": "Men",
+              "catalog_tags": [
+                "man",
+                "fashion",
+                "chelsea",
+                "chukka",
+                "combat",
+                "motorcycle",
+                "shearling",
+                "western",
+                "outdoor work",
+                "hiking trekking",
+                "hunting",
+                "rain",
+                "snow cold weather",
+                "work safety"
+              ]
+            },
+            {
+              "id": "women",
+              "label": "Women",
+              "catalog_tags": [
+                "woman",
+                "fashion",
+                "chelsea",
+                "chukka",
+                "combat",
+                "dress",
+                "motorcycle",
+                "riding",
+                "shearling",
+                "western",
+                "outdoor work",
+                "hiking trekking",
+                "hunting",
+                "rain",
+                "snow cold weather",
+                "work safety"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "boys",
+          "label": "Boys",
+          "catalog_tags": [
+            "boys"
+          ],
+          "children": [
+            {
+              "id": "accessories",
+              "label": "Accessories",
+              "catalog_tags": [
+                "accessories",
+                "belt",
+                "bow ties",
+                "cold weather",
+                "glove",
+                "hats caps",
+                "sets",
+                "neckty",
+                "sunglasses",
+                "suspender",
+                "wallet money organizer",
+                "wallet"
+              ]
+            },
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "active",
+                "active base layer",
+                "active hoody",
+                "active pants",
+                "sweatpant",
+                "track pants",
+                "active shirt tees",
+                "t shirt",
+                "active shorts",
+                "active sweatshirt",
+                "athletic sock",
+                "base layer compression",
+                "pants",
+                "shorts",
+                "sets",
+                "active tracksuit",
+                "track active jacket",
+                "clothing sets",
+                "pant sets",
+                "short sets",
+                "fashion hoody sweatshirt",
+                "jacket coat",
+                "down down alternative",
+                "dress coat",
+                "fleece",
+                "jacket",
+                "jeans",
+                "overall",
+                "sleepwear robe",
+                "blanket sleeper",
+                "pajama bottom",
+                "pajama sets",
+                "snow rainwear",
+                "rain jacket",
+                "snow pants bibs",
+                "snow suit",
+                "sock hosiery",
+                "slipper sock",
+                "sock",
+                "liner ankle sock",
+                "suit sport coat",
+                "suit",
+                "tuxedo",
+                "sweater",
+                "cardigan",
+                "pullover",
+                "vest",
+                "swim",
+                "rash guard shirt",
+                "shorts trunk",
+                "board shorts",
+                "trunk",
+                "swim pants",
+                "swimwear sets",
+                "rash guard sets",
+                "tops tees shirt",
+                "button down shirt",
+                "polo",
+                "tank tops",
+                "tees",
+                "underwear",
+                "boxer brief",
+                "boxer",
+                "brief",
+                "thermal underwear",
+                "tops",
+                "undershirt"
+              ]
+            },
+            {
+              "id": "jewelry",
+              "label": "Jewelry",
+              "catalog_tags": [
+                "jewelry",
+                "bracelet",
+                "necklace",
+                "pendant",
+                "ring"
+              ]
+            },
+            {
+              "id": "school_uniforms",
+              "label": "School Uniforms",
+              "catalog_tags": [
+                "school uniform",
+                "clothing",
+                "shoe"
+              ]
+            },
+            {
+              "id": "shoes",
+              "label": "Shoes",
+              "catalog_tags": [
+                "shoe",
+                "athletic",
+                "baseball softball",
+                "basketball",
+                "bowling",
+                "dance",
+                "fitness cross training",
+                "football",
+                "racquet sport",
+                "running",
+                "skateboarding",
+                "soccer",
+                "sport sandal",
+                "walking",
+                "water shoe",
+                "boot",
+                "clog mule",
+                "loafer",
+                "outdoor",
+                "hiking trekking",
+                "hiking boot",
+                "hiking shoe",
+                "snow boot",
+                "oxford",
+                "sandal",
+                "slipper",
+                "sneaker"
+              ]
+            },
+            {
+              "id": "watches",
+              "label": "Watches",
+              "catalog_tags": [
+                "watch",
+                "wrist watch"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "boys_character_shop",
+          "label": "Boys' Character Shop",
+          "catalog_tags": [
+            "boys character shop"
+          ]
+        },
+        {
+          "id": "california_costumes",
+          "label": "California Costumes",
+          "catalog_tags": [
+            "california costume"
+          ]
+        },
+        {
+          "id": "cat_t_shirts",
+          "label": "Cat T-Shirts",
+          "catalog_tags": [
+            "cat t shirt"
+          ]
+        },
+        {
+          "id": "costumes_accessories",
+          "label": "Costumes & Accessories",
+          "catalog_tags": [
+            "costume accessories"
+          ],
+          "children": [
+            {
+              "id": "kids_baby",
+              "label": "Kids & Baby",
+              "catalog_tags": [
+                "kids baby",
+                "baby",
+                "baby boys",
+                "baby girls",
+                "boys",
+                "accessories",
+                "costume",
+                "footwear",
+                "mask",
+                "girls"
+              ]
+            },
+            {
+              "id": "makeup_facial_hair_adhesives",
+              "label": "Makeup, Facial Hair & Adhesives",
+              "catalog_tags": [
+                "makeup facial hair adhesive",
+                "facial hair"
+              ]
+            },
+            {
+              "id": "men",
+              "label": "Men",
+              "catalog_tags": [
+                "man",
+                "accessories",
+                "accessory sets",
+                "eyewear",
+                "headwear",
+                "costume cosplay apparel",
+                "bodysuit",
+                "bottom",
+                "costume",
+                "robe cape jacket",
+                "tops",
+                "footwear",
+                "mask",
+                "wigs"
+              ]
+            },
+            {
+              "id": "props",
+              "label": "Props",
+              "catalog_tags": [
+                "prop",
+                "feather boas",
+                "walking stick cane",
+                "wand",
+                "weapon armor"
+              ]
+            },
+            {
+              "id": "women",
+              "label": "Women",
+              "catalog_tags": [
+                "woman",
+                "accessories",
+                "accessory sets",
+                "eyewear",
+                "headwear",
+                "costume cosplay apparel",
+                "bodysuit",
+                "bottom",
+                "costume",
+                "leg warmer hosiery",
+                "robe cape jacket",
+                "tops corset",
+                "footwear",
+                "mask",
+                "wigs"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "designer_shoes_handbags",
+          "label": "Designer Shoes & Handbags",
+          "catalog_tags": [
+            "designer shoe handbag"
+          ]
+        },
+        {
+          "id": "diamond_jewelry_store",
+          "label": "Diamond Jewelry Store",
+          "catalog_tags": [
+            "diamond jewelry store"
+          ],
+          "children": [
+            {
+              "id": "earrings",
+              "label": "Earrings",
+              "catalog_tags": [
+                "earrings"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "diamonds",
+          "label": "Diamonds",
+          "catalog_tags": [
+            "diamond"
+          ]
+        },
+        {
+          "id": "dresses_checks",
+          "label": "Dresses- Checks",
+          "catalog_tags": [
+            "dress check"
+          ]
+        },
+        {
+          "id": "editor_s_picks_women_s_new_arrivals",
+          "label": "Editor's Picks: Women's New Arrivals",
+          "catalog_tags": [
+            "editor s pick woman s new arrival"
+          ]
+        },
+        {
+          "id": "everyday_apparel_essentials",
+          "label": "Everyday Apparel Essentials",
+          "catalog_tags": [
+            "everyday apparel essential"
+          ]
+        },
+        {
+          "id": "expert_beauty_trends",
+          "label": "Expert Beauty Trends",
+          "catalog_tags": [
+            "expert beauty trend"
+          ]
+        },
+        {
+          "id": "fall_ready_shirtdresses",
+          "label": "Fall-Ready Shirtdresses",
+          "catalog_tags": [
+            "fall ready shirtdress"
+          ]
+        },
+        {
+          "id": "family_athleisure",
+          "label": "Family Athleisure",
+          "catalog_tags": [
+            "family athleisure"
+          ]
+        },
+        {
+          "id": "fashion_gift_guide_for_the_master_of_make_believe",
+          "label": "Fashion Gift Guide: For the Master of Make-Believe",
+          "catalog_tags": [
+            "fashion gift guide master make believe"
+          ]
+        },
+        {
+          "id": "fashion_watches",
+          "label": "Fashion Watches",
+          "catalog_tags": [
+            "fashion watch"
+          ]
+        },
+        {
+          "id": "fashion_forward_finds",
+          "label": "Fashion-forward finds",
+          "catalog_tags": [
+            "fashion forward find"
+          ]
+        },
+        {
+          "id": "feminine_spring_blouses",
+          "label": "Feminine Spring Blouses",
+          "catalog_tags": [
+            "feminine spring blouse"
+          ]
+        },
+        {
+          "id": "fine_jewelry_for_women",
+          "label": "Fine Jewelry for Women",
+          "catalog_tags": [
+            "fine jewelry woman"
+          ]
+        },
+        {
+          "id": "free_one_day_shipping_on_jewelry_watches_more",
+          "label": "Free One-Day Shipping on Jewelry, Watches, & More",
+          "catalog_tags": [
+            "free one day shipping on jewelry watch more"
+          ]
+        },
+        {
+          "id": "fun_world_costumes",
+          "label": "Fun World Costumes",
+          "catalog_tags": [
+            "fun world costume"
+          ]
+        },
+        {
+          "id": "gemstones",
+          "label": "Gemstones",
+          "catalog_tags": [
+            "gemstone"
+          ]
+        },
+        {
+          "id": "girls",
+          "label": "Girls",
+          "catalog_tags": [
+            "girls"
+          ],
+          "children": [
+            {
+              "id": "accessories",
+              "label": "Accessories",
+              "catalog_tags": [
+                "accessories",
+                "belt",
+                "cold weather",
+                "earmuff",
+                "glove",
+                "hats caps",
+                "mitten",
+                "neck gaiter",
+                "scarve wrap",
+                "sets",
+                "fashion scarve",
+                "special occasion glove",
+                "sunglasses",
+                "wallet money organizer",
+                "coin purse pouch"
+              ]
+            },
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "active",
+                "active dress",
+                "active hoody",
+                "active pants",
+                "track pants",
+                "active shirt tees",
+                "t shirt",
+                "tank tops",
+                "active shorts",
+                "athletic sock",
+                "leggings",
+                "sets",
+                "active tracksuit",
+                "track active jacket",
+                "clothing sets",
+                "pant sets",
+                "short sets",
+                "skirt sets",
+                "dress",
+                "casual",
+                "special occasion",
+                "fashion hoody sweatshirt",
+                "jacket coat",
+                "down down alternative",
+                "dress coat",
+                "fleece",
+                "jacket",
+                "vest",
+                "jeans",
+                "jumpsuit romper",
+                "overall",
+                "pants capri",
+                "shorts",
+                "skirt skort",
+                "skirt",
+                "sleepwear robe",
+                "blanket sleeper",
+                "nightgown",
+                "pajama bottom",
+                "pajama sets",
+                "robe",
+                "snow rainwear",
+                "rain jacket",
+                "snow pants bibs",
+                "snow suit",
+                "sock tights",
+                "casual dress sock",
+                "knee high sock",
+                "liner ankle sock",
+                "slipper sock",
+                "tights",
+                "sweater",
+                "cardigan",
+                "pullover",
+                "shrug",
+                "swim",
+                "board shorts",
+                "cover ups wrap",
+                "one piece",
+                "rash guard shirt",
+                "swimwear sets",
+                "cover up sets",
+                "rash guard sets",
+                "two piece",
+                "bikini",
+                "bottom",
+                "tankini",
+                "tankini sets",
+                "tops tees blouse",
+                "blouse button down shirt",
+                "polo",
+                "tank cami",
+                "tees",
+                "underwear",
+                "panty",
+                "slip",
+                "training bras",
+                "undershirt tank camisole"
+              ]
+            },
+            {
+              "id": "jewelry",
+              "label": "Jewelry",
+              "catalog_tags": [
+                "jewelry",
+                "anklet",
+                "bracelet",
+                "bangle",
+                "charm",
+                "cuff",
+                "link",
+                "brooch pins",
+                "earrings",
+                "drop dangle",
+                "hoop",
+                "stud",
+                "necklace pendant",
+                "chain",
+                "locket",
+                "pendant",
+                "ring"
+              ]
+            },
+            {
+              "id": "school_uniforms",
+              "label": "School Uniforms",
+              "catalog_tags": [
+                "school uniform",
+                "clothing",
+                "dress jumper",
+                "skirt scooter skort",
+                "tops",
+                "shoe"
+              ]
+            },
+            {
+              "id": "shoes",
+              "label": "Shoes",
+              "catalog_tags": [
+                "shoe",
+                "athletic",
+                "basketball",
+                "dance",
+                "fitness cross training",
+                "racquet sport",
+                "running",
+                "skateboarding",
+                "soccer",
+                "sport sandal",
+                "trail running",
+                "water shoe",
+                "boot",
+                "clog mule",
+                "flat",
+                "loafer",
+                "outdoor",
+                "hiking trekking",
+                "hiking boot",
+                "hiking shoe",
+                "rain boot",
+                "oxford",
+                "sandal",
+                "slipper",
+                "sneaker"
+              ]
+            },
+            {
+              "id": "watches",
+              "label": "Watches",
+              "catalog_tags": [
+                "watch",
+                "wrist watch"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "girls_apparel",
+          "label": "Girls Apparel",
+          "catalog_tags": [
+            "girls apparel"
+          ],
+          "children": [
+            {
+              "id": "dresses",
+              "label": "Dresses",
+              "catalog_tags": [
+                "dress"
+              ]
+            },
+            {
+              "id": "jackets_and_coats",
+              "label": "Jackets and Coats",
+              "catalog_tags": [
+                "jacket coat"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "girls_school_essentials",
+          "label": "Girls' School Essentials",
+          "catalog_tags": [
+            "girls school essential"
+          ]
+        },
+        {
+          "id": "graduation_cohort_1_daily",
+          "label": "Graduation Cohort 1 - Daily",
+          "catalog_tags": [
+            "graduation cohort 1 daily"
+          ]
+        },
+        {
+          "id": "graduation_cohort_4_daily",
+          "label": "Graduation Cohort 4 - Daily",
+          "catalog_tags": [
+            "graduation cohort 4 daily"
+          ]
+        },
+        {
+          "id": "green_lit_197",
+          "label": "Green Lit 197",
+          "catalog_tags": [
+            "green lit 197"
+          ]
+        },
+        {
+          "id": "green_lit_241",
+          "label": "Green Lit 241",
+          "catalog_tags": [
+            "green lit 241"
+          ]
+        },
+        {
+          "id": "green_lit_641",
+          "label": "Green Lit 641",
+          "catalog_tags": [
+            "green lit 641"
+          ]
+        },
+        {
+          "id": "healthcare_uniforms",
+          "label": "Healthcare Uniforms",
+          "catalog_tags": [
+            "healthcare uniform"
+          ]
+        },
+        {
+          "id": "holiday_together_holiday_happy",
+          "label": "Holiday Together: Holiday Happy",
+          "catalog_tags": [
+            "holiday together holiday happy"
+          ]
+        },
+        {
+          "id": "kids_activewear",
+          "label": "Kids Activewear",
+          "catalog_tags": [
+            "kids activewear"
+          ],
+          "children": [
+            {
+              "id": "boys_active",
+              "label": "Boys Active",
+              "catalog_tags": [
+                "boys active"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_apparel",
+          "label": "Kids Apparel",
+          "catalog_tags": [
+            "kids apparel"
+          ],
+          "children": [
+            {
+              "id": "girls_apparel",
+              "label": "Girls Apparel",
+              "catalog_tags": [
+                "girls apparel"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_shoes",
+          "label": "Kids Shoes",
+          "catalog_tags": [
+            "kids shoe"
+          ],
+          "children": [
+            {
+              "id": "boys_sneakers_fs_no_puma",
+              "label": "Boys Sneakers (fs, no puma)",
+              "catalog_tags": [
+                "boys sneaker fs no puma"
+              ]
+            },
+            {
+              "id": "boys_sneakers_no_fs",
+              "label": "Boys Sneakers (no fs)",
+              "catalog_tags": [
+                "boys sneaker no fs"
+              ]
+            },
+            {
+              "id": "girls_sneakers_fs_no_puma",
+              "label": "Girls Sneakers (fs, no puma)",
+              "catalog_tags": [
+                "girls sneaker fs no puma"
+              ]
+            },
+            {
+              "id": "girls_sneakers_no_fs",
+              "label": "Girls Sneakers (no fs)",
+              "catalog_tags": [
+                "girls sneaker no fs"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_shoes_union",
+          "label": "Kids Shoes Union",
+          "catalog_tags": [
+            "kids shoe union"
+          ],
+          "children": [
+            {
+              "id": "baby_boys_shoes_union",
+              "label": "Baby Boys Shoes Union",
+              "catalog_tags": [
+                "baby boys shoe union"
+              ]
+            },
+            {
+              "id": "boys_athletic",
+              "label": "Boys Athletic",
+              "catalog_tags": [
+                "boys athletic"
+              ]
+            },
+            {
+              "id": "girls_athletic_oxfords",
+              "label": "Girls Athletic & Oxfords",
+              "catalog_tags": [
+                "girls athletic oxford"
+              ]
+            },
+            {
+              "id": "girls_boots_clogs_mules",
+              "label": "Girls Boots, Clogs & Mules",
+              "catalog_tags": [
+                "girls boot clog mule"
+              ]
+            },
+            {
+              "id": "girls_flats_loafers",
+              "label": "Girls Flats & Loafers",
+              "catalog_tags": [
+                "girls flat loafer"
+              ]
+            },
+            {
+              "id": "girls_sandals_pumps",
+              "label": "Girls Sandals & Pumps",
+              "catalog_tags": [
+                "girls sandal pump"
+              ]
+            },
+            {
+              "id": "girls_sneakers",
+              "label": "Girls Sneakers",
+              "catalog_tags": [
+                "girls sneaker"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_sleepwear_robes",
+          "label": "Kids Sleepwear & Robes",
+          "catalog_tags": [
+            "kids sleepwear robe"
+          ],
+          "children": [
+            {
+              "id": "total_sleepwear_robes",
+              "label": "Total Sleepwear & Robes",
+              "catalog_tags": [
+                "total sleepwear robe"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_sweaters",
+          "label": "Kids Sweaters",
+          "catalog_tags": [
+            "kids sweater"
+          ],
+          "children": [
+            {
+              "id": "total_sweaters",
+              "label": "Total Sweaters",
+              "catalog_tags": [
+                "total sweater"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_swimwear",
+          "label": "Kids Swimwear",
+          "catalog_tags": [
+            "kids swimwear"
+          ],
+          "children": [
+            {
+              "id": "girls_swimwear_2",
+              "label": "Girls Swimwear 2",
+              "catalog_tags": [
+                "girls swimwear 2"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_and_baby_halloween_costumes",
+          "label": "Kids' and Baby Halloween Costumes",
+          "catalog_tags": [
+            "kids baby halloween costume"
+          ]
+        },
+        {
+          "id": "kids_clothing",
+          "label": "Kids' Clothing",
+          "catalog_tags": [
+            "kids clothing"
+          ],
+          "children": [
+            {
+              "id": "girls_leggings",
+              "label": "Girls Leggings",
+              "catalog_tags": [
+                "girls leggings"
+              ]
+            },
+            {
+              "id": "girls_pants",
+              "label": "Girls Pants",
+              "catalog_tags": [
+                "girls pants"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kids_shoes_markdown",
+          "label": "Kids' Shoes Markdown",
+          "catalog_tags": [
+            "kids shoe markdown"
+          ]
+        },
+        {
+          "id": "kids_watches",
+          "label": "Kids' Watches",
+          "catalog_tags": [
+            "kids watch"
+          ],
+          "children": [
+            {
+              "id": "girls",
+              "label": "Girls",
+              "catalog_tags": [
+                "girls"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lee_lowest_prices_of_the_season",
+          "label": "Lee Lowest Prices Of The Season",
+          "catalog_tags": [
+            "lee lowest price season"
+          ]
+        },
+        {
+          "id": "lingerie_semi_annual_savings",
+          "label": "Lingerie Semi-Annual Savings",
+          "catalog_tags": [
+            "lingerie semi annual saving"
+          ]
+        },
+        {
+          "id": "luggage_travel_gear",
+          "label": "Luggage & Travel Gear",
+          "catalog_tags": [
+            "luggage travel gear"
+          ],
+          "children": [
+            {
+              "id": "backpacks",
+              "label": "Backpacks",
+              "catalog_tags": [
+                "backpack",
+                "casual daypack",
+                "kids backpack"
+              ]
+            },
+            {
+              "id": "briefcases",
+              "label": "Briefcases",
+              "catalog_tags": [
+                "briefcase"
+              ]
+            },
+            {
+              "id": "gym_bags",
+              "label": "Gym Bags",
+              "catalog_tags": [
+                "gym bags",
+                "drawstring bags",
+                "gym tote",
+                "sport duffel"
+              ]
+            },
+            {
+              "id": "luggage",
+              "label": "Luggage",
+              "catalog_tags": [
+                "luggage",
+                "carry ons",
+                "garment bags",
+                "kids luggage",
+                "luggage sets",
+                "suitcase"
+              ]
+            },
+            {
+              "id": "messenger_bags",
+              "label": "Messenger Bags",
+              "catalog_tags": [
+                "messenger bags"
+              ]
+            },
+            {
+              "id": "travel_accessories",
+              "label": "Travel Accessories",
+              "catalog_tags": [
+                "travel accessories",
+                "luggage lock",
+                "luggage scale",
+                "luggage strap",
+                "luggage tags handle wrap",
+                "luggage handle wrap",
+                "luggage tags",
+                "packing organizer",
+                "passport cover",
+                "passport wallet",
+                "shoe bags",
+                "travel wallet"
+              ]
+            },
+            {
+              "id": "travel_duffels",
+              "label": "Travel Duffels",
+              "catalog_tags": [
+                "travel duffel"
+              ]
+            },
+            {
+              "id": "travel_totes",
+              "label": "Travel Totes",
+              "catalog_tags": [
+                "travel tote"
+              ]
+            },
+            {
+              "id": "umbrellas",
+              "label": "Umbrellas",
+              "catalog_tags": [
+                "umbrella",
+                "folding umbrella",
+                "stick umbrella"
+              ]
+            },
+            {
+              "id": "waist_packs",
+              "label": "Waist Packs",
+              "catalog_tags": [
+                "waist pack"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "made_in_usa",
+          "label": "Made in USA",
+          "catalog_tags": [
+            "made in usa"
+          ]
+        },
+        {
+          "id": "markdowns",
+          "label": "Markdowns",
+          "catalog_tags": [
+            "markdown"
+          ]
+        },
+        {
+          "id": "memorial_day_savings_2016",
+          "label": "Memorial Day Savings 2016",
+          "catalog_tags": [
+            "memorial day saving 2016"
+          ]
+        },
+        {
+          "id": "men",
+          "label": "Men",
+          "catalog_tags": [
+            "man"
+          ],
+          "children": [
+            {
+              "id": "accessories",
+              "label": "Accessories",
+              "catalog_tags": [
+                "accessories",
+                "belt",
+                "collar stay",
+                "earmuff",
+                "glove mitten",
+                "cold weather glove",
+                "mitten",
+                "handkerchief",
+                "hats caps",
+                "balaclava",
+                "baseball caps",
+                "bomber hats",
+                "cowboy hats",
+                "fedora",
+                "newsboy caps",
+                "rain hats",
+                "skully beany",
+                "sun hats",
+                "visor",
+                "keyring keychain",
+                "scarve",
+                "cold weather scarve",
+                "fashion scarve",
+                "neck gaiter",
+                "sport headband",
+                "sunglasses eyewear accessories",
+                "eyeglass case",
+                "eyewear frame",
+                "replacement sunglass lense",
+                "sunglasses",
+                "suspender",
+                "ties cummerbund pocket square",
+                "bolo ties",
+                "bow ties",
+                "cravat",
+                "cummerbund",
+                "neckty",
+                "pocket square",
+                "tie sets",
+                "wallet card case money organizer",
+                "card id case",
+                "business card case",
+                "card case",
+                "id case",
+                "coin purse pouch",
+                "money clip",
+                "wallet"
+              ]
+            },
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "active",
+                "active base layer",
+                "active hoody",
+                "active pants",
+                "sweatpant",
+                "track pants",
+                "active shirt tees",
+                "button down shirt",
+                "polo",
+                "t shirt",
+                "tank tops",
+                "active shorts",
+                "active sweatshirt",
+                "active underwear",
+                "undershort",
+                "active vest",
+                "athletic sock",
+                "athletic supporter",
+                "base layer compression",
+                "compression arm sleeve",
+                "compression pants tights",
+                "compression shorts",
+                "compression sock",
+                "shirt",
+                "sets",
+                "active tracksuit",
+                "sweater",
+                "track active jacket",
+                "fashion hoody sweatshirt",
+                "jacket coat",
+                "active performance",
+                "insulated",
+                "shell",
+                "down down alternative",
+                "fleece",
+                "leather faux leather",
+                "lightweight jacket",
+                "cotton",
+                "denim",
+                "varsity jacket",
+                "windbreaker",
+                "trench rain",
+                "vest",
+                "wool blend",
+                "jeans",
+                "pants",
+                "casual",
+                "dress",
+                "casual button down shirt",
+                "dress shirt",
+                "henley",
+                "tuxedo shirt",
+                "shorts",
+                "cargo",
+                "flat front",
+                "pleated",
+                "sleep lounge",
+                "nightshirt",
+                "robe",
+                "sleep bottom",
+                "sleep sets",
+                "sleep tops",
+                "sock hosiery",
+                "slipper sock",
+                "sock",
+                "calf sock",
+                "liner ankle sock",
+                "suit sport coat",
+                "sport coat blazer",
+                "suit separate",
+                "suit jacket",
+                "suit pants",
+                "suit",
+                "tuxedo",
+                "cardigan",
+                "pullover",
+                "swim",
+                "board shorts",
+                "brief",
+                "rash guard shirt",
+                "trunk",
+                "underwear",
+                "bikini",
+                "boxer brief",
+                "boxer",
+                "g string thong",
+                "shapewear",
+                "thermal underwear",
+                "bottom",
+                "tops",
+                "undershirt"
+              ]
+            },
+            {
+              "id": "handbags_shoulder_bags",
+              "label": "Handbags & Shoulder Bags",
+              "catalog_tags": [
+                "handbag shoulder bags",
+                "cross body sling bags",
+                "shoulder bags",
+                "tote"
+              ]
+            },
+            {
+              "id": "jewelry",
+              "label": "Jewelry",
+              "catalog_tags": [
+                "jewelry",
+                "body jewelry",
+                "faux body piercing jewelry",
+                "piercing jewelry",
+                "barbell",
+                "ring",
+                "stud",
+                "taper",
+                "tunnel",
+                "bracelet",
+                "cuff",
+                "identification",
+                "link",
+                "cuff link",
+                "earrings",
+                "necklace",
+                "pendant",
+                "shirt stud",
+                "tie clip",
+                "tie pins",
+                "wedding ring"
+              ]
+            },
+            {
+              "id": "shoes",
+              "label": "Shoes",
+              "catalog_tags": [
+                "shoe",
+                "athletic",
+                "ballet dance",
+                "bowling",
+                "cycling",
+                "equestrian sport boot",
+                "fitness cross training",
+                "golf",
+                "running",
+                "road running",
+                "track field cross country",
+                "trail running",
+                "skateboarding",
+                "sport sandal slide",
+                "team sport",
+                "baseball softball",
+                "basketball",
+                "field hockey lacrosse",
+                "football",
+                "rugby",
+                "soccer",
+                "volleyball",
+                "tennis racquet sport",
+                "walking",
+                "water shoe",
+                "wrestling",
+                "boot",
+                "chelsea",
+                "chukka",
+                "motorcycle combat",
+                "oxford derby",
+                "rain",
+                "western",
+                "fashion sneaker",
+                "loafer slip ons",
+                "mule clog",
+                "outdoor",
+                "climbing",
+                "hiking trekking",
+                "backpacking boot",
+                "hiking boot",
+                "hiking shoe",
+                "hunting",
+                "rain footwear",
+                "snow boot",
+                "oxford",
+                "sandal",
+                "slipper"
+              ]
+            },
+            {
+              "id": "uniforms_work_safety",
+              "label": "Uniforms, Work & Safety",
+              "catalog_tags": [
+                "uniform work safety",
+                "clothing",
+                "food service",
+                "chef jacket",
+                "medical",
+                "lab coat",
+                "scrub bottom",
+                "scrub jacket",
+                "scrub tops",
+                "military",
+                "accessories",
+                "outerwear",
+                "pants",
+                "tops",
+                "work utility safety",
+                "overall coverall",
+                "shorts",
+                "shoe",
+                "health care food service",
+                "military tactical",
+                "work utility",
+                "industrial construction boot"
+              ]
+            },
+            {
+              "id": "watches",
+              "label": "Watches",
+              "catalog_tags": [
+                "watch",
+                "pocket watch",
+                "smartwatch",
+                "watch band",
+                "wrist watch"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "men_s_action_sport_watches",
+          "label": "Men's Action Sport Watches",
+          "catalog_tags": [
+            "man s action sport watch"
+          ]
+        },
+        {
+          "id": "men_s_activewear_bottoms",
+          "label": "Men's Activewear: Bottoms",
+          "catalog_tags": [
+            "man s activewear bottom"
+          ]
+        },
+        {
+          "id": "men_s_denim_updates",
+          "label": "Men's Denim Updates",
+          "catalog_tags": [
+            "man s denim update"
+          ]
+        },
+        {
+          "id": "men_s_halloween_costumes",
+          "label": "Men's Halloween Costumes",
+          "catalog_tags": [
+            "man s halloween costume"
+          ]
+        },
+        {
+          "id": "men_s_off_to_college_essentials",
+          "label": "Men's Off-to-College Essentials",
+          "catalog_tags": [
+            "man s off college essential"
+          ]
+        },
+        {
+          "id": "men_s_outerwear_parka",
+          "label": "Men's Outerwear: Parka",
+          "catalog_tags": [
+            "man s outerwear parka"
+          ]
+        },
+        {
+          "id": "mfn_only",
+          "label": "MFN Only",
+          "catalog_tags": [
+            "mfn only"
+          ]
+        },
+        {
+          "id": "mfn_only_v2",
+          "label": "MFN ONLY V2",
+          "catalog_tags": [
+            "mfn only v2"
+          ]
+        },
+        {
+          "id": "most_gifted_styles",
+          "label": "Most Gifted Styles",
+          "catalog_tags": [
+            "most gifted style"
+          ]
+        },
+        {
+          "id": "motorcycle_atv_casual_footwear",
+          "label": "Motorcycle & ATV Casual Footwear",
+          "catalog_tags": [
+            "motorcycle atv casual footwear"
+          ],
+          "children": [
+            {
+              "id": "boots",
+              "label": "Boots",
+              "catalog_tags": [
+                "boot"
+              ]
+            },
+            {
+              "id": "shoes",
+              "label": "Shoes",
+              "catalog_tags": [
+                "shoe"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "motorcycle_atv_casual_wear",
+          "label": "Motorcycle & ATV Casual Wear",
+          "catalog_tags": [
+            "motorcycle atv casual wear"
+          ],
+          "children": [
+            {
+              "id": "jackets",
+              "label": "Jackets",
+              "catalog_tags": [
+                "jacket"
+              ]
+            },
+            {
+              "id": "shirts",
+              "label": "Shirts",
+              "catalog_tags": [
+                "shirt"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "must_see_deals",
+          "label": "Must See Deals",
+          "catalog_tags": [
+            "must see deal"
+          ]
+        },
+        {
+          "id": "new_looks_from_prime_wardrobe",
+          "label": "New Looks from Prime Wardrobe",
+          "catalog_tags": [
+            "new look prime wardrobe"
+          ]
+        },
+        {
+          "id": "not_your_mother_s_cableknit",
+          "label": "Not-Your-Mother's Cableknit",
+          "catalog_tags": [
+            "not your mother s cableknit"
+          ]
+        },
+        {
+          "id": "novelty_more",
+          "label": "Novelty & More",
+          "catalog_tags": [
+            "novelty more"
+          ],
+          "children": [
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "exotic apparel",
+                "man",
+                "boxer",
+                "brief",
+                "woman",
+                "accessories",
+                "bodystocking",
+                "bras",
+                "bustier corset",
+                "costume",
+                "dress",
+                "hosiery",
+                "lingerie sets",
+                "panty",
+                "teddy bodysuit",
+                "novelty",
+                "boys",
+                "belt",
+                "glove mitten",
+                "hats caps",
+                "baseball caps",
+                "beany knit hats",
+                "keychain",
+                "wallet",
+                "hoody",
+                "sleepwear robe",
+                "one piece pajama",
+                "pajama sets",
+                "sock",
+                "sweater",
+                "sweatshirt",
+                "tops tees",
+                "t shirt",
+                "tank tops",
+                "girls",
+                "clothing sets",
+                "sleep lounge",
+                "sock tights",
+                "swimwear",
+                "applique patch",
+                "bandana",
+                "belt buckle",
+                "bow ties",
+                "button pins",
+                "glove",
+                "sun hats",
+                "visor",
+                "neckty",
+                "scarve",
+                "jacket coat",
+                "pants",
+                "shirt",
+                "button down shirt",
+                "polo",
+                "shorts",
+                "bottom",
+                "sets",
+                "underwear",
+                "boxer brief",
+                "cowboy hats",
+                "sunglasses eyewear",
+                "leggings",
+                "pants capri",
+                "skirt",
+                "nightgown sleepshirt",
+                "sock hosiery",
+                "blouse button down shirt",
+                "tank cami",
+                "boy shorts"
+              ]
+            },
+            {
+              "id": "watches",
+              "label": "Watches",
+              "catalog_tags": [
+                "watch"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "off_to_college_fashion",
+          "label": "Off to College Fashion",
+          "catalog_tags": [
+            "off college fashion"
+          ]
+        },
+        {
+          "id": "old_glory_exclusives",
+          "label": "Old Glory Exclusives",
+          "catalog_tags": [
+            "old glory exclusive"
+          ]
+        },
+        {
+          "id": "on_sale_now",
+          "label": "On Sale Now",
+          "catalog_tags": [
+            "on sale now"
+          ]
+        },
+        {
+          "id": "over_50",
+          "label": "Over $50",
+          "catalog_tags": [
+            "over $50"
+          ]
+        },
+        {
+          "id": "pajamas_loungewear_more",
+          "label": "Pajamas, Loungewear & More",
+          "catalog_tags": [
+            "pajama loungewear more"
+          ]
+        },
+        {
+          "id": "pattyboutik_apparel",
+          "label": "PattyBoutik Apparel",
+          "catalog_tags": [
+            "pattyboutik apparel"
+          ]
+        },
+        {
+          "id": "pd23_all_fashion_deals_running_on_all_of_lead_up_v5",
+          "label": "PD23_All fashion deals running on all of lead up v5",
+          "catalog_tags": [
+            "pd23_all fashion deal running on all lead up v5"
+          ]
+        },
+        {
+          "id": "plain_silver_jewelry",
+          "label": "Plain Silver Jewelry",
+          "catalog_tags": [
+            "plain silver jewelry"
+          ]
+        },
+        {
+          "id": "plus_size_fashion",
+          "label": "Plus-Size Fashion",
+          "catalog_tags": [
+            "plus size fashion"
+          ]
+        },
+        {
+          "id": "premium_fashion_testing",
+          "label": "Premium Fashion Testing",
+          "catalog_tags": [
+            "premium fashion testing"
+          ]
+        },
+        {
+          "id": "premium_tops",
+          "label": "Premium Tops",
+          "catalog_tags": [
+            "premium tops"
+          ]
+        },
+        {
+          "id": "pretty_winter_floral_prints",
+          "label": "Pretty Winter Floral Prints",
+          "catalog_tags": [
+            "pretty winter floral print"
+          ]
+        },
+        {
+          "id": "prime_wardrobe_columbia_try_before_you_buy",
+          "label": "Prime Wardrobe: Columbia Try Before You Buy",
+          "catalog_tags": [
+            "prime wardrobe columbia try before you buy"
+          ]
+        },
+        {
+          "id": "prime_wardrobe_levi_s_try_before_you_buy",
+          "label": "Prime Wardrobe: Levi's Try Before You Buy",
+          "catalog_tags": [
+            "prime wardrobe levi s try before you buy"
+          ]
+        },
+        {
+          "id": "prime_wardrobe_new_arrivals",
+          "label": "Prime Wardrobe: New Arrivals",
+          "catalog_tags": [
+            "prime wardrobe new arrival"
+          ]
+        },
+        {
+          "id": "prime_wardrobe_under_armour",
+          "label": "Prime Wardrobe: Under Armour",
+          "catalog_tags": [
+            "prime wardrobe under armour"
+          ]
+        },
+        {
+          "id": "prom",
+          "label": "Prom",
+          "catalog_tags": [
+            "prom"
+          ]
+        },
+        {
+          "id": "prom_dresses",
+          "label": "Prom- Dresses",
+          "catalog_tags": [
+            "prom dress"
+          ]
+        },
+        {
+          "id": "restaurant_store",
+          "label": "Restaurant Store",
+          "catalog_tags": [
+            "restaurant store"
+          ],
+          "children": [
+            {
+              "id": "food_service_uniforms",
+              "label": "Food Service Uniforms",
+              "catalog_tags": [
+                "food service uniform",
+                "food service shoe"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "rhinestones_earrings",
+          "label": "Rhinestones earrings",
+          "catalog_tags": [
+            "rhinestone earrings"
+          ]
+        },
+        {
+          "id": "save_up_to_x_on_burt_s_bees",
+          "label": "Save up to X% on Burt's Bees",
+          "catalog_tags": [
+            "save up x on burt s bees"
+          ]
+        },
+        {
+          "id": "shoe_jewelry_watch_accessories",
+          "label": "Shoe, Jewelry & Watch Accessories",
+          "catalog_tags": [
+            "shoe jewelry watch accessories"
+          ],
+          "children": [
+            {
+              "id": "jewelry_accessories",
+              "label": "Jewelry Accessories",
+              "catalog_tags": [
+                "jewelry accessories",
+                "cleaning care",
+                "jewelry boxe organizer",
+                "jewelry armoire",
+                "jewelry boxe",
+                "jewelry roll",
+                "jewelry tower",
+                "jewelry tray",
+                "loose gemstone",
+                "ring sizer"
+              ]
+            },
+            {
+              "id": "shoe_care_accessories",
+              "label": "Shoe Care & Accessories",
+              "catalog_tags": [
+                "shoe care accessories",
+                "electric shoe polisher",
+                "ice snow grip",
+                "shoe boot tree",
+                "shoe brush",
+                "shoe care treatment dyes",
+                "shoe care kits",
+                "shoe treatment polish",
+                "shoe decoration charm",
+                "shoe dryer",
+                "shoe horn boot jack",
+                "shoe measuring device",
+                "shoelace"
+              ]
+            },
+            {
+              "id": "watch_accessories",
+              "label": "Watch Accessories",
+              "catalog_tags": [
+                "watch accessories",
+                "cabinet case",
+                "pocket watch chain",
+                "repair tool kits",
+                "watch band",
+                "watch winder"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shop_by_designer",
+          "label": "Shop by Designer",
+          "catalog_tags": [
+            "shop designer"
+          ]
+        },
+        {
+          "id": "shop_by_occasion_for_her_vacation",
+          "label": "Shop by Occasion for Her: Vacation",
+          "catalog_tags": [
+            "shop occasion her vacation"
+          ]
+        },
+        {
+          "id": "shop_your_style_classic",
+          "label": "Shop Your Style: Classic",
+          "catalog_tags": [
+            "shop your style classic"
+          ]
+        },
+        {
+          "id": "shopbop_september_2019_eots",
+          "label": "Shopbop September 2019 EOTS",
+          "catalog_tags": [
+            "shopbop september 2019 eots"
+          ]
+        },
+        {
+          "id": "splurgeworthy_womens_shoes",
+          "label": "Splurgeworthy Womens Shoes",
+          "catalog_tags": [
+            "splurgeworthy womens shoe"
+          ]
+        },
+        {
+          "id": "sport_specific_clothing",
+          "label": "Sport Specific Clothing",
+          "catalog_tags": [
+            "sport specific clothing"
+          ],
+          "children": [
+            {
+              "id": "american_football",
+              "label": "American Football",
+              "catalog_tags": [
+                "american football",
+                "boys",
+                "jersey",
+                "pants",
+                "man"
+              ]
+            },
+            {
+              "id": "baseball",
+              "label": "Baseball",
+              "catalog_tags": [
+                "baseball",
+                "boys",
+                "pants",
+                "man",
+                "jersey"
+              ]
+            },
+            {
+              "id": "basketball",
+              "label": "Basketball",
+              "catalog_tags": [
+                "basketball",
+                "boys",
+                "jersey",
+                "man",
+                "woman"
+              ]
+            },
+            {
+              "id": "boxing",
+              "label": "Boxing",
+              "catalog_tags": [
+                "boxing",
+                "man",
+                "trunk"
+              ]
+            },
+            {
+              "id": "cheerleading",
+              "label": "Cheerleading",
+              "catalog_tags": [
+                "cheerleading",
+                "girls",
+                "woman",
+                "tops"
+              ]
+            },
+            {
+              "id": "competitive_swimwear",
+              "label": "Competitive Swimwear",
+              "catalog_tags": [
+                "competitive swimwear",
+                "boys",
+                "brief",
+                "jammer",
+                "girls",
+                "one piece suit",
+                "two piece suit",
+                "man",
+                "bodysuit",
+                "woman"
+              ]
+            },
+            {
+              "id": "cycling",
+              "label": "Cycling",
+              "catalog_tags": [
+                "cycling",
+                "boys",
+                "glove",
+                "tights pants shorts",
+                "shorts",
+                "girls",
+                "jersey",
+                "man",
+                "hats headwear",
+                "caps",
+                "jacket",
+                "leg warmer",
+                "sets",
+                "bib pants",
+                "bib shorts",
+                "tights pants",
+                "underwear",
+                "woman"
+              ]
+            },
+            {
+              "id": "dance",
+              "label": "Dance",
+              "catalog_tags": [
+                "dance",
+                "girls",
+                "dress",
+                "shorts",
+                "skirt",
+                "tights",
+                "tops",
+                "man",
+                "pants",
+                "woman"
+              ]
+            },
+            {
+              "id": "equestrian_sports",
+              "label": "Equestrian Sports",
+              "catalog_tags": [
+                "equestrian sport",
+                "kids",
+                "breech",
+                "man",
+                "shirt",
+                "woman"
+              ]
+            },
+            {
+              "id": "golf",
+              "label": "Golf",
+              "catalog_tags": [
+                "golf",
+                "man",
+                "accessories",
+                "belt",
+                "pants",
+                "shirt",
+                "woman"
+              ]
+            },
+            {
+              "id": "gymnastics",
+              "label": "Gymnastics",
+              "catalog_tags": [
+                "gymnastic",
+                "girls",
+                "leotard"
+              ]
+            },
+            {
+              "id": "hiking_outdoor_recreation",
+              "label": "Hiking & Outdoor Recreation",
+              "catalog_tags": [
+                "hiking outdoor recreation",
+                "man",
+                "jacket",
+                "softshell jacket",
+                "pants",
+                "shorts",
+                "sock",
+                "woman"
+              ]
+            },
+            {
+              "id": "ice_hockey",
+              "label": "Ice Hockey",
+              "catalog_tags": [
+                "ice hockey",
+                "man",
+                "jersey",
+                "sock"
+              ]
+            },
+            {
+              "id": "ice_skating",
+              "label": "Ice Skating",
+              "catalog_tags": [
+                "ice skating",
+                "girls",
+                "dress",
+                "woman",
+                "jacket",
+                "pants"
+              ]
+            },
+            {
+              "id": "martial_arts",
+              "label": "Martial Arts",
+              "catalog_tags": [
+                "martial arts",
+                "jiu jitsu",
+                "belt",
+                "sets",
+                "karate",
+                "bottom",
+                "kung fu",
+                "taekwondo"
+              ]
+            },
+            {
+              "id": "rugby",
+              "label": "Rugby",
+              "catalog_tags": [
+                "rugby",
+                "boys",
+                "man",
+                "jersey"
+              ]
+            },
+            {
+              "id": "running",
+              "label": "Running",
+              "catalog_tags": [
+                "running",
+                "boys",
+                "pants",
+                "girls",
+                "sock",
+                "man",
+                "glove",
+                "jacket",
+                "shirt",
+                "shorts",
+                "woman"
+              ]
+            },
+            {
+              "id": "skiing",
+              "label": "Skiing",
+              "catalog_tags": [
+                "skiing",
+                "boys",
+                "bibs pants",
+                "pants",
+                "glove",
+                "jacket",
+                "girls",
+                "bibs",
+                "man",
+                "ski suit",
+                "sock",
+                "woman"
+              ]
+            },
+            {
+              "id": "snowboarding",
+              "label": "Snowboarding",
+              "catalog_tags": [
+                "snowboarding",
+                "boys",
+                "jacket",
+                "pants",
+                "man",
+                "woman"
+              ]
+            },
+            {
+              "id": "soccer_futsal",
+              "label": "Soccer & Futsal",
+              "catalog_tags": [
+                "soccer futsal",
+                "boys",
+                "jersey",
+                "man",
+                "woman"
+              ]
+            },
+            {
+              "id": "softball",
+              "label": "Softball",
+              "catalog_tags": [
+                "softball",
+                "boys",
+                "jersey",
+                "girls",
+                "woman"
+              ]
+            },
+            {
+              "id": "tennis",
+              "label": "Tennis",
+              "catalog_tags": [
+                "tennis",
+                "girls",
+                "shirt",
+                "man",
+                "shorts",
+                "woman",
+                "dress",
+                "skirt skort",
+                "skort"
+              ]
+            },
+            {
+              "id": "yoga",
+              "label": "Yoga",
+              "catalog_tags": [
+                "yoga",
+                "girls",
+                "man",
+                "pants",
+                "woman",
+                "leggings",
+                "sock"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sport_watches",
+          "label": "Sport Watches",
+          "catalog_tags": [
+            "sport watch"
+          ]
+        },
+        {
+          "id": "street_surf_skate",
+          "label": "Street, Surf & Skate",
+          "catalog_tags": [
+            "street surf skate"
+          ]
+        },
+        {
+          "id": "students_top_rated",
+          "label": "Students' Top Rated",
+          "catalog_tags": [
+            "student top rated"
+          ]
+        },
+        {
+          "id": "sunglasses_starting_at_15",
+          "label": "Sunglasses Starting at $15",
+          "catalog_tags": [
+            "sunglasses starting $15"
+          ]
+        },
+        {
+          "id": "swimwear_test",
+          "label": "Swimwear TEST",
+          "catalog_tags": [
+            "swimwear test"
+          ],
+          "children": [
+            {
+              "id": "baby_boys_swimwear",
+              "label": "Baby Boys' Swimwear",
+              "catalog_tags": [
+                "baby boys swimwear"
+              ]
+            },
+            {
+              "id": "baby_girls_swimwear",
+              "label": "Baby Girls' Swimwear",
+              "catalog_tags": [
+                "baby girls swimwear"
+              ]
+            },
+            {
+              "id": "boys_swimwear",
+              "label": "Boys' Swimwear",
+              "catalog_tags": [
+                "boys swimwear"
+              ]
+            },
+            {
+              "id": "girls_swimwear",
+              "label": "Girls' Swimwear",
+              "catalog_tags": [
+                "girls swimwear"
+              ]
+            },
+            {
+              "id": "men_s_swimwear",
+              "label": "Men's Swimwear",
+              "catalog_tags": [
+                "man s swimwear"
+              ]
+            },
+            {
+              "id": "women_s_swimwear",
+              "label": "Women's Swimwear",
+              "catalog_tags": [
+                "woman s swimwear"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "tactical_boots",
+          "label": "Tactical boots",
+          "catalog_tags": [
+            "tactical boot"
+          ]
+        },
+        {
+          "id": "test_color",
+          "label": "Test Color",
+          "catalog_tags": [
+            "test color"
+          ]
+        },
+        {
+          "id": "the_women_s_warm_weather_edit",
+          "label": "The Women's Warm-Weather Edit",
+          "catalog_tags": [
+            "woman s warm weather edit"
+          ]
+        },
+        {
+          "id": "toddler_size_6",
+          "label": "Toddler Size 6",
+          "catalog_tags": [
+            "toddler size 6"
+          ]
+        },
+        {
+          "id": "toddler_size_7",
+          "label": "Toddler Size 7",
+          "catalog_tags": [
+            "toddler size 7"
+          ]
+        },
+        {
+          "id": "toddler_size_8",
+          "label": "Toddler Size 8",
+          "catalog_tags": [
+            "toddler size 8"
+          ]
+        },
+        {
+          "id": "toddler_test",
+          "label": "Toddler Test",
+          "catalog_tags": [
+            "toddler test"
+          ],
+          "children": [
+            {
+              "id": "boys",
+              "label": "Boys",
+              "catalog_tags": [
+                "boys",
+                "tops tees",
+                "polo",
+                "tees"
+              ]
+            },
+            {
+              "id": "girls",
+              "label": "Girls",
+              "catalog_tags": [
+                "girls",
+                "tops tees",
+                "tank cami",
+                "tees"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "top_50_by_product_type",
+          "label": "Top 50 by Product Type",
+          "catalog_tags": [
+            "top 50 product type"
+          ]
+        },
+        {
+          "id": "top_gifts_for_the_family_colorful_crocs",
+          "label": "Top Gifts for the Family: Colorful Crocs",
+          "catalog_tags": [
+            "top gift family colorful croc"
+          ]
+        },
+        {
+          "id": "top_rated_fashion_capital_favorites",
+          "label": "Top Rated Fashion Capital Favorites",
+          "catalog_tags": [
+            "top rated fashion capital favorite"
+          ]
+        },
+        {
+          "id": "ugly_holiday_sweaters_and_more_for_the_family",
+          "label": "Ugly Holiday Sweaters (and More) for the Family",
+          "catalog_tags": [
+            "ugly holiday sweater more family"
+          ]
+        },
+        {
+          "id": "uniforms_work_safety",
+          "label": "Uniforms, Work & Safety",
+          "catalog_tags": [
+            "uniform work safety"
+          ],
+          "children": [
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "civil service",
+                "food service",
+                "apron",
+                "hats",
+                "medical",
+                "military",
+                "school uniform",
+                "work utility safety"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "unisex_baby_clothing",
+          "label": "Unisex Baby Clothing",
+          "catalog_tags": [
+            "unisex baby clothing"
+          ],
+          "children": [
+            {
+              "id": "bodysuits",
+              "label": "Bodysuits",
+              "catalog_tags": [
+                "bodysuit"
+              ]
+            },
+            {
+              "id": "sleepwear_robes",
+              "label": "Sleepwear & Robes",
+              "catalog_tags": [
+                "sleepwear robe",
+                "nightgown"
+              ]
+            },
+            {
+              "id": "tops",
+              "label": "Tops",
+              "catalog_tags": [
+                "tops"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "veterans_day_savings_20_or_more_off",
+          "label": "Veterans Day Savings: 20% or More Off",
+          "catalog_tags": [
+            "veteran day saving 20 more off"
+          ]
+        },
+        {
+          "id": "westlake",
+          "label": "Westlake",
+          "catalog_tags": [
+            "westlake"
+          ]
+        },
+        {
+          "id": "wide_leg_pants",
+          "label": "Wide Leg Pants",
+          "catalog_tags": [
+            "wide leg pants"
+          ]
+        },
+        {
+          "id": "women",
+          "label": "Women",
+          "catalog_tags": [
+            "woman"
+          ],
+          "children": [
+            {
+              "id": "accessories",
+              "label": "Accessories",
+              "catalog_tags": [
+                "accessories",
+                "belt",
+                "earmuff",
+                "glove mitten",
+                "arm warmer",
+                "cold weather glove",
+                "mitten",
+                "hand fans",
+                "paddle fans",
+                "handbag accessories",
+                "handbag hanger",
+                "handbag organizer",
+                "hats caps",
+                "balaclava",
+                "baseball caps",
+                "beret",
+                "bomber hats",
+                "bucket hats",
+                "cold weather headband",
+                "cowboy hats",
+                "fedora",
+                "headband",
+                "newsboy caps",
+                "rain hats",
+                "skully beany",
+                "sun hats",
+                "visor",
+                "keyring keychain charm",
+                "scarve wrap",
+                "cold weather scarve wrap",
+                "fashion scarve",
+                "neck gaiter",
+                "wrap pashmina",
+                "special occasion accessories",
+                "bridal accessories",
+                "bridal veil",
+                "fascinator",
+                "sport headband",
+                "sunglasses eyewear accessories",
+                "eyeglass case",
+                "eyeglass chain",
+                "eyewear frame",
+                "replacement sunglass lense",
+                "sunglasses",
+                "wallet card case money organizer",
+                "card id case",
+                "business card case",
+                "card case",
+                "commuter pass case",
+                "id case",
+                "checkbook cover",
+                "coin purse pouch",
+                "wallet"
+              ]
+            },
+            {
+              "id": "clothing",
+              "label": "Clothing",
+              "catalog_tags": [
+                "clothing",
+                "active",
+                "active base layer",
+                "active hoody",
+                "active pants",
+                "sweatpant",
+                "track pants",
+                "active shirt tees",
+                "button down shirt",
+                "polo",
+                "t shirt",
+                "tank tops",
+                "active shorts",
+                "active sweatshirt",
+                "active underwear",
+                "athletic sock",
+                "base layer compression",
+                "compression pants tights",
+                "compression sock",
+                "shirt",
+                "shorts",
+                "dress",
+                "leggings",
+                "sets",
+                "active sweatsuit",
+                "tracksuit",
+                "workout top bottom sets",
+                "skirt skort",
+                "active skirt",
+                "active skort",
+                "sweater",
+                "track active jacket",
+                "vest",
+                "bodysuit",
+                "coat jacket vest",
+                "active performance",
+                "fleece",
+                "insulated shell",
+                "wind rain",
+                "casual jacket",
+                "denim jacket",
+                "down jacket parka",
+                "fur faux fur",
+                "leather faux leather",
+                "quilted lightweight jacket",
+                "trench rain anorak",
+                "anorak",
+                "raincoat",
+                "trench coat",
+                "wool pea coat",
+                "casual",
+                "club night out",
+                "cocktail",
+                "formal",
+                "wedding dress",
+                "work",
+                "fashion hoody sweatshirt",
+                "jeans",
+                "jumpsuit romper overall",
+                "jumpsuit",
+                "overall",
+                "romper",
+                "lingerie sleep lounge",
+                "lingerie",
+                "accessories",
+                "bra extender",
+                "breast petal",
+                "pads enhancer",
+                "strap",
+                "baby doll chemise",
+                "bras",
+                "adhesive bras",
+                "everyday bras",
+                "minimizer",
+                "sport bras",
+                "bustier corset",
+                "camisole tank",
+                "garter garter belt",
+                "garter belt",
+                "lingerie sets",
+                "panty",
+                "bikini",
+                "boy shorts",
+                "brief",
+                "g string thong",
+                "hipster",
+                "shapewear",
+                "control panty",
+                "tops",
+                "waist cincher",
+                "slip",
+                "full slip",
+                "half slip",
+                "sleep lounge",
+                "bottom",
+                "nightgown sleepshirt",
+                "robe",
+                "thermal underwear",
+                "pants",
+                "night out",
+                "wear work",
+                "denim",
+                "skirt",
+                "sock hosiery",
+                "leg warmer",
+                "sheer",
+                "slipper sock",
+                "sock",
+                "calf sock",
+                "no show liner sock",
+                "tights",
+                "suiting blazer",
+                "blazer",
+                "suit sets",
+                "cardigan",
+                "pullover",
+                "shrug",
+                "swimsuit cover ups",
+                "board shorts",
+                "cover ups",
+                "one piece",
+                "rash guard shirt",
+                "tankini",
+                "tops tees blouse",
+                "blouse button down shirt",
+                "tank cami",
+                "tunic"
+              ]
+            },
+            {
+              "id": "handbags_wallets",
+              "label": "Handbags & Wallets",
+              "catalog_tags": [
+                "handbag wallet",
+                "clutch evening bags",
+                "clutch",
+                "evening bags",
+                "crossbody bags",
+                "fashion backpack",
+                "hobo bags",
+                "satchel",
+                "shoulder bags",
+                "top handle bags",
+                "tote",
+                "wristlet"
+              ]
+            },
+            {
+              "id": "jewelry",
+              "label": "Jewelry",
+              "catalog_tags": [
+                "jewelry",
+                "anklet",
+                "body jewelry",
+                "body chain",
+                "faux body piercing jewelry",
+                "piercing jewelry",
+                "barbell",
+                "plug",
+                "retainer",
+                "ring",
+                "screw",
+                "stud",
+                "taper",
+                "tunnel",
+                "toe ring",
+                "bracelet",
+                "bangle",
+                "charm charm bracelet",
+                "charm bracelet",
+                "italian style",
+                "link",
+                "snake",
+                "charm",
+                "bead",
+                "clasp",
+                "cuff",
+                "identification",
+                "strand",
+                "stretch",
+                "tennis",
+                "wrap",
+                "brooch pins",
+                "earrings",
+                "ball",
+                "clip ons",
+                "cuff wrap",
+                "drop dangle",
+                "earring jacket",
+                "hoop",
+                "jewelry sets",
+                "necklace",
+                "chain",
+                "choker",
+                "collar",
+                "locket",
+                "pearl strand",
+                "pendant necklace",
+                "y necklace",
+                "pendant coin",
+                "pendant enhancer",
+                "pendant only",
+                "band",
+                "stacking",
+                "statement",
+                "wedding engagement",
+                "anniversary ring",
+                "bridal sets",
+                "engagement ring",
+                "eternity ring",
+                "promise ring",
+                "ring enhancer",
+                "wedding band"
+              ]
+            },
+            {
+              "id": "maternity",
+              "label": "Maternity",
+              "catalog_tags": [
+                "maternity",
+                "active",
+                "coat jacket vest",
+                "dress",
+                "casual",
+                "intimate",
+                "belly band",
+                "nursing maternity bras",
+                "panty",
+                "jeans",
+                "nursing",
+                "sleep lounge",
+                "nightgown sleepshirt",
+                "sets",
+                "tops tees",
+                "knit tees",
+                "tank cami",
+                "tights hosiery",
+                "blouse button down shirt",
+                "t shirt",
+                "tunic"
+              ]
+            },
+            {
+              "id": "shoes",
+              "label": "Shoes",
+              "catalog_tags": [
+                "shoe",
+                "athletic",
+                "ballet dance",
+                "bowling",
+                "cycling",
+                "equestrian sport boot",
+                "fitness cross training",
+                "golf",
+                "running",
+                "road running",
+                "track field cross country",
+                "trail running",
+                "skateboarding",
+                "sport sandal slide",
+                "team sport",
+                "basketball",
+                "field hockey lacrosse",
+                "soccer",
+                "softball baseball",
+                "volleyball",
+                "tennis racquet sport",
+                "walking",
+                "water shoe",
+                "boot",
+                "ankle bootie",
+                "knee high",
+                "mid calf",
+                "over knee",
+                "fashion sneaker",
+                "flat",
+                "loafer slip ons",
+                "mule clog",
+                "outdoor",
+                "climbing",
+                "hiking trekking",
+                "backpacking boot",
+                "hiking boot",
+                "hiking shoe",
+                "rain footwear",
+                "snow boot",
+                "oxford",
+                "pump",
+                "sandal",
+                "flip flop",
+                "heeled sandal",
+                "platform wedge",
+                "slide",
+                "slipper"
+              ]
+            },
+            {
+              "id": "uniforms_work_safety",
+              "label": "Uniforms, Work & Safety",
+              "catalog_tags": [
+                "uniform work safety",
+                "clothing",
+                "food service",
+                "chef jacket",
+                "chef pants",
+                "medical",
+                "lab coat",
+                "scrub bottom",
+                "scrub jacket",
+                "scrub sets",
+                "scrub tops",
+                "military",
+                "work utility",
+                "outerwear",
+                "overall coverall",
+                "pants",
+                "tops",
+                "shoe",
+                "health care food service",
+                "military tactical",
+                "uniform dress shoe",
+                "boot"
+              ]
+            },
+            {
+              "id": "watches",
+              "label": "Watches",
+              "catalog_tags": [
+                "watch",
+                "pocket watch",
+                "smartwatch",
+                "watch band",
+                "wrist watch"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "women_s_apparel",
+          "label": "Women's Apparel",
+          "catalog_tags": [
+            "woman s apparel"
+          ]
+        },
+        {
+          "id": "women_s_comfort_shoes_fa_test",
+          "label": "Women's Comfort Shoes FA Test",
+          "catalog_tags": [
+            "woman s comfort shoe fa test"
+          ]
+        },
+        {
+          "id": "women_s_fall_boots",
+          "label": "Women's Fall Boots",
+          "catalog_tags": [
+            "woman s fall boot"
+          ]
+        },
+        {
+          "id": "women_s_festive_wear",
+          "label": "Women's Festive Wear",
+          "catalog_tags": [
+            "woman s festive wear"
+          ]
+        },
+        {
+          "id": "women_s_halloween_costumes",
+          "label": "Women's Halloween Costumes",
+          "catalog_tags": [
+            "woman s halloween costume"
+          ]
+        },
+        {
+          "id": "women_s_leopard_print_dresses",
+          "label": "Women's leopard print dresses",
+          "catalog_tags": [
+            "woman s leopard print dress"
+          ]
+        },
+        {
+          "id": "women_s_maxi_dresses",
+          "label": "Women's Maxi Dresses",
+          "catalog_tags": [
+            "woman s maxi dress"
+          ]
+        },
+        {
+          "id": "women_s_oversized_blazers_for_fall",
+          "label": "Women's Oversized Blazers for Fall",
+          "catalog_tags": [
+            "woman s oversized blazer fall"
+          ]
+        },
+        {
+          "id": "women_s_plus_size_apparel",
+          "label": "Women's Plus-Size Apparel",
+          "catalog_tags": [
+            "woman s plus size apparel"
+          ]
+        },
+        {
+          "id": "women_s_romantic_loungewear",
+          "label": "Women's Romantic Loungewear",
+          "catalog_tags": [
+            "woman s romantic loungewear"
+          ]
+        },
+        {
+          "id": "women_s_sandal_markdowns",
+          "label": "Women's Sandal Markdowns",
+          "catalog_tags": [
+            "woman s sandal markdown"
+          ]
+        },
+        {
+          "id": "women_s_shoes",
+          "label": "Women's Shoes",
+          "catalog_tags": [
+            "woman s shoe"
+          ]
+        },
+        {
+          "id": "women_s_sleepwear_swimwear_and_more_from_ekouaer_and_ai_mage",
+          "label": "Women's sleepwear, swimwear, and more from Ekouaer and AI'MAGE",
+          "catalog_tags": [
+            "woman s sleepwear swimwear more ekouaer ai mage"
+          ]
+        },
+        {
+          "id": "women_s_summer_ready_skirts",
+          "label": "Women's Summer-Ready Skirts",
+          "catalog_tags": [
+            "woman s summer ready skirt"
+          ]
+        },
+        {
+          "id": "womens_new_arrivals",
+          "label": "Womens New Arrivals",
+          "catalog_tags": [
+            "womens new arrival"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Digital_Music",
+      "label": "Digital Music",
+      "catalog_tags": []
+    },
+    {
+      "id": "Electronics",
+      "label": "Electronics",
+      "catalog_tags": []
+    },
+    {
+      "id": "Gift_Cards",
+      "label": "Gift Cards",
+      "catalog_tags": []
+    },
+    {
+      "id": "Grocery_and_Gourmet_Food",
+      "label": "Grocery and Gourmet Food",
+      "catalog_tags": []
+    },
+    {
+      "id": "Handmade_Products",
+      "label": "Handmade Products",
+      "catalog_tags": []
+    },
+    {
+      "id": "Health_and_Household",
+      "label": "Health and Household",
+      "catalog_tags": []
+    },
+    {
+      "id": "Health_and_Personal_Care",
+      "label": "Health and Personal Care",
+      "catalog_tags": []
+    },
+    {
+      "id": "Home_and_Kitchen",
+      "label": "Home and Kitchen",
+      "catalog_tags": []
+    },
+    {
+      "id": "Industrial_and_Scientific",
+      "label": "Industrial and Scientific",
+      "catalog_tags": []
+    },
+    {
+      "id": "Kindle_Store",
+      "label": "Kindle Store",
+      "catalog_tags": []
+    },
+    {
+      "id": "Magazine_Subscriptions",
+      "label": "Magazine Subscriptions",
+      "catalog_tags": []
+    },
+    {
+      "id": "Movies_and_TV",
+      "label": "Movies and TV",
+      "catalog_tags": []
+    },
+    {
+      "id": "Musical_Instruments",
+      "label": "Musical Instruments",
+      "catalog_tags": []
+    },
+    {
+      "id": "Office_Products",
+      "label": "Office Products",
+      "catalog_tags": []
+    },
+    {
+      "id": "Patio_Lawn_and_Garden",
+      "label": "Patio, Lawn and Garden",
+      "catalog_tags": []
+    },
+    {
+      "id": "Pet_Supplies",
+      "label": "Pet Supplies",
+      "catalog_tags": []
+    },
+    {
+      "id": "Software",
+      "label": "Software",
+      "catalog_tags": []
+    },
+    {
+      "id": "Sports_and_Outdoors",
+      "label": "Sports and Outdoors",
+      "catalog_tags": [
+        "athletic",
+        "outdoor"
+      ],
+      "children": [
+        {
+          "id": "running",
+          "label": "Running",
+          "catalog_tags": [
+            "running",
+            "road running",
+            "trail running"
+          ]
+        },
+        {
+          "id": "hiking",
+          "label": "Hiking",
+          "catalog_tags": [
+            "hiking trekking",
+            "hiking shoe",
+            "hiking boot",
+            "outdoor work"
+          ]
+        },
+        {
+          "id": "team_sports",
+          "label": "Team sports",
+          "catalog_tags": [
+            "team sport",
+            "basketball",
+            "golf",
+            "cycling",
+            "skiing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Subscription_Boxes",
+      "label": "Subscription Boxes",
+      "catalog_tags": []
+    },
+    {
+      "id": "Tools_and_Home_Improvement",
+      "label": "Tools and Home Improvement",
+      "catalog_tags": []
+    },
+    {
+      "id": "Toys_and_Games",
+      "label": "Toys and Games",
+      "catalog_tags": []
+    },
+    {
+      "id": "Video_Games",
+      "label": "Video Games",
+      "catalog_tags": []
+    },
+    {
+      "id": "Unknown",
+      "label": "Unknown",
+      "catalog_tags": []
+    },
+    {
+      "id": "shoe_jewelry_watch_accessories",
+      "label": "Shoe, Jewelry & Watch Accessories",
+      "catalog_tags": [
+        "shoe jewelry watch accessories"
+      ],
+      "children": [
+        {
+          "id": "shoe_care_accessories",
+          "label": "Shoe Care & Accessories",
+          "catalog_tags": [
+            "shoe care accessories"
+          ],
+          "children": [
+            {
+              "id": "shoe_care_treatments_dyes",
+              "label": "Shoe Care Treatments & Dyes",
+              "catalog_tags": [
+                "shoe care treatment dyes",
+                "shoe treatment polish",
+                "shoe polish",
+                "water stain treatment"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

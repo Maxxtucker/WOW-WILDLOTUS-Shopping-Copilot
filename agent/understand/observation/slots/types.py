@@ -13,7 +13,7 @@ from typing import Any, Literal
 ConstraintOp = Literal["lte", "gte", "eq"]
 SizeSystem = Literal["us", "uk", "eu"]
 SizeKind = Literal["shoe", "apparel", "dimension"]
-SizeUnit = Literal["in", "mm"]
+SizeUnit = Literal["in"]
 
 OR_ATTRIBUTES = frozenset(
     {"color", "material", "style", "brand", "feature", "use_case", "other"}
@@ -39,6 +39,7 @@ class ConstraintSlot:
     length: float | None = None
     width: float | None = None
     height: float | None = None
+    weight: float | None = None
     is_hard: bool = True
 
     def as_dict(self) -> dict[str, Any]:
@@ -65,6 +66,8 @@ class ConstraintSlot:
             row["width"] = self.width
         if self.height is not None:
             row["height"] = self.height
+        if self.weight is not None:
+            row["weight"] = self.weight
         return row
 
     def __post_init__(self) -> None:

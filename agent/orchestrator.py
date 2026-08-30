@@ -14,6 +14,7 @@ from .retrieve.catalog.index_path import resolve_index_path
 from .retrieve.catalog.retriever import CatalogRetriever
 from .decide.clarification.planner import ScoreAwarePlanner
 from .pipeline import TurnPipeline
+from .trace import TurnTrace
 from .understand.mode import (
     MODE_NLU,
     MODE_REGEX,
@@ -86,6 +87,20 @@ class Agent:
         turn: int,
         top_k: int,
     ) -> dict:
+        response, _trace = self.respond_traced(
+            session_id, user_message, turn, top_k
+        )
+        return response
+
+    def respond_traced(
+        self,
+        session_id: str,
+        user_message: str,
+        turn: int,
+        top_k: int,
+    ) -> tuple[dict, TurnTrace]:
+        """Same turn as ``respond``, plus the read-only stage trace."""
+
         if session_id not in self.sessions:
             raise RuntimeError("reset must be called before respond")
         if not 1 <= int(turn) <= 10:
@@ -94,4 +109,6 @@ class Agent:
             raise ValueError("top_k must be positive")
 
         state = self.sessions[session_id]
-        return self.pipeline.run(state, str(user_message), int(turn), int(top_k))
+        return self.pipeline.run_traced(
+            state, str(user_message), int(turn), int(top_k)
+        )

@@ -19,6 +19,7 @@ from ..understand.state.gate import open_conversion_gate
 if TYPE_CHECKING:
     from ..understand.observation.schema import ObservationExtract
     from ..understand.state.session import SessionState
+    from .llm import OverrideDecision
 
 
 def apply_delta(state: SessionState) -> None:
@@ -45,26 +46,99 @@ def apply_delta(state: SessionState) -> None:
             return
 
 
-def replace_with_delta(state: SessionState) -> None:
-    """Treat delta as the full new intent and open the conversion gate."""
+def delta_attribute_names(delta: ObservationExtract | None) -> set[str]:
+    """Attribute names present on this turn's extract."""
 
-    delta = state.turn_delta
     if delta is None or delta.empty:
-        open_conversion_gate(state)
-        return
+        return set()
+    names: set[str] = set()
+    for slot in delta.slots:
+        name = str(getattr(slot, "attribute", "") or "").strip()
+        if name:
+            names.add(name)
+    if (delta.category or "").strip():
+        names.add("category")
+    for piece in delta.constraints:
+        names.add(classify_constraint(piece))
+    return names
+
+
+def delta_has_category(delta: ObservationExtract | None) -> bool:
+    """True when this turn's extract names a category."""
+
+    return "category" in delta_attribute_names(delta)
+
+
+def incoming_category(delta: ObservationExtract | None) -> str:
+    """Category surface from this turn's extract, if any."""
+
+    if delta is None or delta.empty:
+        return ""
+    raw = (delta.category or "").strip()
+    if raw:
+        return raw
+    for slot in delta.slots:
+        name = str(getattr(slot, "attribute", "") or "").strip()
+        surface = str(getattr(slot, "surface", "") or "").strip()
+        if name == "category" and surface:
+            return surface
+    return ""
+
+
+def clear_typed(state: SessionState) -> None:
+    """Drop every committed typed constraint and leftover hint."""
+
     state.active_constraints.clear()
     state.typed_constraints.clear()
     state.legacy_hints.clear()
-    if delta.category:
-        state.category = delta.category
-    _remember_slots(state, delta)
-    if delta.constraints:
-        for piece in delta.constraints:
-            add_constraint(state, piece)
-        state.informative_replies += 1
-        state.last_reply_informative = True
-    _sync_primary_category(state, fallback=delta.category)
+    state.category = None
+
+
+def drop_typed(state: SessionState, names: set[str]) -> None:
+    """Remove committed slots and strings for the given attribute names."""
+
+    if not names:
+        return
+    state.typed_constraints = [
+        slot for slot in state.typed_constraints if slot.attribute not in names
+    ]
+    state.active_constraints = [
+        piece
+        for piece in state.active_constraints
+        if classify_constraint(piece) not in names
+    ]
+    if "category" in names:
+        state.category = None
+        _sync_primary_category(state)
+
+
+def finish_override_gate(state: SessionState) -> None:
+    """Open the conversion gate and drop the leftover ranking list."""
+
     open_conversion_gate(state)
+    state.last_ranked.clear()
+
+
+def apply_override_decision(state: SessionState, decision: OverrideDecision) -> None:
+    """L1 clears all then apply_delta; L2 drops delta fields then apply_delta."""
+
+    if decision.level == 1:
+        clear_typed(state)
+        apply_delta(state)
+        finish_override_gate(state)
+        return
+    if decision.level == 2:
+        drop_typed(state, delta_attribute_names(state.turn_delta))
+        apply_delta(state)
+        finish_override_gate(state)
+
+
+def replace_with_delta(state: SessionState) -> None:
+    """L1 path: clear all typed memory, apply this turn's delta, open the gate."""
+
+    clear_typed(state)
+    apply_delta(state)
+    finish_override_gate(state)
 
 
 def _remember_slots(state: SessionState, extract: ObservationExtract) -> None:
@@ -108,7 +182,8 @@ def _sync_primary_category(state: SessionState, *, fallback: str | None = None) 
         if slot.attribute == "category" and slot.surface.strip()
     ]
     if hard:
-        state.category = hard[0]
+        # Last hard row is the most specific tree layer (L1 then L2 then L3).
+        state.category = hard[-1]
         return
     if any_cat:
         state.category = any_cat[0]

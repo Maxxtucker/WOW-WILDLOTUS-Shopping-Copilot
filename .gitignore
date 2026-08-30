@@ -4,6 +4,10 @@ __pycache__/
 .env
 results.json
 data/catalog.jsonl
+data/product_slots.csv
+data/product_slots_meta.csv
+data/catalog_slots/
+data/catalog_images.jsonl
 data/meta_*.jsonl
 data/meta_*.jsonl.gz
 data/releases/

@@ -1,1 +1,1 @@
-"""Local Chainlit demo shell around the official Agent."""
+"""Local Chainlit demo: live pipeline circuit over the official Agent."""

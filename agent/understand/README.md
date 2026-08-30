@@ -33,7 +33,7 @@ StateDetector.begin_turn
           write turn_delta only
 
 IntentRouter.apply   (agent/intent_router, after understand)
-    classify override (independent LLM; no regex)
+    classify override (independent LLM; no regex; true only for a product/category switch or explicit reset)
     replace or accumulate, probe exact pool, label intention
     failsafe: gate still closed and turn>=4 → open the gate only
 ```
@@ -59,9 +59,9 @@ On `SessionState` (`state/session.py`):
 - `intention`: `buying` / `browsing` / `override` from the intention router (not evaluator scenario labels)
 - `turn_delta`: this turn's extract; observe writes it, the router consumes it
 - `gate_open` / `intent_version`: conversion gate (closed until override when the first message had a leftover hint)
-- `active_constraints` / `legacy_hints` / `ranking_constraints`: cited-string views (regex retrieve fallback; leftover is not an exact-pool prune)
+- `active_constraints` / `legacy_hints` / `ranking_constraints`: cited-string views for the regex / kit path only (leftover is not an exact-pool prune). NLU retrieve and `nlu_console` `/state` use `typed_constraints`.
 - `typed_constraints`: `ConstraintSlot` rows including optional category. Each row has `is_hard`. Design: [observation/slots/README.md](observation/slots/README.md)
-- `preference_tags`: reset-time copy of aggregate `user_profile` tags; retrieve does not read it yet
+- `preference_tags`: reset-time copy of aggregate `user_profile` tags; semantic ranking uses them only as weak tie-breakers
 - `disclosed`: values already revealed
 - `excluded_asins` / `last_slate` / `last_gate_open`: miss feedback
 - `reply_value_lookup`: previous predicted reply → atomic constraints (semicolon restore)

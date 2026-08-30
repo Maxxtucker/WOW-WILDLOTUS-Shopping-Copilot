@@ -1,0 +1,5 @@
+# Optional local semantic reranking dependencies.
+# The core Agent still runs with requirements.txt only.
+sentence-transformers>=5.1.0,<6
+# Transformers 5 requires a newer PyTorch runtime and is not needed by Qwen3.
+transformers>=4.51.0,<5

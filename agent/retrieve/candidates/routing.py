@@ -13,6 +13,8 @@ from ..catalog.types import SearchWeights
 
 BUYING_LIMIT = 150
 BROWSING_LIMIT = 500
+CANDIDATE_FLOOR = BUYING_LIMIT
+LIBRARY_MIN = 300
 DEFAULT_LIMIT = 500
 DEFAULT_CANDIDATE_LIMIT = 1_500
 
@@ -21,12 +23,16 @@ BUYING_WEIGHTS = SearchWeights(
     required=6.0,
     category=4.0,
     missing_required=-0.5,
+    text=0.5,
+    profile=0.3,
 )
 BROWSING_WEIGHTS = SearchWeights(
     lexical=1.6,
     required=2.5,
     category=2.0,
     missing_required=-0.1,
+    text=1.0,
+    profile=0.3,
 )
 
 
@@ -36,13 +42,24 @@ class TrackRouting:
     limit: int
     exact_first: bool
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
+    hard_budget: bool = False
+
+
+def library_limit_for(intention: str | None) -> int:
+    """Fill or hybrid-only target: at least LIBRARY_MIN, else the track cap."""
+
+    return max(routing_for(intention).limit, LIBRARY_MIN)
 
 
 def routing_for(intention: str | None) -> TrackRouting:
     """Unset intention keeps the historical exact-first cap of 500."""
 
     if intention in {"buying", "override"}:
-        return TrackRouting(BUYING_WEIGHTS, BUYING_LIMIT, exact_first=True)
+        return TrackRouting(
+            BUYING_WEIGHTS,
+            BUYING_LIMIT,
+            exact_first=True,
+        )
     if intention == "browsing":
         return TrackRouting(BROWSING_WEIGHTS, BROWSING_LIMIT, exact_first=True)
     return TrackRouting(SearchWeights(), DEFAULT_LIMIT, exact_first=True)

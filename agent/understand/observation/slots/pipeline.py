@@ -13,9 +13,9 @@ from typing import Any
 from ....domain import canonical
 from ..schema import ObservationExtract, VALID_TRACKS, ground_span
 from .attributes import ground_attribute
-from .attributes.category import ground_category
+from .attributes.category import cite_tokens, ground_category, surface_for_tags
 from .merge import merge_or_attribute_slots
-from .parse import coerce_is_hard, parse_constraint_item
+from .parse import coerce_is_hard, parse_constraint_item, parse_string_list
 from .text import ground_surface
 from .types import ConstraintSlot, GroundingFailures
 
@@ -39,29 +39,63 @@ def _category_surface(item: Any) -> object:
     return item
 
 
+def _category_canonical(item: Any) -> tuple[str, ...]:
+    if not isinstance(item, dict):
+        return ()
+    return parse_string_list(item.get("canonical") or item.get("catalog_tags"))
+
+
+def category_item_is_grounded(item: Any, message: str) -> bool:
+    """True when the row cites a span of ``message``."""
+
+    return _cited_category_surface(item, message) is not None
+
+
+def _cited_category_surface(item: Any, message: str) -> str | None:
+    surface = str(_category_surface(item) or "")
+    tags = _category_canonical(item)
+    span = ground_category(surface, message)
+    if span:
+        return span
+    return surface_for_tags(message, surface, *tags, *cite_tokens(surface, *tags))
+
+
 def category_slots_from_payload(
     payload: Any, message: str
 ) -> tuple[str | None, list[ConstraintSlot]]:
-    """Ground top-level category (string or list of {surface, is_hard})."""
+    """Ground top-level category (string or list of {surface, canonical, is_hard}).
+
+    ``surface`` must be a span of the original shopper sentence (the full
+    label/tag, or a content token from them). Sidecar ``canonical`` tags are
+    classify keys for probe. Rows with no cite are dropped.
+
+    When several hard cited rows are present (tree L1/L2/L3), the extract
+    summary is the last hard row — the most specific layer that cited.
+    """
 
     slots: list[ConstraintSlot] = []
-    first_hard: str | None = None
-    first_any: str | None = None
+    last_hard: str | None = None
+    last_any: str | None = None
     for item in _category_payload_items(payload):
-        surface = ground_category(_category_surface(item), message)
-        if surface is None:
+        cited = _cited_category_surface(item, message)
+        if not cited:
             continue
+        tags = _category_canonical(item)
         is_hard = True
         if isinstance(item, dict):
             is_hard = coerce_is_hard(item.get("is_hard"))
         slots.append(
-            ConstraintSlot(attribute="category", surface=surface, is_hard=is_hard)
+            ConstraintSlot(
+                attribute="category",
+                surface=cited,
+                canonical=tags or None,
+                is_hard=is_hard,
+            )
         )
-        if first_any is None:
-            first_any = surface
-        if is_hard and first_hard is None:
-            first_hard = surface
-    return first_hard or first_any, slots
+        last_any = cited
+        if is_hard:
+            last_hard = cited
+    return last_hard or last_any, slots
 
 
 def ground_constraint_item(item: Any, message: str) -> ConstraintSlot | None:
@@ -132,7 +166,7 @@ def collect_failures(payload: Any, message: str) -> GroundingFailures:
     if not isinstance(payload, dict) or payload.get("empty"):
         return failures
     for item in _category_payload_items(payload):
-        if ground_category(_category_surface(item), message) is None:
+        if not category_item_is_grounded(item, message):
             failures.category = True
             break
     if payload.get("provisional_hint") and ground_span(
@@ -167,14 +201,20 @@ def merge_repair_payload(
     return merged
 
 
-def grounded_extract_from_payload(payload: Any, message: str) -> ObservationExtract:
+def grounded_extract_from_payload(
+    payload: Any,
+    message: str,
+    *,
+    category_message: str | None = None,
+) -> ObservationExtract:
     if not isinstance(payload, dict):
         return ObservationExtract(empty=True, source="llm")
     if payload.get("empty"):
         return ObservationExtract(empty=True, source="llm")
 
+    cat_message = message if category_message is None else category_message
     _kept, _failed, slots = partition_constraints(payload, message)
-    summary, category_slots = category_slots_from_payload(payload, message)
+    summary, category_slots = category_slots_from_payload(payload, cat_message)
     slots = merge_or_attribute_slots([*slots, *category_slots])
     surfaces = tuple(
         dict.fromkeys(slot.surface for slot in slots if slot.attribute != "category")

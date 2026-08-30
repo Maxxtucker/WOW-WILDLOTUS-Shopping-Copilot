@@ -1,0 +1,502 @@
+{
+  "acetate": {
+    "fiber": "acetate",
+    "eval": "fabric"
+  },
+  "acrylic": {
+    "fiber": "acrylic",
+    "eval": "fabric"
+  },
+  "acrylic (acrylique)": {
+    "fiber": "acrylic",
+    "eval": "fabric"
+  },
+  "acrylique": {
+    "fiber": "acrylic",
+    "eval": "fabric"
+  },
+  "alpaca": {
+    "fiber": "alpaca",
+    "eval": "wool"
+  },
+  "angora": {
+    "fiber": "angora",
+    "eval": "wool"
+  },
+  "aramid": {
+    "fiber": "kevlar",
+    "eval": "fabric"
+  },
+  "azlon": {
+    "fiber": "azlon",
+    "eval": "fabric"
+  },
+  "bamboo": {
+    "fiber": "bamboo",
+    "eval": "rayon"
+  },
+  "bamboo lyocell": {
+    "fiber": "bamboo-lyocell",
+    "eval": "rayon"
+  },
+  "bamboo viscose": {
+    "fiber": "bamboo-viscose",
+    "eval": "rayon"
+  },
+  "bamboo-lyocell": {
+    "fiber": "bamboo-lyocell",
+    "eval": "rayon"
+  },
+  "bamboo-viscose": {
+    "fiber": "bamboo-viscose",
+    "eval": "rayon"
+  },
+  "bonded leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "camel hair": {
+    "fiber": "camel-hair",
+    "eval": "wool"
+  },
+  "camel hair (poil de chameau)": {
+    "fiber": "camel-hair",
+    "eval": "wool"
+  },
+  "camel-hair": {
+    "fiber": "camel-hair",
+    "eval": "wool"
+  },
+  "canvas": {
+    "fiber": "canvas",
+    "eval": "fabric"
+  },
+  "carbon": {
+    "fiber": "carbon-fiber",
+    "eval": "fabric"
+  },
+  "carbon fiber": {
+    "fiber": "carbon-fiber",
+    "eval": "fabric"
+  },
+  "carbon-fiber": {
+    "fiber": "carbon-fiber",
+    "eval": "fabric"
+  },
+  "cashmere": {
+    "fiber": "cashmere",
+    "eval": "wool"
+  },
+  "cellulose": {
+    "fiber": "orange-fiber",
+    "eval": "fabric"
+  },
+  "chiffon": {
+    "fiber": "chiffon",
+    "eval": "fabric"
+  },
+  "cordura": {
+    "fiber": "cordura",
+    "eval": "nylon"
+  },
+  "cordura (high-tenacity nylon)": {
+    "fiber": "cordura",
+    "eval": "nylon"
+  },
+  "coton": {
+    "fiber": "cotton",
+    "eval": "cotton"
+  },
+  "cotton": {
+    "fiber": "cotton",
+    "eval": "cotton"
+  },
+  "cowhide": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "cuprammonium rayon": {
+    "fiber": "cupro",
+    "eval": "rayon"
+  },
+  "cupro": {
+    "fiber": "cupro",
+    "eval": "rayon"
+  },
+  "denim": {
+    "fiber": "denim",
+    "eval": "fabric"
+  },
+  "econyl": {
+    "fiber": "econyl",
+    "eval": "nylon"
+  },
+  "econyl (recycled nylon)": {
+    "fiber": "econyl",
+    "eval": "nylon"
+  },
+  "elastan": {
+    "fiber": "spandex",
+    "eval": "spandex"
+  },
+  "elastane": {
+    "fiber": "elastane",
+    "eval": "spandex"
+  },
+  "elastane (spandex / lycra)": {
+    "fiber": "elastane",
+    "eval": "spandex"
+  },
+  "elastodiene": {
+    "fiber": "rubber",
+    "eval": "fabric"
+  },
+  "fabric": {
+    "fiber": "fabric",
+    "eval": "fabric"
+  },
+  "faux leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "fleece": {
+    "fiber": "fleece",
+    "eval": "fabric"
+  },
+  "glass": {
+    "fiber": "glass",
+    "eval": "fabric"
+  },
+  "glass fibre": {
+    "fiber": "glass",
+    "eval": "fabric"
+  },
+  "gore-tex": {
+    "fiber": "gore-tex",
+    "eval": "fabric"
+  },
+  "gore-tex (eptfe membrane)": {
+    "fiber": "gore-tex",
+    "eval": "fabric"
+  },
+  "hemp": {
+    "fiber": "hemp",
+    "eval": "fabric"
+  },
+  "jersey": {
+    "fiber": "jersey",
+    "eval": "fabric"
+  },
+  "jute": {
+    "fiber": "jute",
+    "eval": "fabric"
+  },
+  "kevlar": {
+    "fiber": "kevlar",
+    "eval": "fabric"
+  },
+  "kevlar (para-aramid)": {
+    "fiber": "kevlar",
+    "eval": "fabric"
+  },
+  "knit": {
+    "fiber": "knit",
+    "eval": "fabric"
+  },
+  "laine": {
+    "fiber": "wool",
+    "eval": "wool"
+  },
+  "leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "lin": {
+    "fiber": "linen",
+    "eval": "fabric"
+  },
+  "linen": {
+    "fiber": "linen",
+    "eval": "fabric"
+  },
+  "linen (lin)": {
+    "fiber": "linen",
+    "eval": "fabric"
+  },
+  "lycra": {
+    "fiber": "spandex",
+    "eval": "spandex"
+  },
+  "lyocell": {
+    "fiber": "lyocell",
+    "eval": "rayon"
+  },
+  "lyocell (tencel)": {
+    "fiber": "lyocell",
+    "eval": "rayon"
+  },
+  "mesh": {
+    "fiber": "mesh",
+    "eval": "fabric"
+  },
+  "metal / metallised": {
+    "fiber": "metallic",
+    "eval": "fabric"
+  },
+  "metallic": {
+    "fiber": "metallic",
+    "eval": "fabric"
+  },
+  "microfiber leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "modacrylic": {
+    "fiber": "modacrylic",
+    "eval": "fabric"
+  },
+  "modal": {
+    "fiber": "modal",
+    "eval": "rayon"
+  },
+  "mohair": {
+    "fiber": "mohair",
+    "eval": "wool"
+  },
+  "mycelium": {
+    "fiber": "mylo",
+    "eval": "fabric"
+  },
+  "mylo": {
+    "fiber": "mylo",
+    "eval": "fabric"
+  },
+  "mylo (mycelium leather)": {
+    "fiber": "mylo",
+    "eval": "fabric"
+  },
+  "nlyon": {
+    "fiber": "nylon",
+    "eval": "nylon"
+  },
+  "nomex": {
+    "fiber": "nomex",
+    "eval": "fabric"
+  },
+  "nomex (meta-aramid)": {
+    "fiber": "nomex",
+    "eval": "fabric"
+  },
+  "nubuck": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "nylon": {
+    "fiber": "nylon",
+    "eval": "nylon"
+  },
+  "nylon 6": {
+    "fiber": "nylon-6",
+    "eval": "nylon"
+  },
+  "nylon 66": {
+    "fiber": "nylon-66",
+    "eval": "nylon"
+  },
+  "nylon-6": {
+    "fiber": "nylon-6",
+    "eval": "nylon"
+  },
+  "nylon-66": {
+    "fiber": "nylon-66",
+    "eval": "nylon"
+  },
+  "olefin": {
+    "fiber": "polypropylene",
+    "eval": "fabric"
+  },
+  "orange fiber": {
+    "fiber": "orange-fiber",
+    "eval": "fabric"
+  },
+  "orange-fiber": {
+    "fiber": "orange-fiber",
+    "eval": "fabric"
+  },
+  "organic cotton": {
+    "fiber": "organic-cotton",
+    "eval": "cotton"
+  },
+  "organic-cotton": {
+    "fiber": "organic-cotton",
+    "eval": "cotton"
+  },
+  "patent leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "pinatex": {
+    "fiber": "pinatex",
+    "eval": "fabric"
+  },
+  "pinatex (pineapple leaf fiber)": {
+    "fiber": "pinatex",
+    "eval": "fabric"
+  },
+  "pineapple leaf fiber": {
+    "fiber": "pinatex",
+    "eval": "fabric"
+  },
+  "poil de chameau": {
+    "fiber": "camel hair",
+    "eval": "wool"
+  },
+  "polyamide": {
+    "fiber": "nylon-6",
+    "eval": "nylon"
+  },
+  "polyeseter": {
+    "fiber": "polyester",
+    "eval": "polyester"
+  },
+  "polyester": {
+    "fiber": "polyester",
+    "eval": "polyester"
+  },
+  "polyesther": {
+    "fiber": "polyester",
+    "eval": "polyester"
+  },
+  "polyethylene": {
+    "fiber": "polyethylene",
+    "eval": "fabric"
+  },
+  "polyethylene (dyneema/spectra)": {
+    "fiber": "polyethylene",
+    "eval": "fabric"
+  },
+  "polypropylene": {
+    "fiber": "polypropylene",
+    "eval": "fabric"
+  },
+  "polypropylene / polyethylene": {
+    "fiber": "olefin",
+    "eval": "fabric"
+  },
+  "polyster": {
+    "fiber": "polyester",
+    "eval": "polyester"
+  },
+  "polytetrafluoroethylene": {
+    "fiber": "gore-tex",
+    "eval": "fabric"
+  },
+  "protein": {
+    "fiber": "azlon",
+    "eval": "fabric"
+  },
+  "pu leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "ramie": {
+    "fiber": "ramie",
+    "eval": "fabric"
+  },
+  "rayon": {
+    "fiber": "rayon",
+    "eval": "rayon"
+  },
+  "rayon (made from bamboo)": {
+    "fiber": "bamboo-viscose",
+    "eval": "rayon"
+  },
+  "rpet": {
+    "fiber": "rpet",
+    "eval": "polyester"
+  },
+  "rpet (recycled polyester)": {
+    "fiber": "rpet",
+    "eval": "polyester"
+  },
+  "rubber": {
+    "fiber": "rubber",
+    "eval": "fabric"
+  },
+  "satin": {
+    "fiber": "satin",
+    "eval": "fabric"
+  },
+  "seacell": {
+    "fiber": "seacell",
+    "eval": "rayon"
+  },
+  "seacell (seaweed fiber)": {
+    "fiber": "seacell",
+    "eval": "rayon"
+  },
+  "silk": {
+    "fiber": "silk",
+    "eval": "silk"
+  },
+  "silk (soie)": {
+    "fiber": "silk",
+    "eval": "silk"
+  },
+  "soie": {
+    "fiber": "silk",
+    "eval": "silk"
+  },
+  "spandex": {
+    "fiber": "spandex",
+    "eval": "spandex"
+  },
+  "spandx": {
+    "fiber": "spandex",
+    "eval": "spandex"
+  },
+  "suede": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "tencel": {
+    "fiber": "rayon",
+    "eval": "rayon"
+  },
+  "triacetate": {
+    "fiber": "triacetate",
+    "eval": "fabric"
+  },
+  "vegan leather": {
+    "fiber": "leather",
+    "eval": "leather"
+  },
+  "viscose": {
+    "fiber": "viscose",
+    "eval": "rayon"
+  },
+  "viscose (bamboo)": {
+    "fiber": "bamboo-viscose",
+    "eval": "rayon"
+  },
+  "viscose (rayon)": {
+    "fiber": "viscose",
+    "eval": "rayon"
+  },
+  "wool": {
+    "fiber": "wool",
+    "eval": "wool"
+  },
+  "wool (laine)": {
+    "fiber": "wool",
+    "eval": "wool"
+  },
+  "wool (merino)": {
+    "fiber": "wool",
+    "eval": "wool"
+  },
+  "yak": {
+    "fiber": "yak",
+    "eval": "fabric"
+  }
+}

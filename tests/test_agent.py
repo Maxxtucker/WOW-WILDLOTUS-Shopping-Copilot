@@ -8,7 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent import Agent
-from agent.decide.clarification import NO_ADDITIONAL, ScoreAwarePlanner, hit_utility
+from agent.decide.clarification import (
+    NO_ADDITIONAL,
+    ScoreAwarePlanner,
+    apply_sequential_gate,
+    hit_utility,
+)
+from agent.decide.clarification.types import Plan
 from agent.decide.ranking import normalize_probabilities
 from agent.domain import card_constraints, coarse_category, intent_card
 from agent.retrieve.catalog import (
@@ -282,6 +288,29 @@ class PlannerTest(unittest.TestCase):
         )
         self.assertEqual(len(plan.recommendations), 10)
         self.assertIsNone(plan.ask_attribute)
+
+    def test_empty_disclosure_is_full_slate_with_no_question(self) -> None:
+        state = SessionState("s", {})
+        state.turn = 2
+        state.disclosure_empty = True
+        ranked = normalize_probabilities([(f"P{i}", 12 - i) for i in range(12)])
+        plan = ScoreAwarePlanner().plan(
+            state, ranked, 10, lambda _asin, _attr: ("split",)
+        )
+        self.assertEqual(len(plan.recommendations), 10)
+        self.assertEqual(list(plan.recommendations), [f"P{i}" for i in range(10)])
+        self.assertIsNone(plan.ask_attribute)
+        self.assertEqual(plan.reason, "empty disclosure")
+
+    def test_sequential_gate_keeps_full_slate_on_empty_disclosure(self) -> None:
+        state = SessionState("s", {})
+        state.turn = 2
+        state.gate_open = True
+        state.disclosure_empty = True
+        ranked = normalize_probabilities([(f"P{i}", 10 - i) for i in range(10)])
+        plan = Plan(tuple(item.parent_asin for item in ranked), "color", 1.0, "joint")
+        slate = apply_sequential_gate(state, plan, ranked)
+        self.assertEqual(slate, [item.parent_asin for item in ranked])
 
 
 class RetrievalAndAgentTest(unittest.TestCase):

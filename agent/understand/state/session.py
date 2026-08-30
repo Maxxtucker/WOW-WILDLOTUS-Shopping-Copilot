@@ -1,10 +1,11 @@
 """Purpose: mutable memory for one session (constraints, misses, conversion gate, intention).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
-Output: ranking_constraints, typed_constraints, preference_tags, excluded_asins, gate_open, intention, and related fields.
+Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
-preference_tags is a reset-time copy of the aggregate profile; retrieve does not read it yet.
+preference_tags is a reset-time copy of the aggregate profile; semantic ranking
+uses it only as weak evidence.
 Observe writes only turn_delta; the intention router commits constraints.
 """
 
@@ -61,9 +62,11 @@ class SessionState:
     asked: list[str] = field(default_factory=list)
     last_ask: str | None = None
     last_slate: list[str] = field(default_factory=list)
+    last_ranked: list[str] = field(default_factory=list)
     last_gate_open: bool = True
     excluded_asins: set[str] = field(default_factory=set)
     shown_asins: set[str] = field(default_factory=set)
+    disclosure_empty: bool | None = None
     informative_replies: int = 0
     last_reply_informative: bool = False
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)
@@ -84,10 +87,36 @@ class SessionState:
 
     @property
     def ranking_constraints(self) -> tuple[str, ...]:
+        """Cited-string union for the regex / kit path only.
+
+        NLU retrieve and the NLU console use ``typed_constraints``.
+        """
+
         values = [*self.active_constraints]
         if not self.override_seen:
             values.extend(self.legacy_hints)
         return tuple(dict.fromkeys(values))
+
+    def locked_constraint_strings(self) -> tuple[str, ...]:
+        """Surfaces the attribute LLM should treat as already locked.
+
+        NLU uses typed slot surfaces. Regex and ``/constraints`` seed still
+        use ``active_constraints``.
+        """
+
+        if self.typed_constraints:
+            return tuple(
+                slot.surface.strip()
+                for slot in self.typed_constraints
+                if str(slot.surface).strip()
+            )
+        return tuple(self.active_constraints)
+
+    @property
+    def empty_disclosure_reveal(self) -> bool:
+        """Decide should show a full Top-K slate: shopper added nothing this turn."""
+
+        return self.disclosure_empty is True
 
     def begin_turn(self, message: str, turn: int) -> None:
         """Apply guaranteed previous-miss feedback, then parse this observation."""

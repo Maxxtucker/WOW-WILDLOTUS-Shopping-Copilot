@@ -1,6 +1,5 @@
-/* Demo UI polish: hide noisy chrome, make actions feel like chips. */
+/* Demo UI: hide noisy chrome; chips match the pipeline dark theme. */
 
-/* Copy / feedback affordances under assistant messages — hide for v1. */
 button[aria-label*="Copy" i],
 button[title*="Copy" i],
 button[aria-label*="copy" i],
@@ -10,7 +9,6 @@ button:has(svg[class*="copy"]) {
   display: none !important;
 }
 
-/* Thumbs / feedback often sit next to copy — hide if present. */
 button[aria-label*="Thumbs" i],
 button[aria-label*="Feedback" i],
 button[aria-label*="Like" i],
@@ -20,13 +18,12 @@ button:has(svg.lucide-thumbs-down) {
   display: none !important;
 }
 
-/* Action chips: bordered, rounded, readable on dark theme. */
 button[id^="actions/"],
 div[class*="action"] button {
   border-radius: 999px !important;
-  border: 1px solid #525252 !important;
-  background: #333333 !important;
-  color: #F5F5F5 !important;
+  border: 1px solid rgba(255, 43, 122, 0.28) !important;
+  background: rgba(255, 43, 122, 0.12) !important;
+  color: #ffe1ec !important;
   padding: 0.4rem 0.9rem !important;
   font-size: 0.875rem !important;
   font-weight: 500 !important;
@@ -36,6 +33,73 @@ div[class*="action"] button {
 
 button[id^="actions/"]:hover,
 div[class*="action"] button:hover {
-  background: #404040 !important;
-  border-color: #737373 !important;
+  background: rgba(255, 43, 122, 0.22) !important;
+  border-color: #ff2b7a !important;
+}
+
+/* Dark chat + sidebar scrollbars (Chrome / Edge / Firefox). */
+html,
+body,
+#root {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #101010;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #101010;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #101010;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 999px;
+  border: 2px solid #101010;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #52404a;
+}
+
+*::-webkit-scrollbar-corner {
+  background: #101010;
+}
+
+/* Binary node inspector: collapsed = a button rail on the side. */
+aside:has([data-inspector-collapsed="true"]),
+[class*="ElementSidebar"]:has([data-inspector-collapsed="true"]),
+[class*="element-sidebar"]:has([data-inspector-collapsed="true"]),
+div:has(> [data-inspector-collapsed="true"]) {
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
+}
+
+/* Eval picker is a fixed composer dock; collapse only its in-stream host. */
+[data-eval-dock] {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+div:has(> [data-eval-dock]),
+div:has(> * > [data-eval-dock]) {
+  min-height: 0 !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: visible !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }

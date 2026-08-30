@@ -14,11 +14,11 @@ Pipeline stage 8. Write this turn's slate / question into `SessionState`, then a
 ## Collaboration
 
 ```text
-ResponseBuilder.apply
+ResponseBuilder.apply(state, retriever, candidate_asins, plan, slate)
     persist_turn
         set_reply_options  → reply_value_lookup (next-turn semicolon restore)
         record_action      → last_slate / last_ask / asked
-    build_response → {message, ask_attribute, recommendations, usage: 0}
+    build_response → {message, ask_attribute, recommendations, usage}
 ```
 
 Next turn's `miss_feedback` reads `last_slate` and `last_gate_open` written here.

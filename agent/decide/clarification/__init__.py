@@ -6,6 +6,14 @@ Role: decide's core policy. See README.md.
 """
 
 from .planner import ScoreAwarePlanner
+from .dynamic_slate import (
+    DynamicSlateAction,
+    DynamicSlateBranch,
+    DynamicSlateConfig,
+    DynamicSlatePlanner,
+    DynamicSlateState,
+    DynamicSlateTransitionModel,
+)
 from .questions import eligible_questions, explain_question
 from .slate import apply_sequential_gate
 from .stage import Clarifier
@@ -15,6 +23,12 @@ from .utility import hit_utility
 __all__ = [
     "NO_ADDITIONAL",
     "Clarifier",
+    "DynamicSlateAction",
+    "DynamicSlateBranch",
+    "DynamicSlateConfig",
+    "DynamicSlatePlanner",
+    "DynamicSlateState",
+    "DynamicSlateTransitionModel",
     "Plan",
     "ScoreAwarePlanner",
     "apply_sequential_gate",

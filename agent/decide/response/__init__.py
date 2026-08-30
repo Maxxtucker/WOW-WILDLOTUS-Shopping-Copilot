@@ -1,6 +1,6 @@
 """Purpose: response package.
 
-Input: state, retriever, hits, Plan, slate.
+Input: state, retriever, candidate ASINs, Plan, slate.
 Output: official respond dict, and writeback of last_slate / reply_value_lookup.
 Role: protocol assembly and session writeback. See README.md.
 """

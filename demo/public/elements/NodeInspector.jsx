@@ -64,8 +64,8 @@ function statusTone(status) {
 }
 
 function statusLabel(status) {
-  if (status === "completed") return "Taken this turn";
-  if (status === "skipped") return "Not taken";
+  if (status === "completed") return "Ran";
+  if (status === "skipped") return "Skipped";
   if (status === "running") return "Running";
   if (status === "error") return "Error";
   return "Pending";
@@ -301,16 +301,22 @@ export default function NodeInspector() {
   }
 
   const detail = node && node.detail && typeof node.detail === "object" ? node.detail : {};
-  const input = Object.prototype.hasOwnProperty.call(detail, "input") ? detail.input : null;
-  const output = Object.prototype.hasOwnProperty.call(detail, "output") ? detail.output : null;
+  const rawInput =
+    Object.prototype.hasOwnProperty.call(detail, "input")
+      ? detail.input
+      : detail.text ?? detail.original ?? detail.message ?? detail.source ?? null;
+  const rawOutput =
+    Object.prototype.hasOwnProperty.call(detail, "output")
+      ? detail.output
+      : detail.rewritten ?? detail.labels ?? detail.hits ?? detail.result ?? null;
   const leftover = Object.fromEntries(
-    Object.entries(detail).filter(([key]) => !["input", "output", "why"].includes(key))
+    Object.entries(detail).filter(([key]) => !["input", "output", "why", "text", "original", "rewritten", "labels", "hits", "result", "message", "source"].includes(key))
   );
-  const structured = input != null || output != null;
-  const inputValue = structured ? input : null;
+  const structured = rawInput != null || rawOutput != null || Object.keys(leftover).length > 0;
+  const inputValue = structured ? rawInput : null;
   const outputValue = structured
-    ? output != null
-      ? output
+    ? rawOutput != null
+      ? rawOutput
       : leftover
     : leftover;
   const hasInput =
@@ -319,6 +325,17 @@ export default function NodeInspector() {
   const hasOutput =
     outputValue != null &&
     !(typeof outputValue === "object" && !Array.isArray(outputValue) && Object.keys(outputValue).length === 0);
+  const purpose = meta.purpose || meta.function || node?.function || "No purpose note for this node.";
+  const why = meta.why || meta.meaning || "No rationale note for this node.";
+  const thisTurn = meta.this_turn || detail.why || (
+    hasInput || hasOutput
+      ? [
+          hasInput ? { label: "Input", value: inputValue } : null,
+          hasOutput ? { label: "Result", value: outputValue } : null,
+        ].filter(Boolean)
+      : "No structured activity was recorded for this turn."
+  );
+  const howItWorks = meta.how_it_works || meta.implementation || "No implementation note for this node.";
 
   return (
     <div
@@ -432,35 +449,31 @@ export default function NodeInspector() {
             </div>
           </div>
 
-          <Section title="Function">
-            {meta.function || node?.function || "No function note for this node."}
+          <Section title="Purpose">
+            {purpose}
           </Section>
-          <Section title="Implementation">
-            {meta.implementation ||
-              node?.implementation ||
-              meta.meaning ||
-              "No implementation note for this node."}
+          <Section title="Why it matters">
+            {why}
           </Section>
 
-          {detail.why ? (
-            <Section title="This turn">{detail.why}</Section>
-          ) : null}
-
-          <Section title="Input this turn">
-            {hasInput ? <ValueView value={inputValue} /> : (
-              <span style={{ color: "rgba(255,255,255,0.35)" }}>
-                No structured input recorded for this node.
-              </span>
+          <Section title="This turn">
+            {typeof thisTurn === "string" ? (
+              thisTurn
+            ) : Array.isArray(thisTurn) ? (
+              <div style={{ display: "grid", gap: 12 }}>
+                {thisTurn.map((item) => (
+                  <Field key={item.label} name={item.label}>
+                    <ValueView value={item.value} />
+                  </Field>
+                ))}
+              </div>
+            ) : (
+              <ValueView value={thisTurn} />
             )}
           </Section>
-          <Section title="Output this turn">
-            {hasOutput ? <ValueView value={outputValue} /> : (
-              <span style={{ color: "rgba(255,255,255,0.35)" }}>
-                {node?.status === "skipped"
-                  ? "This branch was not taken, so there is no output."
-                  : "No structured output recorded for this node."}
-              </span>
-            )}
+
+          <Section title="How it works">
+            {howItWorks}
           </Section>
         </div>
       )}

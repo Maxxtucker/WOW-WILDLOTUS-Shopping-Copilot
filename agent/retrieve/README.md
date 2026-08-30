@@ -7,10 +7,14 @@ optional exact ASIN set. Hard intersection already happened in the router. This
 layer scores a non-empty exact set. When that set is under 150, it keeps those
 hard hits first and pads with hybrid BM25 plus catalog signature recall
 (`hard_required=False`) so the library is at least 300 (browsing still 500).
-When the exact set is already at least 150, hybrid is skipped. An empty or
-missing exact set uses hybrid only, also to at least 300. It does not choose
-the question or how many products to show. Hard vs soft budget and object
-dimensions come from typed slots, not from intention.
+When the exact set is already at least 150, the legacy hybrid fill is skipped.
+For a live conversation, the resulting strict list is still fused with two
+safety routes: relaxed structured recall without hard numeric filtering, and
+raw active-intent BM25 that does not consume NLU slots. Weighted reciprocal-rank
+fusion rewards cross-route agreement while preventing one uncertain slot from
+becoming an irreversible recall decision. An empty or missing exact set uses
+hybrid recovery before the same fusion. This layer does not choose the question
+or how many products to show.
 
 The catalog index is process-wide. Candidates read the index and the session exclusion set each turn.
 
@@ -33,9 +37,10 @@ IntentRouter.apply(state, retriever)
     exact → CandidateOrganizer.apply(state, exact)
 
 CandidateOrganizer.apply(state, exact)
-    ├─ exact is non-empty and ≥150: BM25 tie-break + structured score[:limit]
-    ├─ exact is non-empty and <150: hard hits first, then hybrid fill to 300/500
-    └─ exact is None/empty: hybrid search(..., hard_required=False) to 300/500
+    ├─ strict: score exact, or hybrid recovery when exact is missing
+    ├─ relaxed: structured search with uncertain hard filters disabled
+    ├─ raw: active-intent text BM25 with no NLU-derived slots
+    └─ weighted RRF(strict, relaxed, raw) to 300/500
 
 Ranker.apply(hits, state)
     ├─ optional Qwen rerank of first 50
@@ -54,6 +59,10 @@ Ranker.apply(hits, state)
 - preferred: soft slots only; missing soft does not drop a candidate
 - profile preference tags: retrieve surface cosine and optional semantic-ranker tie-breakers; never BM25 terms or hard filters
 - `candidate_count`: size of the router exact set after numeric hard filters
+- `current_intent_text`: at most four active-intent utterances; reset on override
+- RRF weights: strict 1.40, relaxed 0.90, raw text 1.10; constant 60
+- before turn 5, relaxed/raw routes may recover an early displayed ASIN because
+  a still-latent Override means the next call is not definitive miss evidence
 
 ## Core code
 

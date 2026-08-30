@@ -32,6 +32,7 @@ class DynamicSlateState:
     questions: tuple[str | None, ...]
     gate_probability: float = 1.0
     tail_probability: float = 0.0
+    tail_value: float = 0.0
     cache_key: str = ""
 
     def __post_init__(self) -> None:
@@ -39,8 +40,10 @@ class DynamicSlateState:
             raise ValueError("turn must be between 1 and 10")
         if not 0.0 <= self.gate_probability <= 1.0:
             raise ValueError("gate_probability must be between zero and one")
-        if not 0.0 <= self.tail_probability < 1.0:
-            raise ValueError("tail_probability must be in [0, 1)")
+        if not 0.0 <= self.tail_probability <= 1.0:
+            raise ValueError("tail_probability must be in [0, 1]")
+        if not math.isfinite(self.tail_value) or self.tail_value < 0.0:
+            raise ValueError("tail_value must be finite and non-negative")
         mass = self.tail_probability
         for candidate in self.candidates:
             if not math.isfinite(candidate.probability) or candidate.probability < 0.0:
@@ -133,9 +136,13 @@ class DynamicSlatePlanner:
         """Return the best current question and ranked prefix."""
 
         limit = min(10, max(0, int(top_k)), len(state.candidates))
-        if not state.candidates or limit == 0:
-            question = next((item for item in state.questions if item is not None), None)
-            return Plan((), question, 0.0, "dynamic slate: empty planning head")
+        can_recover_tail = (
+            state.turn < 10
+            and state.tail_probability > 0.0
+            and any(question is not None for question in state.questions)
+        )
+        if limit == 0 and not can_recover_tail:
+            return Plan((), None, 0.0, "dynamic slate: empty planning head")
 
         if state.turn == 10 and self.config.force_full_final_slate:
             recommendations = tuple(
@@ -172,7 +179,7 @@ class DynamicSlatePlanner:
     def _value(self, state: DynamicSlateState, depth: int) -> float:
         limit = min(10, len(state.candidates))
         if limit == 0:
-            return 0.0
+            return state.tail_value
         if state.turn == 10:
             terminal_k = limit if self.config.force_full_final_slate else self._minimum_k(limit)
             return self.immediate_value(state, terminal_k)

@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.pipeline import TurnPipeline, next_ranked_page
+from agent.pipeline import TurnPipeline, next_ranked_page, pages_empty_disclosure
 from agent.progress import progress_listener
 from agent.understand.mode import MODE_NLU, MODE_REGEX, configure_understand
 from agent.understand.observation.coordinator import observe
@@ -141,6 +141,14 @@ class DisclosureShortcutPipelineTest(unittest.TestCase):
 
     def _empty_extract(self, *_args, **_kwargs) -> ObservationExtract:
         return ObservationExtract(empty=True, source="llm", disclosure_empty=True)
+
+    def test_specific_no_preference_returns_to_dynamic_planner(self) -> None:
+        state = self._seeded()
+        state.last_ask = "color"
+        state.disclosure_empty = True
+        state.turn_delta = None
+
+        self.assertFalse(pages_empty_disclosure(state))
 
     def test_empty_pages_ranks_2_to_11(self) -> None:
         state = self._seeded()

@@ -72,6 +72,7 @@ class SessionState:
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)
     latest_message: str = ""
     message_history: list[str] = field(default_factory=list)
+    current_intent_messages: list[str] = field(default_factory=list)
     turn: int = 0
     typed_constraints: list = field(default_factory=list)
     preference_tags: tuple[str, ...] = field(init=False)
@@ -117,6 +118,16 @@ class SessionState:
         """Decide should show a full Top-K slate: shopper added nothing this turn."""
 
         return self.disclosure_empty is True
+
+    @property
+    def current_intent_text(self) -> str:
+        """Natural-language evidence for the active intent only."""
+
+        return " ".join(
+            message.strip()
+            for message in self.current_intent_messages[-4:]
+            if message.strip()
+        )
 
     def begin_turn(self, message: str, turn: int) -> None:
         """Apply guaranteed previous-miss feedback, then parse this observation."""

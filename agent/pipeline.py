@@ -82,6 +82,12 @@ def leftover_page_stats(state: SessionState) -> dict[str, object]:
 def pages_empty_disclosure(state: SessionState) -> bool:
     """True when disclosure is empty and last_ranked still has an unshown ASIN."""
 
+    # A no-preference answer to one structured question only exhausts that
+    # attribute. It must return through retrieval and Dynamic Slate so another
+    # question can be chosen. Preserve paging only for generic/no-question
+    # turns that add no new evidence at all.
+    if state.last_ask is not None:
+        return False
     if state.turn_delta is not None:
         return False
     if state.disclosure_empty is False:

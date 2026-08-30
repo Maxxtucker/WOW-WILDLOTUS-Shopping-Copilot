@@ -7,17 +7,41 @@ Role: LLM override decision, then replace or accumulate, then pool probes.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from ..progress import emit, skip_nodes
 from ..understand.state.failsafe import apply_override_failsafe
-from .llm import as_override_decision, classify_override, classify_route, has_committed_intent
+from .llm import (
+    OverrideDecision,
+    as_override_decision,
+    classify_override,
+    classify_route,
+    has_committed_intent,
+)
 from .probe import pool_ratio, pool_size, probe_exact_pool
 from .writeback import apply_delta, apply_override_decision
 
 if TYPE_CHECKING:
     from ..retrieve.catalog.retriever import CatalogRetriever
     from ..understand.state.session import SessionState
+
+
+_STRONG_OVERRIDE_RE = re.compile(
+    r"^\s*(?:actually\s*[,;:-]?\s*)?(?:please\s+)?(?:"
+    r"(?:ignore|forget|disregard)\s+(?:my|the)\s+"
+    r"(?:earlier|previous|old)\s+(?:preference|request|requirement|choice)"
+    r"|i(?:'ve| have)?\s+changed\s+my\s+mind"
+    r"|i\s+no\s+longer\s+(?:want|need|am\s+looking\s+for)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def strong_override_fallback(state: SessionState) -> bool:
+    """Recognize explicit start-over language when the local router misses it."""
+
+    return bool(_STRONG_OVERRIDE_RE.search(state.latest_message or ""))
 
 
 class IntentRouter:
@@ -99,8 +123,10 @@ def route_intention(
     retriever: CatalogRetriever,
 ) -> set[str] | None:
     state.previous_candidate_count = state.candidate_count
-    decision = as_override_decision(classify_override(state))
     committed = has_committed_intent(state)
+    decision = as_override_decision(classify_override(state))
+    if decision.level == 0 and committed and strong_override_fallback(state):
+        decision = OverrideDecision(1)
     if decision.level == 0 and not committed:
         skip_nodes(
             "router",

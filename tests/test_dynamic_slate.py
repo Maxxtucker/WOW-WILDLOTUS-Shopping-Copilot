@@ -9,7 +9,8 @@ from agent.decide.clarification.dynamic_slate import (
     DynamicSlatePlanner,
     DynamicSlateState,
 )
-from agent.decide.ranking.normalize import RankedCandidate
+from agent.decide.clarification.dynamic_adapter import CatalogSignatureTransitionModel
+from agent.decide.ranking.normalize import RankedCandidate, normalize_probabilities
 
 
 def candidate(parent_asin: str, probability: float) -> RankedCandidate:
@@ -132,6 +133,121 @@ class DynamicSlatePlannerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "probability of continuing"):
             planner.plan(state)
+
+
+class CatalogSignatureTransitionModelTests(unittest.TestCase):
+    def test_tail_only_state_asks_high_coverage_recovery_question(self) -> None:
+        model = CatalogSignatureTransitionModel(lambda _asin, _attribute: ())
+        state = model.root_state(
+            turn=2,
+            candidates=(),
+            questions=(None, "feature", "size", "use_case"),
+            gate_open=True,
+        )
+        planner = DynamicSlatePlanner(
+            model,
+            DynamicSlateConfig(lookahead_steps=2, allow_zero=True),
+        )
+
+        plan = planner.plan(state)
+
+        self.assertEqual(plan.recommendations, ())
+        self.assertEqual(plan.ask_attribute, "feature")
+        self.assertGreater(plan.expected_value, 0.0)
+
+    def test_effective_coverage_floor_removes_rare_questions(self) -> None:
+        ranked = normalize_probabilities([("A", 1.0)])
+        model = CatalogSignatureTransitionModel(lambda _asin, _attribute: ("x",))
+        state = model.root_state(
+            turn=1,
+            candidates=ranked,
+            questions=(None, "feature", "style", "size", "use_case", "budget"),
+            gate_open=True,
+        )
+
+        self.assertEqual(state.questions, (None, "feature", "style"))
+
+    def test_other_is_compacted_and_not_repeated_in_next_state(self) -> None:
+        ranked = normalize_probabilities([(f"P{i}", 10 - i) for i in range(8)])
+
+        def signature(parent_asin: str, attribute: str) -> tuple[str, ...]:
+            if attribute == "other":
+                return (f"free-{parent_asin}",)
+            return ("black",) if parent_asin in {"P0", "P1"} else ("blue",)
+
+        model = CatalogSignatureTransitionModel(
+            signature,
+            max_candidates=8,
+            max_other_branches=4,
+        )
+        state = model.root_state(
+            turn=1,
+            candidates=ranked,
+            questions=(None, "other", "color"),
+            gate_open=True,
+        )
+        branches = model.branches(state, DynamicSlateAction("other", 0))
+
+        head_branches = [
+            branch
+            for branch in branches
+            if not branch.observation.startswith("__tail_")
+        ]
+        tail_branches = [
+            branch
+            for branch in branches
+            if branch.observation.startswith("__tail_")
+        ]
+        self.assertLessEqual(len(head_branches), 4)
+        self.assertEqual(len(tail_branches), 2)
+        self.assertAlmostEqual(sum(branch.probability for branch in branches), 1.0)
+        self.assertTrue(branches)
+        self.assertTrue(all("other" not in branch.next_state.questions for branch in branches))
+
+    def test_low_coverage_attribute_adds_no_information_mass(self) -> None:
+        ranked = normalize_probabilities([("A", 2.0), ("B", 1.0)])
+        model = CatalogSignatureTransitionModel(
+            lambda asin, _attribute: (asin,),
+            max_candidates=2,
+            tail_floor=0.0,
+        )
+        state = model.root_state(
+            turn=1,
+            candidates=ranked,
+            questions=("use_case",),
+            gate_open=True,
+        )
+
+        branches = model.branches(state, DynamicSlateAction("use_case", 0))
+
+        no_information = [
+            branch for branch in branches
+            if branch.observation == "__no_information__"
+        ]
+        self.assertEqual(len(no_information), 1)
+        self.assertGreater(no_information[0].probability, 0.98)
+
+    def test_no_hit_removes_open_gate_slate_from_branches(self) -> None:
+        ranked = normalize_probabilities([("A", 3.0), ("B", 2.0), ("C", 1.0)])
+        model = CatalogSignatureTransitionModel(
+            lambda asin, _attribute: (asin,),
+            max_candidates=3,
+        )
+        state = model.root_state(
+            turn=1,
+            candidates=ranked,
+            questions=("color",),
+            gate_open=True,
+        )
+        branches = model.branches(state, DynamicSlateAction("color", 1))
+        remaining = {
+            item.parent_asin
+            for branch in branches
+            for item in branch.next_state.candidates
+        }
+
+        self.assertNotIn("A", remaining)
+        self.assertEqual(remaining, {"B", "C"})
 
 
 if __name__ == "__main__":

@@ -1,292 +1,292 @@
-# Shopping Agent — Score-Aware Conversational Product Search
+# Converge Shopping Copilot
 
-This agent is an offline shopping copilot for TikTok TechJam 2026 Track 4. It
-tracks the active shopping intent, predicts how each candidate product would
-answer a clarification question, and jointly controls the recommendation slate
-and next question to find the hidden product early and at rank one.
+Converge is a multi-turn shopping agent for the TechJam Conversational E-Commerce Search Challenge. It searches a frozen 50,000-product Amazon catalog for a hidden target product, returns up to ten ranked `parent_asin` values per turn, and decides which structured attribute to ask about next. A session ends at the first target hit or after ten turns.
 
-The core retrieve and planning stack uses only Python's standard library. An
-optional local Qwen3 cross-encoder reranks a small candidate head when its
-dependencies and cached weights are installed; otherwise ranking falls back
-automatically. No LLM API key or paid service is required. Understand defaults to a **local** Ollama model
-(`understand_mode="nlu"`). If the daemon is missing, extracts fail three times
-and fall back to regex. Kit tests and the public-set table below use
-`understand_mode="regex"` (no model). Design:
-[`docs/architecture/understand_nlu.md`](docs/architecture/understand_nlu.md).
+This README describes the production Agent, the official and scenario evaluators, and the Chainlit demo. Detailed implementation notes live in:
 
-## Public result
+- [`agent/README.md`](agent/README.md) — orchestrator, session state, and the end-to-end turn pipeline.
+- [`agent/understand/README.md`](agent/understand/README.md) — NLU, typed constraints, grounding, and turn deltas.
+- [`agent/intent_router/README.md`](agent/intent_router/README.md) — L1/L2 override handling, exact pools, and Buying/Browsing routing.
+- [`agent/retrieve/README.md`](agent/retrieve/README.md) — exact/lenient pools, hybrid recall, scoring, weighted RRF, and semantic reranking.
+- [`agent/decide/README.md`](agent/decide/README.md) — clarification selection, dynamic slate sizing, response construction, and writeback.
+- [`scripts/catalog_preprocess/README.md`](scripts/catalog_preprocess/README.md) — catalog normalization, all attribute extractors, and the sidecar SQLite schema.
 
-Run against the unmodified official evaluator and 200-session public set at
-official repository commit `9a35be51780ff1caf89eceaabca34259e946f40f`:
+## Competition objective
 
+The evaluator holds a target `parent_asin` and a hidden intent card derived from that product's catalog metadata. The Agent receives only a safe aggregate `user_profile`, natural-language customer messages, a turn number, and `top_k`. Correctness is always an exact catalog-ID match; an LLM never decides whether a recommendation is correct.
 
-| Metric                     | Official starter | This agent   |
-| -------------------------- | ---------------- | ------------ |
-| Hit Rate@10                | 0.125000         | **1.000000** |
-| MRR                        | 0.068034         | **1.000000** |
-| MTTC                       | 9.810000         | **2.060000** |
-| Efficiency                 | 0.119000         | **0.894000** |
-| Recommended TechnicalScore | 0.106710         | **0.978800** |
+The official score is:
 
+\[
+\begin{aligned}
+\text{HitRate@10} &= \frac{\text{successful sessions}}{N} \\
+\text{MRR} &= \frac{1}{N}\sum_i \frac{1}{\text{target rank}_i} \\
+\text{MTTC} &= \frac{1}{N}\sum_i \text{first-hit turn}_i \\
+\text{Efficiency} &= \operatorname{clip}\left(\frac{11-\text{MTTC}}{10},0,1\right) \\
+\text{TechnicalScore} &= 0.50\,\text{HitRate@10}+0.30\,\text{MRR}+0.20\,\text{Efficiency}.
+\end{aligned}
+\]
 
-All four public scenario groups—Buying, Browsing, Intent Override, and
-Boundary—reach 100% Hit Rate and 1.0 MRR. This is a development-set result, not
-a claim about the private leaderboard. Aggregate output is recorded in
-`[docs/agent_public_results.json](docs/agent_public_results.json)`.
+A miss contributes reciprocal rank `0` and turn `11` to MTTC. Metrics are also reported for Buying, Browsing, Intent Override, and Boundary sessions.
 
-## Why dynamic slates matter
+## System architecture
 
-For a first hit at turn `t` and rank `r`, one session contributes:
-
-```text
-U(t, r) = 0.50 + 0.30 / r + 0.02 × (11 - t)
+```mermaid
+flowchart TD
+    UI["Evaluator or Chainlit"] --> API["starter.agent.Agent"]
+    API --> ORCH["Process orchestrator"]
+    ORCH --> SESSION["Isolated SessionState"]
+    SESSION --> U["Understand"]
+    U --> R["Intent Router"]
+    R --> RET["Retrieve and Rank"]
+    RET --> D["Decide"]
+    D --> OUT["message + ask_attribute + recommendations + usage"]
+    CAT["Frozen catalog.jsonl"] --> INDEX["FTS/signature index"]
+    SIDE["Preprocessed slot sidecar"] --> INDEX
+    INDEX --> R
+    INDEX --> RET
+    INDEX --> D
 ```
 
-Turn 1 / Rank 10 is worth `0.73`, while Turn 2 / Rank 1 is worth `0.98`.
-Returning ten uncertain products on every turn can therefore lower the score.
-The agent exposes the highest-confidence item while informative evidence is
-still arriving, uses a miss as free censoring feedback, and lets the planner
-expand coverage when evidence is exhausted; turn 10 is always a full Top-10.
+The production flow is `understand → intent router → retrieve/rank → decide`. The process-wide orchestrator owns one shared catalog retriever and a map of per-session states. Each `reset()` creates a clean session; each `respond()` validates the 1–10 turn contract and runs one pipeline turn.
 
-## Architecture
+### Agent
 
-```text
-user message
-   │
-   ▼
-category, locked constraints, conversion gate
-   │
-   ▼
-structured active constraints ── required / leftover / shown
-   │
-   ├── exact category + response-signature index
-   └── field-aware SQLite FTS5 BM25 fallback
-   │
-   ▼
-optional Qwen3 semantic reranking of the candidate head
-   │
-   ▼
-ranked candidate belief + no-hit exclusions
-   │
-   ▼
-counterfactual reply partitions for each ask_attribute
-   │
-   ▼
-score-aware question + dynamic-slate planner
-   │
-   ▼
-official Agent response: message + ask_attribute + ranked parent_asin values
+`starter/agent.py` exports the required `Agent` class from `agent/orchestrator.py`:
+
+```python
+class Agent:
+    def reset(self, session_id: str, user_profile: dict) -> None:
+        ...
+
+    def respond(
+        self,
+        session_id: str,
+        user_message: str,
+        turn: int,
+        top_k: int,
+    ) -> dict:
+        return {
+            "message": "Do you have a material preference?",
+            "ask_attribute": "material",
+            "recommendations": [{"parent_asin": "B000..."}],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 30},
+        }
 ```
 
-The protocol-aware path precomputes the deterministic intent-card fingerprint
-for every one of the 50,000 catalog products. The robust path uses normalized
-structured matching and field-weighted BM25 when a message is paraphrased or an
-exact value is unavailable. The agent never reads `public_set.jsonl` or any
-ground-truth label.
+The four stages have distinct responsibilities:
 
-## Repository layout
+| Stage | Input | Responsibility | Output |
+|---|---|---|---|
+| Understand | current message and prior session context | Normalize aliases, classify category layers, extract grounded typed slots, mark hard/soft requirements, and create a non-committed delta | `turn_delta` and `disclosure_empty` |
+| Intent Router | prior committed state and `turn_delta` | Detect L1/L2 overrides, update committed constraints, build strict/lenient exact pools, and label Buying/Browsing | updated `SessionState`, exact pools, intention |
+| Retrieve | committed constraints and pools | Exact-first or hybrid recall, structured/lexical scoring, three-route weighted RRF, optional semantic reranking, and probability normalization | ranked candidate posterior |
+| Decide | ranked posterior and session memory | Jointly select `ask_attribute` and recommendation count with two-step expected-utility planning; persist the action | official response dictionary |
+
+Important runtime behavior:
+
+- `SessionState` is isolated by `session_id`; the catalog index is shared.
+- Turns outside `1..10` and non-positive `top_k` values are rejected.
+- Displayed slate IDs are immediately recorded as shown/excluded. At the start of turn `t > 1`, the gate-aware miss-feedback step conditionally unions the prior slate again when the prior gate was open; that union is idempotent with current writeback.
+- A no-information response can page unshown products from the prior ranking without rerunning Router or Retrieve.
+- The optional recommendation-preference slider changes only the runtime planner's HitRate/MRR trade-off before turn 1. It does not change the official evaluator formula.
+- User-profile `preference_tags` are weak, reset-time context. The current retrieval score computes profile similarity for diagnostics, but its final score contribution is deliberately disabled in code.
+
+### Catalog and preprocessing
+
+`data/catalog.jsonl` is read-only. `scripts/extract_catalog_slots.py` scans it once and creates `.cache/catalog_preprocess/product_slots.sqlite3`. The sidecar contains three business tables—`product_slots`, `product_text`, and `slot_stats`—plus a `meta` control table used for version and catalog-fingerprint validation.
+
+At runtime, the retriever attaches a current sidecar as SQLite schema `slots`. A missing or stale sidecar never triggers an automatic rebuild; the Agent falls back to its catalog signature index. Set `AGENT_SLOTS_PATH=:none:` to disable the sidecar explicitly.
+
+### Evaluators
+
+`evaluator/local_evaluator.py` is the deterministic public harness. For each sample it:
+
+1. creates a random session ID and calls `Agent.reset()`;
+2. materializes hidden intent/behavior fields only inside the evaluator when the public row omits them;
+3. sends the scenario-dependent first customer message;
+4. calls `Agent.respond(..., top_k=10)` for at most ten turns;
+5. normalizes recommendations to the first ten unique, catalog-valid IDs;
+6. records the first eligible target hit, its rank, and its turn; and
+7. returns overall and per-scenario HitRate@10, MRR, MTTC, Efficiency, TechnicalScore, and reported token usage.
+
+Invalid responses and exceptions are treated as empty misses. Intent Override sessions cannot convert until the evaluator has sent the replacement intent.
+
+`evaluator/scenario_evaluator.py` supplies alternate Buyer-language modes while preserving the same scoring contract:
+
+| Mode | Buyer behavior |
+|---:|---|
+| 1 | Original deterministic customer wording |
+| 2 | Controlled paraphrase with protected keywords |
+| 3 | Natural semantic paraphrase |
+| 4 | Meaning-preserving imperfect English |
+
+Modes 2–4 validate that the rewritten message preserves the intended meaning and fall back deterministically when a model response is missing or invalid. They can use a configured OpenAI-compatible endpoint or local Ollama; the scoring path remains exact code matching.
+
+### Chainlit demo
+
+`demo/chainlit_app.py` runs the same process Agent and full catalog as the evaluator-facing API. It is a diagnostic UI, not a second recommendation implementation.
+
+On chat start it creates a UUID-backed Agent session, initializes ten-turn UI state, lazily builds the process-wide Agent once, warms NLU, and displays the recommendation-preference control. On every message it:
+
+1. allocates the next turn and locks the preference slider after the first turn;
+2. creates a per-turn `PipelineCircuit` and inspector state;
+3. runs `agent.respond_traced()` in a worker thread;
+4. listens to progress events and lights the exact pipeline nodes used by that turn;
+5. renders product cards, a product shelf, the clarification prompt, and contextual quick-reply actions; and
+6. stores completed circuit/trace data in the Chainlit user session for sidebar inspection.
+
+The **Eval** composer command opens `EvalDock`. It can select one sample, a range, a random subset, or all public samples; run the Local or Scenario evaluator automatically; step through turns using the same `handle_user_text()` path; cancel a run; and render session/group score cards. The Agent package itself never reads public labels during a normal chat.
+
+The frontend is split into small backend adapters and custom elements:
+
+| Component | Responsibility |
+|---|---|
+| `demo/session.py` | maps one Chainlit conversation to a UUID Agent session and monotonically allocates turns 1–10 |
+| `demo/progress_ui.py` | reduces Agent progress events and final traces into circuit/inspector props |
+| `demo/render.py` | hydrates the official response with catalog metadata and constructs shelves/cards/actions |
+| `demo/actions.py` | derives focused quick replies from `ask_attribute`, active dialog text, and product trade-offs |
+| `demo/turn_monitor.py` | prints stage-completed trace snapshots to the terminal without reading evaluator labels |
+| `PipelineCircuit.jsx` | shows the complete branch graph and highlights only nodes used this turn |
+| `NodeInspector.jsx` | keeps per-turn stage inputs/outputs available in the sidebar |
+| `ProductShelf.jsx` / `ProductCard.jsx` | renders ranked recommendations with catalog metadata |
+| `RecommendationPreference.jsx` | sets planner HitRate/MRR preference before the first turn, then locks |
+| `EvalDock.jsx` / `EvalScoreCard.jsx` | configures public evaluation and displays session/group metrics |
+
+The turn executes off the async UI loop with `asyncio.to_thread()`. A thread-safe listener forwards progress events into an `asyncio.Queue`; an async pump updates the already-sent circuit element as nodes start, finish, skip, or fail. The assistant reply also updates a placeholder message and retries updates before creating a fallback message, which makes long local-NLU turns resilient to frontend reconnects.
+
+Quick-reply callbacks send their stored natural-language text back through `handle_user_text()` rather than mutating Agent state. Inspector callbacks only switch selected nodes/graphs. Eval callbacks delegate to `eval_ui.py`, which keeps cancellation and step state in the Chainlit user session while reusing the process-wide Agent and official scoring helpers.
+
+## Repository map
 
 ```text
 agent/
-  README.md         package map
-  orchestrator.py   reset / respond → TurnPipeline
-  pipeline.py       single-turn loop
-  domain.py         evaluator-compatible helpers
-  understand/       message → turn_delta            (layer + submodule READMEs)
-  intent_router/    override vs accumulate, intention
-  retrieve/         SessionState → SearchHit        (layer + submodule READMEs)
-  decide/           SearchHit → official response   (layer + submodule READMEs)
-starter/
-  agent.py          from agent import Agent
+  orchestrator.py              required API and process/session ownership
+  pipeline.py                  one-turn stage orchestration
+  understand/                  message → grounded turn delta
+  intent_router/               override, state commit, exact pools, route label
+  retrieve/                    catalog index, recall, scoring, and fusion
+  decide/                      reranking, clarification, slate, and response
+demo/
+  chainlit_app.py              live application and callbacks
+  eval_harness.py              public-set selection and evaluator wrappers
+  eval_ui.py                   EvalDock actions and score cards
+  public/elements/             Chainlit custom React elements
+evaluator/
+  local_evaluator.py           official deterministic local evaluator
+  scenario_evaluator.py        Buyer-language robustness evaluator
 scripts/
-  download_catalog.py
-  check_parity.py
-  demo_session.py
-  build_aliases_color.py
-  build_aliases_material.py
-  extract_catalog_slots.py
-  catalog_preprocess/  offline catalog slot extractors
-
-  nlu_console.py    interactive full-pipeline shopper chatbot
-  nlu_probe.py      fixture probe; --live calls Ollama
-  nlu.env           local model/host/timeout (not loaded on import)
-tests/
-  test_agent.py     kit tests pin understand_mode=regex and mock the router LLM
-  test_intent_router.py
-  test_nlu.py
-  test_nlu_console.py
-  test_pipeline_smoke.py
-evaluator/          unchanged official evaluator
-data/public_set.jsonl
+  extract_catalog_slots.py     one-pass preprocessing entry point
+  catalog_preprocess/          normalization and attribute extractors
+starter/
+  agent.py                     competition import surface
+docs/
+  problem_requirements/        problem statement
+  competition_specification.md protocol and scoring
+  submission_rules.md          packaging and reproducibility rules
 ```
 
+## Requirements
 
+- Python 3.10 or newer.
+- SQLite with FTS5 enabled.
+- `data/catalog.jsonl`; `data/public_set.jsonl` for local evaluation.
+- Ollama and the configured local model for the default NLU path. `scripts/nlu.env` defaults to `qwen3.5:4b`.
+- Optional Qwen cross-encoder dependencies from `requirements-reranker.txt` for semantic reranking.
+- Chainlit and its frontend dependencies for the demo UI; they are not required by the core Agent.
 
-## Setup
-
-Python 3.10 or later with SQLite FTS5 is required. No `pip install` step is
-needed for the deterministic core.
+The core Python package has no third-party runtime dependency:
 
 ```bash
-python3 scripts/download_catalog.py
-python3 -m unittest discover -v
-python3 scripts/check_parity.py
-python3 -m evaluator.local_evaluator
+python -m pip install -r requirements.txt
 ```
 
-The download script verifies the organizer-published SHA-256 digest before
-decompressing `data/catalog.jsonl`. The catalog is intentionally gitignored.
-
-### Catalog slot preprocess (once)
-
-Color and material aliases plus structured `product_slots` are built **offline**
-in `scripts/`. The Agent never extracts them at `reset` / `respond` time; it
-only `ATTACH`es the sidecar SQLite if the catalog fingerprint matches.
+Install the optional local reranker with:
 
 ```bash
-python scripts/build_category_tree.py
+python -m pip install -r requirements-reranker.txt
+```
+
+## Prepare the catalog
+
+The alias JSON and three-level category tree are committed runtime assets. Rebuild them only when their source data or the frozen catalog changes:
+
+```bash
 python scripts/build_aliases_color.py
 python scripts/build_aliases_material.py
+python scripts/build_category_tree.py
 python scripts/extract_catalog_slots.py
 ```
 
-Alias JSON is committed under `scripts/catalog_preprocess/aliases/`
-(`category_tree.json`, `category_parents.json`, color/material maps). Category
-keys are folded (`fold_category`: lowercase, no punctuation, no glue words,
-singular tokens) so `Shoes` and `shoe` share one sidecar value. The sidecar
-defaults to `.cache/catalog_preprocess/product_slots.sqlite3` (gitignored).
-Sidecar schema version is `catalog-slots-v4` (`slot_stats` IDF, `product_text`,
-and dimension weight extras). Re-run `extract_catalog_slots.py` after extractor changes.
-Override with `AGENT_SLOTS_PATH`. Set `AGENT_SLOTS_PATH=:none:` to skip ATTACH.
-A missing or stale sidecar is not rebuilt in-process; exact lookup then uses
-the existing signature index only.
+Only the two alias-builder commands require their documented source downloads. The category-tree builder and `extract_catalog_slots.py` read the local catalog; the latter writes the validated sidecar atomically through a temporary SQLite file.
 
-`python scripts/catalog_preprocess/survey_catalog_fields.py` prints details-key
-and category histograms (read-only).
+The primary FTS/signature index is built automatically on first Agent startup and reused by a catalog size/mtime fingerprint. Configure its location with `AGENT_INDEX_PATH` or `AGENT_CACHE_DIR`; set `AGENT_INDEX_PATH=:memory:` for a process-local database.
 
-### Index cache
+## Run the evaluators
 
-By default the agent builds a disposable SQLite cache in the operating system's
-temporary directory. This keeps the full-text/signature index off the Python
-heap and allows later local runs to reuse it. To select an explicit location:
+Run the deterministic public evaluator:
 
 ```bash
-mkdir -p .cache
-AGENT_INDEX_PATH=.cache/agent.sqlite3 \
-  python3 -m evaluator.local_evaluator
+python -m evaluator.local_evaluator \
+  --catalog data/catalog.jsonl \
+  --dataset data/public_set.jsonl \
+  --output results.json
 ```
 
-The cache is automatically invalidated when the catalog path, size, timestamp,
-or index version changes. Do not commit the generated database.
-
-To force a process-local in-memory index instead, set
-`AGENT_INDEX_PATH=:memory:`. This avoids disk writes but requires materially
-more memory and rebuilds the index on every process start.
-
-### Optional semantic reranker
-
-Install the separate ML dependencies and cache the model before evaluation:
+Run a single readable session trace:
 
 ```bash
-python3 -m pip install -r requirements-reranker.txt
-AGENT_RERANKER_LOCAL_FILES_ONLY=0 python3 -c \
-  'from sentence_transformers import CrossEncoder; CrossEncoder("Qwen/Qwen3-Reranker-0.6B", trust_remote_code=False)'
+python scripts/demo_session.py
 ```
 
-Runtime defaults are in `scripts/reranker.env`. Keep
-`AGENT_RERANKER_LOCAL_FILES_ONLY=1` for offline evaluation. In `auto` mode,
-missing dependencies, weights, or inference support trigger the deterministic
-fallback. Use `AGENT_RERANKER_MODE=required` only when benchmarking and you want
-such failures to stop the run.
-
-### Local NLU
-
-`Agent()` defaults to `understand_mode="nlu"`. Install Ollama, pull the model in
-`scripts/nlu.env` yourself (the agent does not `ollama pull`), then:
-
-```powershell
-. .\scripts\load_nlu_env.ps1
-python scripts/nlu_console.py
-```
-
-`python -m unittest` uses regex observation and does not start Ollama. Full
-note: [`docs/architecture/understand_nlu.md`](docs/architecture/understand_nlu.md).
-
-## Demo
+`scripts/check_parity.py` verifies that the Agent's catalog protocol copy remains aligned with the evaluator-visible deterministic helpers:
 
 ```bash
-python3 scripts/demo_session.py --sample public_0002
+python scripts/check_parity.py
 ```
 
-The default is a four-turn Intent Override example. It prints each simulated
-customer message, the structured attribute asked, the recommendation slate,
-and the first-hit turn/rank, making it suitable for a backend walkthrough
-video.
+## Run the Chainlit demo
 
-The live Chainlit circuit (`demo/chainlit_app.py`) also prints each pipeline
-stage to the same terminal when that stage lights up: turn_delta, session
-snapshot, router output, retrieve/rank top 10, then decide recommendations
-and the official respond dict.
+Load the NLU environment, then start Chainlit from `demo/` so custom elements resolve from `demo/public/elements`:
 
-## Implementation highlights
+```bash
+cd demo
+python -m chainlit run chainlit_app.py -w --port 8005
+```
 
-- Exact compatibility with the official `intent_card`, `coarse_category`, and
-`classify_constraint` behavior, covered by parity tests.
-- Candidate-conditioned response signatures for every allowed question.
-- One-step expected TechnicalScore planner over question choices and slate
-prefixes, plus a conservative sequential-slate risk guard.
-- Correct miss handling: a new call proves the previous slate missed only when
-the Intent Override conversion gate was open.
-- Explicit intent versions: an override removes the superseded preference,
-resets old negative evidence, and enables conversion on the same turn.
-- Empty simulator replies write nothing; they are not treated as product
-exclusions.
-- Missing-friendly price handling and soft store/brand matching because catalog
-metadata is sparse and `store` is not guaranteed to be a brand.
-- Offline scoring: local model inference reports no API tokens and never
-  downloads weights when local-only mode is enabled.
+The header in `demo/chainlit_app.py` also contains the PowerShell environment-loading example used by the project. The UI allows at most ten main-chat turns, mirroring the official session contract.
 
-See `[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)` for the state machine,
-planning equation, retrieval design, tests, limitations, and private-set
-robustness strategy.
+## Runtime configuration
 
-## Cost and feasibility
+| Variable | Meaning |
+|---|---|
+| `AGENT_NLU_MODEL` | Ollama NLU/router model; default `qwen3.5:4b` |
+| `AGENT_NLU_HOST` | Ollama base URL; default `http://127.0.0.1:11434` |
+| `AGENT_NLU_TIMEOUT` | per-request NLU timeout in seconds |
+| `AGENT_INDEX_PATH` | explicit primary index path; `:memory:` disables persistence |
+| `AGENT_CACHE_DIR` | parent directory for fingerprinted primary indexes |
+| `AGENT_SLOTS_PATH` | explicit slot-sidecar path; `:none:` disables it |
+| `AGENT_RERANKER_MODE` | `off`, `auto`, or `required` |
+| `AGENT_RERANKER_MODEL` | optional CrossEncoder model; default `Qwen/Qwen3-Reranker-0.6B` |
+| `AGENT_RERANKER_LOCAL_FILES_ONLY` | offline-safe model loading; default true |
+| `CONVERGE_LLM_*` | optional Scenario Buyer OpenAI-compatible backend settings |
 
-- External model/API cost: **$0** for local inference
-- Reported prompt/completion tokens: **0 / 0** for the local reranker
-- Runtime dependency: Python standard library core; optional PyTorch,
-  Transformers, and Sentence Transformers for semantic reranking
-- Evaluation network requirement: none
-- Public 200-session warm-cache runtime observed locally: approximately 7 s;
-a cold run additionally spends about 32 s building a roughly 214 MiB index.
-Hardware, filesystem performance, and cache format change these figures.
+`Agent(..., understand_mode="regex")` skips Ollama entirely. In default NLU mode, extraction is retried three times and then falls back to regex. Optional semantic reranking also fails safely in `auto` mode when the model is unavailable. These fallbacks matter because official scoring may disable network access.
 
+## Reproducibility and submission boundaries
 
+- Do not modify `evaluator/` when preparing an official submission.
+- Never commit model/API credentials; use environment variables.
+- Keep the frozen catalog read-only and recommend only IDs present in it.
+- The submitted `respond()` value must contain a string `message`, an allowed `ask_attribute` or `None`, ordered recommendations, and non-negative usage counters when available.
+- Only the first ten valid unique recommendations are scored; optional numeric recommendation scores are ignored.
+- Declare any required model assets, network needs, latency, token usage, approximate cost, and offline behavior in the submission report.
 
-## Limitations
+## Current limitations
 
-- The strongest retrieval path models the released deterministic simulator. A
-different private intent-card generator would rely more heavily on BM25 and
-reduce performance.
-- The public set is small and shares one scenario policy, so its score must not
-be treated as an unbiased private-set estimate.
-- Qwen reranker scores are used for ordering and are not calibrated purchase
-  probabilities. Latency and memory depend strongly on device and quantization.
-- A persistent SQLite cache is large; it is a development optimization and is
-not included in the submission.
-- Model weights are not bundled. They must be cached before an offline run;
-  otherwise the deterministic ranker remains active.
-
-
-
-## Team contributions
-
-Before submission, replace this section with each participant's name and
-contribution. Suggested categories are retrieval/indexing, dialog state and
-planner, evaluation/experiments, and demo/presentation.
-
-## Data attribution
-
-The frozen catalog and sessions are derived from Amazon Reviews 2023 by
-McAuley Lab, UCSD. See `[DATA_ATTRIBUTION.md](DATA_ATTRIBUTION.md)`. Do not
-commit the catalog, private evaluation data, credentials, or generated indexes.
+- The Buying/Browsing route is an LLM judgment over accumulated constraints and pool contraction; there is intentionally no deterministic ratio cutoff.
+- Exact pools depend on catalog-side normalization and may be unrepresentable (`None`) for unseen phrasing. Hybrid retrieval preserves recall in that case.
+- The sidecar's `product_text` table improves soft text fit only when a current, attachable sidecar exists.
+- Semantic reranking is bounded to the head and depends on a locally available model; deterministic belief ranking remains the fallback.
+- Clarification transitions are catalog-signature approximations, not full counterfactual reruns of Understand and Retrieve.
+- The Chainlit UI is a development and explanation surface; official judging calls the headless Agent interface.

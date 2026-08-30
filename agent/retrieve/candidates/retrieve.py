@@ -1,6 +1,7 @@
 """Purpose: score the router's exact pool, then fill with hybrid if under the floor.
 
-Input: CatalogRetriever, SessionState, optional exact ASIN set from the router.
+Input: CatalogRetriever, SessionState, optional exact ASIN set from the router
+and unused exact_lenient (match-or-unknown superset; scoring still uses exact).
 Output: SearchHit values (library at least 300 when exact is under 150; browsing 500).
 Role: pipeline stage 5. Does not recompute the hard intersection. Hard hits
 stay in front; hybrid fill (hard_required=False) pads a small exact pool.
@@ -46,8 +47,11 @@ class CandidateOrganizer:
         self,
         state: SessionState,
         exact: set[str] | None = None,
+        exact_lenient: set[str] | None = None,
     ) -> list[SearchHit]:
-        return retrieve_candidates(self.retriever, state, exact)
+        return retrieve_candidates(
+            self.retriever, state, exact, exact_lenient=exact_lenient
+        )
 
 
 def _hard_categories(state: SessionState) -> tuple[str, ...]:
@@ -155,7 +159,19 @@ def retrieve_candidates(
     retriever: CatalogRetriever,
     state: SessionState,
     exact: set[str] | None = None,
+    exact_lenient: set[str] | None = None,
 ) -> list[SearchHit]:
+    if exact_lenient is None:
+        exact_lenient = state.exact_lenient
+    exact_pool = exact
+    pool_source = "strict"
+    if (
+        exact is not None
+        and len(exact) < CANDIDATE_FLOOR
+        and exact_lenient
+    ):
+        exact_pool = exact_lenient
+        pool_source = "lenient"
     emit("retrieve", "slot_groups", "running")
     groups, budget = required_and_budget(state)
     soft_groups = preferred_groups(state)
@@ -228,26 +244,31 @@ def retrieve_candidates(
         "text_query": text_query,
         "profile_tags": state.preference_tags,
     }
-    if exact:
+    if exact_pool:
         emit("retrieve", "lexical_in_pool", "running")
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
         in_pool = {
             parent_asin: score
             for parent_asin, score in lexical.items()
-            if parent_asin in exact
+            if parent_asin in exact_pool
         }
         emit(
             "retrieve",
             "lexical_in_pool",
             "completed",
             {
-                "input": {"exact": len(exact), "query": query[:120]},
+                "input": {
+                    "strict_exact": None if exact is None else len(exact),
+                    "exact_pool": len(exact_pool),
+                    "pool_source": pool_source,
+                    "query": query[:120],
+                },
                 "output": {"lexical_in_pool": len(in_pool)},
             },
         )
         emit("retrieve", "score_exact", "running")
         exact_hits = retriever.score_candidates(
-            exact,
+            exact_pool,
             lexical_scores=in_pool,
             in_exact_pool=True,
             **score_kwargs,
@@ -294,14 +315,19 @@ def retrieve_candidates(
             )
         library_limit = library_limit_for(state.intention)
         need = max(0, library_limit - len(exact_hits))
-        fill_exclude = set(state.excluded_asins) | set(exact)
+        fill_exclude = set(state.excluded_asins) | set(exact_pool)
         emit("retrieve", "hybrid_search", "running")
         fill = retriever.search(
             query,
             limit=need,
             candidate_limit=routing.candidate_limit,
             hard_required=False,
-            **{**score_kwargs, "exclude_asins": fill_exclude},
+            **{
+                **score_kwargs,
+                "exclude_asins": fill_exclude,
+                "hard_budget": False,
+                "hard_dimension": False,
+            },
         )
         emit(
             "retrieve",
@@ -345,14 +371,11 @@ def retrieve_candidates(
             candidate_limit=routing.candidate_limit,
         )
 
-    # None means no reliable exact signal; an empty set means the strict
-    # intersection over-pruned. Both need lexical recovery rather than an
-    # empty recommendation slate.
     skip_nodes(
         "retrieve",
         "lexical_in_pool",
         "score_exact",
-        why="exact pool is empty or missing",
+        why="no strict or lenient exact candidates",
     )
     library_limit = library_limit_for(state.intention)
     emit("retrieve", "hybrid_search", "running")

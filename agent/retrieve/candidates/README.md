@@ -3,11 +3,14 @@
 ## Purpose
 
 Pipeline stage after the intention router. Score the router's exact ASIN set.
-If that set is under 150, keep hard hits first and fill with hybrid
-BM25/signature recall (`hard_required=False`) to `max(routing.limit, 300)`.
-If the set is already at least 150, skip hybrid. An unavailable or empty set
-uses hybrid only, also to at least 300. Buying / browsing / override share
-this skeleton. Weights and caps come from `routing.py`.
+When the strict set is below 150, a non-empty match-or-unknown lenient superset
+becomes the score pool. If the selected pool is still under 150, keep its hits
+first and fill with hybrid BM25/signature recall to `max(routing.limit, 300)`.
+Fill disables hard required, budget, and dimension filtering: hard and soft
+constraint matches, plus budget/dimension fits, rank new candidates instead.
+If the selected pool is already at least 150, skip hybrid. Unavailable or empty
+strict and lenient sets use hybrid only, also to at least 300. Buying / browsing
+/ override share this skeleton. Weights and caps come from `routing.py`.
 
 ## Files
 
@@ -20,14 +23,19 @@ this skeleton. Weights and caps come from `routing.py`.
 ## Collaboration
 
 ```text
-exact is non-empty and ≥150:
+strict exact <150 and lenient non-empty:
+    score the lenient superset as the exact pool
+strict exact otherwise:
+    score the strict set as the exact pool
+selected exact pool ≥150:
     BM25 tie-break inside exact pool
     retriever.score_candidates(exact)[:150 or 500]
-exact is non-empty and <150:
+selected exact pool <150:
     score_candidates(exact) first (hard segment stays in front)
-    then search(..., hard_required=False) excluding exact ASINs
+    then search(..., hard_required=False, hard_budget=False,
+                hard_dimension=False) excluding selected exact ASINs
     fill until 300 (buying) or 500 (browsing); do not re-sort
-exact is None or empty:
+no selected exact pool:
     rewrite_query → retriever.search(..., hard_required=False) to 300/500
 ```
 
@@ -35,7 +43,7 @@ exact is None or empty:
 
 ## Core variables
 
-- Input: `SessionState`, `exact: set[str] | None`
+- Input: `SessionState`, `exact: set[str] | None`, and optional `exact_lenient`
 - Output: `list[SearchHit]` (library at least 300 when exact is small; browsing 500)
 - Query string: see `rewrite_query` (typed search values when slots exist)
 - Required: hard groups from `from_slots.required_and_budget` (OR inside an attribute, AND across).

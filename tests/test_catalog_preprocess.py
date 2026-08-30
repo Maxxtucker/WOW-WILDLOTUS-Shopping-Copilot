@@ -747,6 +747,39 @@ class BudgetDimensionRetrieveTest(unittest.TestCase):
         self.assertEqual([hit.parent_asin for hit in hits], ["CHEAP"])
         self.assertIn("size", hits[0].matched_constraints)
 
+    def test_hybrid_fill_keeps_numeric_mismatches_as_ranked_candidates(self) -> None:
+        state = SessionState("s", {})
+        state.typed_constraints = [
+            ConstraintSlot(
+                attribute="budget",
+                surface="under $40",
+                amount=40,
+                op="lte",
+                is_hard=True,
+            ),
+            ConstraintSlot(
+                attribute="size",
+                surface="3 x 3 inches",
+                kind="dimension",
+                unit="in",
+                length=3.0,
+                width=3.0,
+                is_hard=True,
+            ),
+        ]
+
+        hits = retrieve_candidates(self.retriever, state, {"CHEAP"})
+
+        by_id = {hit.parent_asin: hit for hit in hits}
+        self.assertEqual(set(by_id), {"CHEAP", "DEAR", "FREE"})
+        self.assertIn("budget_fit=1.00", by_id["CHEAP"].reasons)
+        self.assertIn("dimension_fit=1.00", by_id["CHEAP"].reasons)
+        self.assertNotIn("budget_fit=1.00", by_id["DEAR"].reasons)
+        self.assertNotIn("dimension_fit=1.00", by_id["DEAR"].reasons)
+        self.assertNotIn("budget_fit=1.00", by_id["FREE"].reasons)
+        self.assertNotIn("dimension_fit=1.00", by_id["FREE"].reasons)
+        self.assertGreater(by_id["CHEAP"].score, by_id["DEAR"].score)
+
     def test_probe_hard_budget_filters_after_string_intersect(self) -> None:
         state = SessionState("s", {})
         state.typed_constraints = [

@@ -11,7 +11,7 @@ Index build uses an independent `intent_card` copy in `protocol_copy.py` and doe
 | File | Role |
 |---|---|
 | `types.py` | `SearchHit`, `ResponseSignature`, scoring weights. |
-| `protocol_copy.py` | Index-side protocol mirror; `INDEX_VERSION = agent-retrieval-v3`. |
+| `protocol_copy.py` | Index-side protocol mirror; `INDEX_VERSION = agent-retrieval-v4`. |
 | `signatures.py` | Build response signatures from product metadata; normalize constraints/budget. |
 | `index_path.py` | `AGENT_INDEX_PATH` / `AGENT_CACHE_DIR` → on-disk path. |
 | `index.py` | Schema, fingerprint, FTS + signature tables from JSONL. |
@@ -50,3 +50,11 @@ At query time
 - Signatures: `build_response_signature` in `signatures.py`
 - Exact inverted index: `retriever.signature_candidates`
 - Build: `index.py`
+
+## FTS matching
+
+`product_fts` uses FTS5 `porter unicode61 remove_diacritics 2`. Query tokens
+remain in their original form after stopword removal; FTS applies the Porter
+stemmer consistently to both indexed content and MATCH terms. This improves
+singular/plural matches such as `shoe` and `shoes`, but Porter can over-stem
+terms such as `plus`, `earrings`, `running`, and `clothing`.

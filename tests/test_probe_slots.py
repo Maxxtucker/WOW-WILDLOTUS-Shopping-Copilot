@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent.intent_router.probe import probe_exact_pool
+from agent.intent_router.probe import probe_exact_pool, probe_exact_pools
 from agent.retrieve.catalog import CatalogRetriever
 from agent.retrieve.catalog.protocol_copy import normalize_text
 from agent.retrieve.catalog.slots_sidecar import (
@@ -83,19 +83,64 @@ def _write_sidecar(path: Path, catalog_path: Path, rows: list[tuple]) -> None:
     connection.close()
 
 
-def _shoe(parent_asin: str, title: str, store: str) -> dict:
+def _shoe(
+    parent_asin: str, title: str, store: str, *, price: float | None = 49.0
+) -> dict:
     return {
         "parent_asin": parent_asin,
         "title": title,
         "features": ["walking shoe"],
         "description": ["Comfortable"],
-        "price": 49.0,
+        "price": price,
         "categories": ["Clothing, Shoes & Jewelry", "Men", "Shoes"],
         "details": {},
         "average_rating": 4.0,
         "rating_number": 10,
         "store": store,
     }
+
+
+def _plain(parent_asin: str, *, price: float | None = 49.0) -> dict:
+    """No color/material words so signatures leave those attributes unknown."""
+
+    return {
+        "parent_asin": parent_asin,
+        "title": "Plain walking trainer",
+        "features": ["walking pair"],
+        "description": ["Comfortable"],
+        "price": price,
+        "categories": ["Sports", "Accessories"],
+        "details": {},
+        "average_rating": 4.0,
+        "rating_number": 10,
+        "store": "Acme",
+    }
+
+
+class PorterFtsTest(unittest.TestCase):
+    def test_singular_query_matches_plural_title(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            catalog_path = Path(temporary) / "catalog.jsonl"
+            product = {
+                "parent_asin": "PORTER",
+                "title": "Trail shoes",
+                "features": [],
+                "description": [],
+                "price": 49.0,
+                "categories": ["Sports", "Footwear"],
+                "details": {},
+                "average_rating": 4.0,
+                "rating_number": 10,
+                "store": "Acme",
+            }
+            catalog_path.write_text(json.dumps(product) + "\n", encoding="utf-8")
+            with CatalogRetriever(
+                catalog_path,
+                slots_path=Path(temporary) / "missing.sqlite3",
+            ) as retriever:
+                scores = retriever.lexical_scores("shoe")
+
+        self.assertGreater(scores.get("PORTER", 0.0), 0.0)
 
 
 class FixtureProbeSlotsTest(unittest.TestCase):
@@ -110,6 +155,8 @@ class FixtureProbeSlotsTest(unittest.TestCase):
             _shoe("A", "Blue leather trainer", "Nike"),
             _shoe("B", "Pink leather trainer", "Adidas"),
             _shoe("C", "Blue cotton trainer", "Puma"),
+            _plain("D"),
+            _plain("E", price=None),
         ]
         self.catalog_path.write_text(
             "".join(json.dumps(row) + "\n" for row in products),
@@ -132,6 +179,8 @@ class FixtureProbeSlotsTest(unittest.TestCase):
                 ("C", "material", "cotton", "cotton", "title", None),
                 ("C", "brand", "puma", "Puma", "store", None),
                 ("C", "category", "shoes", "Shoes", "categories", None),
+                ("D", "brand", "acme", "Acme", "store", None),
+                ("E", "brand", "acme", "Acme", "store", None),
             ],
         )
         self.retriever = CatalogRetriever(
@@ -216,6 +265,46 @@ class FixtureProbeSlotsTest(unittest.TestCase):
         pool = probe_exact_pool(self.retriever, state)
         self.assertEqual(pool, {"A", "C"})
 
+    def test_lenient_includes_unknown_color_and_material(self) -> None:
+        pools = probe_exact_pools(
+            self.retriever,
+            _state(
+                ConstraintSlot("color", "blue", canonical="blue"),
+                ConstraintSlot("material", "leather", canonical="leather"),
+            ),
+        )
+        self.assertEqual(pools.strict, {"A"})
+        self.assertIsNotNone(pools.lenient)
+        assert pools.lenient is not None
+        self.assertTrue(pools.strict <= pools.lenient)
+        self.assertIn("A", pools.lenient)
+        self.assertIn("D", pools.lenient)
+        self.assertIn("E", pools.lenient)
+        self.assertNotIn("B", pools.lenient)
+        self.assertNotIn("C", pools.lenient)
+
+    def test_lenient_budget_keeps_missing_price(self) -> None:
+        pools = probe_exact_pools(
+            self.retriever,
+            _state(
+                ConstraintSlot("color", "blue", canonical="blue"),
+                ConstraintSlot(
+                    "budget",
+                    "under $40",
+                    amount=40.0,
+                    op="lte",
+                ),
+            ),
+        )
+        self.assertEqual(pools.strict, set())
+        self.assertIsNotNone(pools.lenient)
+        assert pools.lenient is not None
+        self.assertTrue(pools.strict <= pools.lenient)
+        self.assertIn("E", pools.lenient)
+        self.assertNotIn("A", pools.lenient)
+        self.assertNotIn("C", pools.lenient)
+        self.assertNotIn("D", pools.lenient)
+
     def test_unknown_category_does_not_drop_other_hard_groups(self) -> None:
         pool = probe_exact_pool(
             self.retriever,
@@ -227,11 +316,12 @@ class FixtureProbeSlotsTest(unittest.TestCase):
         self.assertEqual(pool, {"A", "C"})
 
     def test_unknown_category_alone_is_none(self) -> None:
-        pool = probe_exact_pool(
+        pools = probe_exact_pools(
             self.retriever,
             _state(ConstraintSlot("category", "xyzzy not a catalog node")),
         )
-        self.assertIsNone(pool)
+        self.assertIsNone(pools.strict)
+        self.assertIsNone(pools.lenient)
 
     def test_category_canonical_hits_sidecar(self) -> None:
         pool = probe_exact_pool(

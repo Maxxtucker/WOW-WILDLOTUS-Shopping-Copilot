@@ -1017,6 +1017,69 @@ class IntentionRoutingTest(unittest.TestCase):
         )
         self.assertEqual(len(hits), min(LIBRARY_MIN, 2 + len(fill_hits)))
 
+    def test_hybrid_fill_ranks_hard_numeric_constraints_without_filtering(self) -> None:
+        exact_hits = [SearchHit("E1", 2.0, 0.0, 1.0, 0.0, 1.0)]
+        state = SessionState("s", {})
+        state.intention = "buying"
+        state.excluded_asins = {"X"}
+        state.typed_constraints = [
+            ConstraintSlot(
+                "budget",
+                "under $40",
+                amount=40.0,
+                op="lte",
+                is_hard=True,
+            ),
+            ConstraintSlot(
+                "size",
+                "3 x 3 inches",
+                kind="dimension",
+                unit="in",
+                length=3.0,
+                width=3.0,
+                is_hard=True,
+            ),
+        ]
+        retriever = MagicMock()
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = exact_hits
+        retriever.search.return_value = []
+
+        retrieve_candidates(retriever, state, {"E1"})
+
+        kwargs = retriever.search.call_args.kwargs
+        self.assertFalse(kwargs["hard_required"])
+        self.assertFalse(kwargs["hard_budget"])
+        self.assertFalse(kwargs["hard_dimension"])
+        self.assertEqual(kwargs["budget"], (None, 40.0))
+        self.assertIsNotNone(kwargs["dimensions"])
+        self.assertEqual(set(kwargs["exclude_asins"]), {"E1", "X"})
+
+    def test_retrieve_uses_lenient_pool_when_strict_is_below_floor(self) -> None:
+        strict_asins = {f"S{index:03d}" for index in range(149)}
+        lenient_asins = strict_asins | {"LENIENT"}
+        scored = [
+            SearchHit(asin, 1.0, 0.0, 1.0, 0.0, 1.0)
+            for asin in sorted(lenient_asins)
+        ]
+        state = SessionState("s", {})
+        state.intention = "buying"
+        retriever = MagicMock()
+        retriever.lexical_scores.return_value = {"LENIENT": 0.5}
+        retriever.score_candidates.return_value = scored
+
+        hits = retrieve_candidates(retriever, state, strict_asins, lenient_asins)
+
+        self.assertEqual(
+            set(retriever.score_candidates.call_args.args[0]), lenient_asins
+        )
+        self.assertEqual(
+            retriever.score_candidates.call_args.kwargs["lexical_scores"],
+            {"LENIENT": 0.5},
+        )
+        retriever.search.assert_not_called()
+        self.assertEqual(len(hits), 150)
+
     def test_retrieve_skips_hybrid_when_exact_meets_floor(self) -> None:
         asins = [f"E{index:03d}" for index in range(150)]
         scored = [

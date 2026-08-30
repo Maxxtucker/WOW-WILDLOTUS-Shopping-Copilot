@@ -52,23 +52,43 @@ class Ranker:
                     "qwen_rerank",
                     "completed",
                     {
-                        "input": {"hits": len(hits)},
-                        "output": {"reranked": len(semantic)},
+                        "input": {
+                            "hits": len(hits),
+                            "semantic_head_limit": 50,
+                            "intention": state.intention,
+                        },
+                        "output": {
+                            "reranked_weights": len(semantic),
+                            "path": "semantic",
+                        },
                     },
                 )
                 skip_nodes(
                     "retrieve",
                     "belief_hits",
-                    why="Qwen reranker available",
+                    why="semantic reranker produced weights",
                 )
+                emit("retrieve", "normalize", "running")
                 ranked = normalize_probabilities(semantic)
                 emit(
                     "retrieve",
                     "normalize",
                     "completed",
                     {
-                        "input": {"path": "qwen"},
-                        "output": {"count": len(ranked)},
+                        "input": {
+                            "path": "qwen",
+                            "positive_weights": len(semantic),
+                        },
+                        "output": {
+                            "count": len(ranked),
+                            "top": [
+                                {
+                                    "parent_asin": item.parent_asin,
+                                    "probability": round(float(item.probability), 6),
+                                }
+                                for item in ranked[:5]
+                            ],
+                        },
                         "count": len(ranked),
                     },
                 )
@@ -77,7 +97,7 @@ class Ranker:
                 "retrieve",
                 "qwen_rerank",
                 "skipped",
-                {"why": "reranker unavailable or off"},
+                {"why": "reranker unavailable, disabled, or returned no weights"},
             )
         else:
             skip_nodes(
@@ -85,6 +105,7 @@ class Ranker:
                 "qwen_rerank",
                 why="no session or catalog for semantic head",
             )
+
         emit("retrieve", "belief_hits", "running")
         weights = belief_from_hits(hits)
         emit(
@@ -92,18 +113,37 @@ class Ranker:
             "belief_hits",
             "completed",
             {
-                "input": {"hits": len(hits)},
-                "output": {"weighted": len(weights)},
+                "input": {
+                    "hits": len(hits),
+                    "temperature": BELIEF_TEMPERATURE,
+                },
+                "output": {
+                    "weighted": len(weights),
+                    "path": "deterministic score belief",
+                },
             },
         )
+        emit("retrieve", "normalize", "running")
         ranked = normalize_probabilities(weights)
         emit(
             "retrieve",
             "normalize",
             "completed",
             {
-                "input": {"path": "belief"},
-                "output": {"count": len(ranked)},
+                "input": {
+                    "path": "belief",
+                    "positive_weights": len(weights),
+                },
+                "output": {
+                    "count": len(ranked),
+                    "top": [
+                        {
+                            "parent_asin": item.parent_asin,
+                            "probability": round(float(item.probability), 6),
+                        }
+                        for item in ranked[:5]
+                    ],
+                },
                 "count": len(ranked),
             },
         )

@@ -24,6 +24,7 @@ def record_action(
     state.last_slate = list(slate)
     state.last_gate_open = state.gate_open
     state.last_ask = ask_attribute
+    state.excluded_asins.update(slate)
     state.shown_asins.update(slate)
     if ask_attribute:
         state.asked.append(ask_attribute)

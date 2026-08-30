@@ -12,7 +12,7 @@ const LABEL = {
   letterSpacing: "0.12em",
   textTransform: "uppercase",
   color: "rgba(255,255,255,0.38)",
-  fontWeight: 600,
+  fontWeight: 700,
   marginBottom: 8,
 };
 
@@ -23,37 +23,7 @@ function prettyKey(key) {
 }
 
 function sendAction(name, payload) {
-  if (typeof callAction !== "function") {
-    return;
-  }
-  callAction({ name, payload });
-}
-
-function Chip({ children, tone = "muted" }) {
-  const palettes = {
-    success: { bg: "rgba(32,201,151,0.14)", border: "rgba(32,201,151,0.32)", text: "#d6fff3" },
-    danger: { bg: "rgba(255,107,107,0.12)", border: "rgba(255,107,107,0.28)", text: "#ffd8d8" },
-    accent: { bg: "rgba(255,43,122,0.14)", border: "rgba(255,43,122,0.28)", text: "#ffe1ec" },
-    muted: { bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.1)", text: "rgba(255,255,255,0.7)" },
-  };
-  const toneStyle = palettes[tone] || palettes.muted;
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: 12,
-        padding: "3px 9px",
-        borderRadius: 999,
-        background: toneStyle.bg,
-        border: `1px solid ${toneStyle.border}`,
-        color: toneStyle.text,
-        lineHeight: 1.3,
-      }}
-    >
-      {children}
-    </span>
-  );
+  if (typeof callAction === "function") callAction({ name, payload });
 }
 
 function statusTone(status) {
@@ -64,11 +34,51 @@ function statusTone(status) {
 }
 
 function statusLabel(status) {
-  if (status === "completed") return "Ran";
+  if (status === "completed") return "Executed";
   if (status === "skipped") return "Skipped";
   if (status === "running") return "Running";
   if (status === "error") return "Error";
   return "Pending";
+}
+
+function Chip({ children, tone = "muted" }) {
+  const palettes = {
+    success: { bg: "rgba(32,201,151,0.14)", border: "rgba(32,201,151,0.32)", text: "#d6fff3" },
+    danger: { bg: "rgba(255,107,107,0.12)", border: "rgba(255,107,107,0.28)", text: "#ffd8d8" },
+    accent: { bg: "rgba(255,43,122,0.14)", border: "rgba(255,43,122,0.28)", text: "#ffe1ec" },
+    muted: { bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.1)", text: "rgba(255,255,255,0.7)" },
+  };
+  const palette = palettes[tone] || palettes.muted;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 11.5,
+        padding: "3px 8px",
+        borderRadius: 999,
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+        color: palette.text,
+        lineHeight: 1.3,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Field({ name, children }) {
+  return (
+    <div style={{ display: "grid", gap: 5 }}>
+      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", letterSpacing: "0.04em" }}>
+        {prettyKey(name)}
+      </div>
+      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.86)", lineHeight: 1.5 }}>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function isHitRow(value) {
@@ -79,47 +89,9 @@ function isGroupRow(value) {
   return value && typeof value === "object" && "attribute" in value && "values" in value;
 }
 
-function HitPills({ hits }) {
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {hits.map((hit, index) => {
-        const kept = hit.kept !== false;
-        const phrase = hit.phrase || hit.replacement || "hit";
-        const next = hit.replacement && hit.replacement !== hit.phrase ? ` → ${hit.replacement}` : "";
-        return (
-          <Chip key={`${phrase}-${index}`} tone={kept ? "success" : "danger"}>
-            {phrase}
-            {next}
-            {kept ? "" : " · dropped"}
-          </Chip>
-        );
-      })}
-    </div>
-  );
-}
-
-function Field({ name, children }) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div
-        style={{
-          fontSize: 11,
-          color: "rgba(255,255,255,0.4)",
-          letterSpacing: "0.04em",
-        }}
-      >
-        {prettyKey(name)}
-      </div>
-      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.86)", lineHeight: 1.5 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function ValueView({ value }) {
   if (value == null || value === "") {
-    return <span style={{ color: "rgba(255,255,255,0.35)" }}>None</span>;
+    return <span style={{ color: "rgba(255,255,255,0.33)" }}>None</span>;
   }
   if (typeof value === "boolean") {
     return <Chip tone={value ? "success" : "muted"}>{value ? "Yes" : "No"}</Chip>;
@@ -128,7 +100,7 @@ function ValueView({ value }) {
     return <span style={{ fontVariantNumeric: "tabular-nums" }}>{value}</span>;
   }
   if (typeof value === "string") {
-    if (value.length > 80) {
+    if (value.length > 92) {
       return (
         <div
           style={{
@@ -136,8 +108,8 @@ function ValueView({ value }) {
             borderRadius: 10,
             background: "rgba(0,0,0,0.22)",
             border: "1px solid rgba(255,255,255,0.06)",
-            color: "rgba(255,255,255,0.82)",
-            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
           }}
         >
           {value}
@@ -148,10 +120,25 @@ function ValueView({ value }) {
   }
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <span style={{ color: "rgba(255,255,255,0.35)" }}>None</span>;
+      return <span style={{ color: "rgba(255,255,255,0.33)" }}>Empty list</span>;
     }
     if (value.every(isHitRow)) {
-      return <HitPills hits={value} />;
+      return (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {value.map((hit, index) => {
+            const kept = hit.kept !== false;
+            const phrase = hit.phrase || hit.replacement || "hit";
+            const replacement = hit.replacement && hit.replacement !== hit.phrase
+              ? ` → ${hit.replacement}`
+              : "";
+            return (
+              <Chip key={`${phrase}-${index}`} tone={kept ? "success" : "danger"}>
+                {phrase}{replacement}{kept ? "" : " · dropped"}
+              </Chip>
+            );
+          })}
+        </div>
+      );
     }
     if (value.every(isGroupRow)) {
       return (
@@ -159,8 +146,8 @@ function ValueView({ value }) {
           {value.map((row, index) => (
             <div key={`${row.attribute}-${index}`} style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               <Chip tone="accent">{row.attribute}</Chip>
-              {(row.values || []).map((item) => (
-                <Chip key={String(item)}>{String(item)}</Chip>
+              {(row.values || []).map((item, valueIndex) => (
+                <Chip key={`${item}-${valueIndex}`}>{String(item)}</Chip>
               ))}
             </div>
           ))}
@@ -170,9 +157,7 @@ function ValueView({ value }) {
     if (value.every((item) => item == null || typeof item !== "object")) {
       return (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {value.map((item, index) => (
-            <Chip key={`${item}-${index}`}>{String(item)}</Chip>
-          ))}
+          {value.map((item, index) => <Chip key={`${item}-${index}`}>{String(item)}</Chip>)}
         </div>
       );
     }
@@ -184,7 +169,7 @@ function ValueView({ value }) {
             style={{
               padding: "8px 10px",
               borderRadius: 10,
-              background: "rgba(0,0,0,0.18)",
+              background: "rgba(0,0,0,0.17)",
               border: "1px solid rgba(255,255,255,0.05)",
             }}
           >
@@ -198,20 +183,18 @@ function ValueView({ value }) {
     if ("count" in value && "sample" in value) {
       const sample = Array.isArray(value.sample) ? value.sample : [];
       return (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           <Chip tone="accent">{value.count} total</Chip>
-          {sample.map((item) => (
-            <Chip key={String(item)}>{String(item)}</Chip>
-          ))}
+          {sample.map((item, index) => <Chip key={`${item}-${index}`}>{String(item)}</Chip>)}
         </div>
       );
     }
     const entries = Object.entries(value).filter(([, item]) => item !== undefined);
     if (entries.length === 0) {
-      return <span style={{ color: "rgba(255,255,255,0.35)" }}>None</span>;
+      return <span style={{ color: "rgba(255,255,255,0.33)" }}>Empty object</span>;
     }
     return (
-      <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gap: 11 }}>
         {entries.map(([key, item]) => (
           <Field key={key} name={key}>
             <ValueView value={item} />
@@ -223,13 +206,105 @@ function ValueView({ value }) {
   return <span>{String(value)}</span>;
 }
 
-function Section({ title, children }) {
+function Section({ title, children, accent = false }) {
   return (
-    <div style={CARD}>
+    <div
+      style={{
+        ...CARD,
+        border: accent ? "1px solid rgba(255,43,122,0.18)" : CARD.border,
+        background: accent ? "rgba(255,43,122,0.035)" : CARD.background,
+      }}
+    >
       <div style={LABEL}>{title}</div>
-      <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.84)", lineHeight: 1.6 }}>
+      <div style={{ fontSize: 13.2, color: "rgba(255,255,255,0.84)", lineHeight: 1.58 }}>
         {children}
       </div>
+    </div>
+  );
+}
+
+function isEmptyObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+
+function runtimeFields(detail) {
+  const ignored = new Set([
+    "input", "output", "why", "text", "original", "message", "rewritten",
+    "labels", "hits", "result", "source",
+  ]);
+  return Object.fromEntries(
+    Object.entries(detail || {}).filter(([key, value]) => !ignored.has(key) && value !== undefined)
+  );
+}
+
+function liveInput(detail) {
+  if (Object.prototype.hasOwnProperty.call(detail, "input")) return detail.input;
+  if (detail.original != null) return { original: detail.original };
+  if (detail.text != null) return { text: detail.text };
+  if (detail.message != null) return { message: detail.message };
+  return null;
+}
+
+function liveOutput(detail) {
+  if (Object.prototype.hasOwnProperty.call(detail, "output")) return detail.output;
+  const fallback = {};
+  for (const key of ["rewritten", "labels", "hits", "result", "source"]) {
+    if (detail[key] !== undefined) fallback[key] = detail[key];
+  }
+  return Object.keys(fallback).length ? fallback : null;
+}
+
+function ThisTurn({ node, detail }) {
+  const status = node?.status || "pending";
+  const input = liveInput(detail);
+  const output = liveOutput(detail);
+  const extra = runtimeFields(detail);
+  const hasInput = input != null && !isEmptyObject(input);
+  const hasOutput = output != null && !isEmptyObject(output);
+  const hasExtra = Object.keys(extra).length > 0;
+  const why = detail?.why;
+
+  if (status === "pending") {
+    return <span style={{ color: "rgba(255,255,255,0.45)" }}>This turn has not reached this node yet.</span>;
+  }
+  if (status === "skipped" && !hasInput && !hasOutput && !hasExtra) {
+    return (
+      <div style={{ display: "grid", gap: 8 }}>
+        <Chip tone="muted">Not executed this turn</Chip>
+        <span>{why || "The production path did not require this branch."}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 13 }}>
+      {why ? (
+        <Field name={status === "skipped" ? "Skip reason" : "Runtime note"}>
+          <ValueView value={why} />
+        </Field>
+      ) : null}
+      {hasInput ? (
+        <Field name="Actual input">
+          <ValueView value={input} />
+        </Field>
+      ) : null}
+      {hasOutput ? (
+        <Field name="Actual output">
+          <ValueView value={output} />
+        </Field>
+      ) : null}
+      {hasExtra ? (
+        <Field name="Runtime detail">
+          <ValueView value={extra} />
+        </Field>
+      ) : null}
+      {!why && !hasInput && !hasOutput && !hasExtra ? (
+        <span style={{ color: "rgba(255,255,255,0.45)" }}>
+          {status === "running"
+            ? "The node is running; structured output has not arrived yet."
+            : "The node ran, but this progress event did not publish structured I/O."}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -246,20 +321,15 @@ export default function NodeInspector() {
 
   const [viewTurn, setViewTurn] = React.useState(expandedTurn ?? null);
   React.useEffect(() => {
-    if (expandedTurn != null) {
-      setViewTurn(expandedTurn);
-    }
+    if (expandedTurn != null) setViewTurn(expandedTurn);
   }, [expandedTurn]);
 
-  const row =
-    turns.find((item) => item.turn === viewTurn) ||
-    turns[turns.length - 1] ||
-    null;
+  const row = turns.find((item) => item.turn === viewTurn) || turns[turns.length - 1] || null;
   const nodes = row && row.nodes && typeof row.nodes === "object" ? row.nodes : {};
   const node = selectedNode ? nodes[selectedNode] || {} : null;
   const meta = selectedNode ? catalog[selectedNode] || {} : {};
-  const title = meta.label || node?.label || selectedNode || "Node inspector";
   const stage = meta.stage || node?.stage || activeGraph;
+  const title = meta.label || node?.label || selectedNode || "Node inspector";
 
   if (!expanded) {
     return (
@@ -267,8 +337,7 @@ export default function NodeInspector() {
         data-inspector-collapsed="true"
         style={{
           padding: 8,
-          color: "#f5f7fb",
-          background: "linear-gradient(180deg, #151515 0%, #101010 100%)",
+          background: "linear-gradient(180deg,#151515,#101010)",
           borderRadius: 16,
           border: "1px solid rgba(255,255,255,0.08)",
           minHeight: 72,
@@ -287,8 +356,8 @@ export default function NodeInspector() {
             color: "#ffe1ec",
             borderRadius: 999,
             padding: "12px 8px",
-            fontSize: 12,
-            fontWeight: 700,
+            fontSize: 11,
+            fontWeight: 800,
             letterSpacing: "0.12em",
             textTransform: "uppercase",
             cursor: "pointer",
@@ -301,41 +370,10 @@ export default function NodeInspector() {
   }
 
   const detail = node && node.detail && typeof node.detail === "object" ? node.detail : {};
-  const rawInput =
-    Object.prototype.hasOwnProperty.call(detail, "input")
-      ? detail.input
-      : detail.text ?? detail.original ?? detail.message ?? detail.source ?? null;
-  const rawOutput =
-    Object.prototype.hasOwnProperty.call(detail, "output")
-      ? detail.output
-      : detail.rewritten ?? detail.labels ?? detail.hits ?? detail.result ?? null;
-  const leftover = Object.fromEntries(
-    Object.entries(detail).filter(([key]) => !["input", "output", "why", "text", "original", "rewritten", "labels", "hits", "result", "message", "source"].includes(key))
-  );
-  const structured = rawInput != null || rawOutput != null || Object.keys(leftover).length > 0;
-  const inputValue = structured ? rawInput : null;
-  const outputValue = structured
-    ? rawOutput != null
-      ? rawOutput
-      : leftover
-    : leftover;
-  const hasInput =
-    inputValue != null &&
-    !(typeof inputValue === "object" && !Array.isArray(inputValue) && Object.keys(inputValue).length === 0);
-  const hasOutput =
-    outputValue != null &&
-    !(typeof outputValue === "object" && !Array.isArray(outputValue) && Object.keys(outputValue).length === 0);
-  const purpose = meta.purpose || meta.function || node?.function || "No purpose note for this node.";
-  const why = meta.why || meta.meaning || "No rationale note for this node.";
-  const thisTurn = meta.this_turn || detail.why || (
-    hasInput || hasOutput
-      ? [
-          hasInput ? { label: "Input", value: inputValue } : null,
-          hasOutput ? { label: "Result", value: outputValue } : null,
-        ].filter(Boolean)
-      : "No structured activity was recorded for this turn."
-  );
-  const howItWorks = meta.how_it_works || meta.implementation || "No implementation note for this node.";
+  const purpose = meta.purpose || node?.function || "No purpose note is registered for this node.";
+  const why = meta.why || "No rationale note is registered for this node.";
+  const contract = meta.function || "";
+  const how = meta.how_it_works || meta.implementation || node?.implementation || "No implementation note is registered for this node.";
 
   return (
     <div
@@ -344,31 +382,15 @@ export default function NodeInspector() {
         padding: 14,
         color: "#f5f7fb",
         background:
-          "radial-gradient(circle at top left, rgba(255,43,122,0.12), transparent 34%), linear-gradient(180deg, #151515 0%, #101010 100%)",
+          "radial-gradient(circle at top left, rgba(255,43,122,0.11), transparent 34%), linear-gradient(180deg,#151515,#101010)",
         borderRadius: 18,
         border: "1px solid rgba(255,255,255,0.08)",
         minHeight: 80,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 8,
-          alignItems: "center",
-          marginBottom: 14,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "rgba(255,255,255,0.42)",
-            fontWeight: 600,
-          }}
-        >
-          Node inspector
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 13 }}>
+        <div style={{ fontSize: 10.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.42)", fontWeight: 700 }}>
+          Node inspector · production trace
         </div>
         <button
           type="button"
@@ -378,8 +400,8 @@ export default function NodeInspector() {
             border: "1px solid rgba(255,255,255,0.12)",
             color: "rgba(255,255,255,0.62)",
             borderRadius: 999,
-            padding: "4px 11px",
-            fontSize: 11,
+            padding: "4px 10px",
+            fontSize: 10.5,
             cursor: "pointer",
           }}
         >
@@ -388,15 +410,8 @@ export default function NodeInspector() {
       </div>
 
       {turns.length > 0 ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 14,
-          }}
-        >
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Turn</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 13 }}>
+          <span style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)" }}>Inspect turn</span>
           <select
             value={row ? row.turn : ""}
             onChange={(event) => setViewTurn(Number(event.target.value))}
@@ -405,41 +420,36 @@ export default function NodeInspector() {
               background: "#121212",
               color: "#f5f7fb",
               border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 10,
-              padding: "6px 10px",
-              fontSize: 13,
+              borderRadius: 9,
+              padding: "6px 9px",
+              fontSize: 12.5,
             }}
           >
             {turns.map((item) => (
-              <option key={item.turn} value={item.turn}>
-                Turn {item.turn}
-              </option>
+              <option key={item.turn} value={item.turn}>Turn {item.turn}</option>
             ))}
           </select>
         </div>
       ) : null}
 
       {!selectedNode ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <Section title={String(stage).replace(/_/g, " ")}>
-            {blurbs[stage] ||
-              "Click a circuit node to inspect its function, implementation, and this-turn I/O."}
+        <div style={{ display: "grid", gap: 11 }}>
+          <Section title={String(stage).replace(/_/g, " ")} accent>
+            {blurbs[stage] || "Click a circuit node to inspect its production contract and current-turn I/O."}
           </Section>
-          <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.42)", lineHeight: 1.55 }}>
-            Unused branches stay on the graph and can still be opened.
+          {row?.original ? (
+            <Section title="Current turn utterance">
+              <ValueView value={row.original} />
+            </Section>
+          ) : null}
+          <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", lineHeight: 1.5 }}>
+            The graph keeps unused branches visible. Clicking a skipped node explains why it did not execute this turn.
           </div>
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 11 }}>
           <div>
-            <div
-              style={{
-                fontSize: 20,
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-                marginBottom: 8,
-              }}
-            >
+            <div style={{ fontSize: 19, fontWeight: 750, letterSpacing: "-0.025em", marginBottom: 7 }}>
               {title}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -449,32 +459,15 @@ export default function NodeInspector() {
             </div>
           </div>
 
-          <Section title="Purpose">
-            {purpose}
+          <Section title="Node task">{purpose}</Section>
+          <Section title="Why this node exists">{why}</Section>
+          {contract && contract !== purpose ? (
+            <Section title="Contract">{contract}</Section>
+          ) : null}
+          <Section title="This turn · real trace" accent>
+            <ThisTurn node={node} detail={detail} />
           </Section>
-          <Section title="Why it matters">
-            {why}
-          </Section>
-
-          <Section title="This turn">
-            {typeof thisTurn === "string" ? (
-              thisTurn
-            ) : Array.isArray(thisTurn) ? (
-              <div style={{ display: "grid", gap: 12 }}>
-                {thisTurn.map((item) => (
-                  <Field key={item.label} name={item.label}>
-                    <ValueView value={item.value} />
-                  </Field>
-                ))}
-              </div>
-            ) : (
-              <ValueView value={thisTurn} />
-            )}
-          </Section>
-
-          <Section title="How it works">
-            {howItWorks}
-          </Section>
+          <Section title="Implementation">{how}</Section>
         </div>
       )}
     </div>

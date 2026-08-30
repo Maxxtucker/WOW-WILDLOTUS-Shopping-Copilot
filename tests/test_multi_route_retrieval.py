@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from agent.retrieve.candidates.multi_route import fuse_routes
 from agent.retrieve.candidates.retrieve import retrieve_candidates
 from agent.retrieve.catalog.types import SearchHit
+from agent.decide.ranking.belief import belief_from_hits
 from agent.understand.state import SessionState
 
 
@@ -14,6 +15,24 @@ def hit(parent_asin: str, score: float = 1.0) -> SearchHit:
 
 
 class MultiRouteFusionTest(unittest.TestCase):
+    def test_fused_scores_do_not_become_an_almost_uniform_belief(self) -> None:
+        hits = [
+            SearchHit(
+                f"P{index}",
+                0.040 - index * 0.003,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                reasons=("route:strict+raw",),
+            )
+            for index in range(10)
+        ]
+
+        weights = belief_from_hits(hits)
+
+        self.assertGreater(weights[0][1], weights[-1][1] * 20)
+
     def test_candidate_supported_by_two_safety_routes_moves_ahead(self) -> None:
         strict = [hit(f"S{index:03d}") for index in range(30)]
         relaxed = [hit("TARGET")]

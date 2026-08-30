@@ -434,11 +434,11 @@ class ScoringMixin:
             if profile_fit:
                 reasons.append(f"profile_fit={profile_fit:.2f}")
             score = (
-                scoring.lexical * lexical_score
-                + structured_score
+                 1.15 * scoring.lexical * lexical_score
+                + 0.003 * structured_score
                 + prior_score
-                + scoring.text * text_fit
-                + scoring.profile * profile_fit
+                + 1.0 * scoring.text * text_fit
+                # + scoring.profile * profile_fit
             )
             hits.append(
                 SearchHit(

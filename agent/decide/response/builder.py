@@ -11,12 +11,12 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from ...progress import emit
-from ..clarification.questions import explain_question
+from ..clarification.questions import explain_question, recovery_question
+from ..clarification.types import Plan
 from .writeback import persist_turn
 
 if TYPE_CHECKING:
     from ...retrieve.catalog.retriever import CatalogRetriever
-    from ..clarification.types import Plan
     from ...understand.state.session import SessionState
 
 
@@ -31,6 +31,13 @@ class ResponseBuilder:
         plan: Plan,
         slate: list[str],
     ) -> dict:
+        if state.turn < 10 and plan.ask_attribute is None:
+            plan = Plan(
+                plan.recommendations,
+                recovery_question(state),
+                plan.expected_value,
+                f"{plan.reason} (response recovery)",
+            )
         emit("decide", "persist_turn", "running")
         persist_turn(state, retriever, candidate_asins, plan, slate)
         emit(

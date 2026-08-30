@@ -82,6 +82,7 @@ class SessionState:
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)
     latest_message: str = ""
     message_history: list[str] = field(default_factory=list)
+    # Non-empty disclosure messages for raw-text retrieval within the active intent.
     current_intent_messages: list[str] = field(default_factory=list)
     turn: int = 0
     typed_constraints: list = field(default_factory=list)

@@ -26,12 +26,12 @@ SEARCH_FIELDS = (
 # These weights favor concise identity and category fields over verbose copy.
 # SQLite's bm25() receives one additional zero weight for parent_asin.
 DEFAULT_FIELD_WEIGHTS = {
-    "title": 6.0,
-    "categories": 5.0,
-    "features": 3.0,
-    "details": 1.0,
-    "store": 2.0,
-    "description": 0.8,
+    "title": 3.0,
+    "categories": 6.0,
+    "features": 4.0,
+    "details": 5.0,
+    "store": 3.5,
+    "description": 1.2,
 }
 
 ALLOWED_ATTRIBUTES = {

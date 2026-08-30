@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from agent.retrieve.candidates.multi_route import fuse_routes
 from agent.retrieve.candidates.retrieve import retrieve_candidates
 from agent.retrieve.catalog.types import SearchHit
 from agent.decide.ranking.belief import belief_from_hits
 from agent.understand.state import SessionState
+from agent.understand.state.lifecycle import begin_turn
 
 
 def hit(parent_asin: str, score: float = 1.0) -> SearchHit:
@@ -15,6 +16,31 @@ def hit(parent_asin: str, score: float = 1.0) -> SearchHit:
 
 
 class MultiRouteFusionTest(unittest.TestCase):
+    def test_raw_intent_messages_exclude_empty_disclosures(self) -> None:
+        state = SessionState("raw-disclosures", {})
+
+        with patch("agent.understand.state.lifecycle.observe") as observe:
+            observe.side_effect = lambda target, _message: setattr(
+                target, "disclosure_empty", False
+            )
+            begin_turn(state, "Need waterproof hiking boots.", 1)
+            observe.side_effect = lambda target, _message: setattr(
+                target, "disclosure_empty", True
+            )
+            begin_turn(state, "Those options are not quite right.", 2)
+
+        self.assertEqual(
+            state.current_intent_messages,
+            ["Need waterproof hiking boots."],
+        )
+        self.assertEqual(
+            state.message_history,
+            [
+                "Need waterproof hiking boots.",
+                "Those options are not quite right.",
+            ],
+        )
+
     def test_fused_scores_do_not_become_an_almost_uniform_belief(self) -> None:
         hits = [
             SearchHit(

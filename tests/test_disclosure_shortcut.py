@@ -170,7 +170,7 @@ class DisclosureShortcutPipelineTest(unittest.TestCase):
         recs = [item["parent_asin"] for item in response["recommendations"]]
         self.assertEqual(recs, RANKED[1:11])
         self.assertEqual(len(recs), 10)
-        self.assertIsNone(response["ask_attribute"])
+        self.assertEqual(response["ask_attribute"], "other")
         self.assertEqual(trace.decide["reason"], "empty disclosure")
         self.assertEqual(trace.decide["slate"], RANKED[1:11])
         self.assertEqual(state.last_ranked, RANKED)

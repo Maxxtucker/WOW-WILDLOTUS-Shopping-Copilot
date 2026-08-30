@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .decide.clarification.planner import ScoreAwarePlanner
+from .decide.clarification.questions import recovery_question
 from .decide.clarification.stage import Clarifier
 from .decide.clarification.types import Plan
 from .decide.ranking import Ranker
@@ -203,7 +204,8 @@ class TurnPipeline:
         asins = leftovers
         emit("decide", "stage", "running")
         skip_nodes("decide", *DECIDE_PLAN_NODES, why=EMPTY_DISCLOSURE_WHY)
-        plan = Plan(tuple(asins), None, 0.0, EMPTY_DISCLOSURE_WHY)
+        ask_attribute = None if state.turn >= 10 else recovery_question(state)
+        plan = Plan(tuple(asins), ask_attribute, 0.0, EMPTY_DISCLOSURE_WHY)
         slate = list(asins)
         decide = build_decide_trace(plan, slate)
         router = {

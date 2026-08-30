@@ -51,7 +51,10 @@ ROUTER_NODES = (
     "failsafe",
 )
 
+# Keep this list exhaustive for the normal Retrieve/Rank path. The pipeline uses
+# it to mark the whole stage skipped on the empty-disclosure paging shortcut.
 RETRIEVE_NODES = (
+    "select_pool",
     "slot_groups",
     "rewrite_query",
     "routing",
@@ -59,15 +62,26 @@ RETRIEVE_NODES = (
     "score_exact",
     "hybrid_search",
     "cap_hits",
+    "raw_evidence",
+    "relaxed_route",
+    "raw_text_route",
+    "weighted_rrf",
     "qwen_rerank",
     "belief_hits",
     "normalize",
 )
 
+# Nodes that belong only to the joint question/slate planning path. Response
+# writeback nodes are intentionally excluded because the empty-disclosure path
+# still persists its paged slate and builds the official response.
 DECIDE_PLAN_NODES = (
     "answer_signature",
     "eligible_questions",
+    "viability_filter",
+    "planning_head",
+    "action_space",
     "planner",
+    "fallback_question",
     "sequential_gate",
     "gate_rank1",
     "keep_planned",

@@ -59,16 +59,31 @@ def observe(state: SessionState, message: str) -> None:
             slot.as_dict() if hasattr(slot, "as_dict") else dict(slot)
             for slot in extract.slots
         ]
+    staged = {
+        "source": None if extract.empty else extract.source,
+        "category": None if extract.empty else extract.category,
+        "slots": slots,
+        "empty": extract.empty,
+        "repair_rounds": extract.repair_rounds,
+        "disclosure_empty": extract.disclosure_empty,
+    }
     emit(
         "understand",
         "turn_delta",
         "completed",
         {
-            "source": None if extract.empty else extract.source,
-            "category": None if extract.empty else extract.category,
-            "slots": slots,
-            "empty": extract.empty,
-            "repair_rounds": extract.repair_rounds,
+            "input": {
+                "message": value,
+                "committed_category_before_router": state.category,
+                "committed_constraints_before_router": list(
+                    state.locked_constraint_strings()
+                ),
+            },
+            "output": {
+                "turn_delta": None if extract.empty else staged,
+                "will_router_commit": not extract.empty,
+            },
+            **staged,
             "gate_open": state.gate_open,
             "session_category": state.category,
         },

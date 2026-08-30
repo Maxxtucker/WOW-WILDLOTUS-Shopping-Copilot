@@ -29,7 +29,6 @@ def begin_turn(state: SessionState, message: str, turn: int) -> None:
     state.turn = turn
     state.latest_message = str(message)
     state.message_history.append(state.latest_message)
-    state.current_intent_messages.append(state.latest_message)
     state.last_reply_informative = False
     state.turn_delta = None
     state.disclosure_empty = None
@@ -37,3 +36,5 @@ def begin_turn(state: SessionState, message: str, turn: int) -> None:
     state.router_prompt_tokens = 0
     state.router_completion_tokens = 0
     observe(state, message)
+    if state.disclosure_empty is False:
+        state.current_intent_messages.append(state.latest_message)

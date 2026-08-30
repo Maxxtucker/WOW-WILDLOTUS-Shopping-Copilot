@@ -100,15 +100,15 @@ def _without_excluded_hits(
 
 
 def _build_frequency_weighted_raw_text(messages: list[str]) -> str:
-    """Build frequency-weighted raw search text from all current intent messages.
+    """Build frequency-weighted raw search text from non-empty disclosures.
     
     Uses all messages in the current intent (post-override), computes term
     frequencies, and repeats high-frequency terms to boost their BM25 weights.
     Tokenization handles lowercase, stopword filtering, and deduplication.
     
     Args:
-        messages: current_intent_messages from SessionState (already cleared of
-                  pre-override content by open_conversion_gate)
+        messages: non-empty current_intent_messages from SessionState, already
+              cleared of pre-override content by open_conversion_gate
     
     Returns:
         Frequency-weighted text string for BM25 query; empty string if no messages

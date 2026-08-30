@@ -279,7 +279,7 @@ export default function EvalDock() {
                         gap: 4,
                       }}
                     >
-                      {filtered.slice(0, 80).map((row) => (
+                      {filtered.map((row) => (
                         <button
                           key={row.sample_id}
                           type="button"

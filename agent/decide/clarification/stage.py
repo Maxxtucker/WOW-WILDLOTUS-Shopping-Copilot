@@ -14,7 +14,7 @@ from ...progress import emit, skip_nodes
 from .dynamic_adapter import CatalogSignatureTransitionModel
 from .dynamic_slate import DynamicSlateAction, DynamicSlateConfig, DynamicSlatePlanner, DynamicSlateState
 from .planner import ScoreAwarePlanner
-from .questions import eligible_questions
+from .questions import eligible_questions, recovery_question
 from .replies import make_answer_signature
 from .slate import apply_sequential_gate
 from .types import Plan
@@ -156,7 +156,7 @@ class Clarifier:
         if state.turn < 10 and plan.ask_attribute is None:
             fallback_attr = _choose_fallback_question(
                 dynamic_state, dynamic_planner, state.asked, questions
-            )
+            ) or recovery_question(state)
             emit(
                 "decide",
                 "fallback_question",

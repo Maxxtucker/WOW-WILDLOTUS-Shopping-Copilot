@@ -1273,7 +1273,7 @@ class TypedRetrievalTest(unittest.TestCase):
         self.assertTrue(hits)
         self.assertEqual(hits[0].parent_asin, "ORANGE")
 
-    def test_known_slot_attribute_is_not_asked_again(self) -> None:
+    def test_hard_constraint_attribute_remains_askable_until_asked(self) -> None:
         state = SessionState("s", {})
         state.turn = 1
         state.typed_constraints = [
@@ -1292,7 +1292,7 @@ class TypedRetrievalTest(unittest.TestCase):
             return NO_ADDITIONAL
 
         questions = eligible_questions(state, candidates, answer, 10)
-        self.assertNotIn("color", questions)
+        self.assertIn("color", questions)
         self.assertIn("size", questions)
 
     def test_or_colors_rank_orange_without_requiring_all_three(self) -> None:

@@ -53,13 +53,25 @@ def eligible_questions(
             continue
         if attribute != "other" and attribute in state.asked:
             continue
-        if attribute != "other" and any(
-            slot.attribute == attribute and slot.is_hard
-            for slot in state.typed_constraints
-        ):
-            continue
         result.append(attribute)
     return result
+
+
+def recovery_question(state: SessionState) -> str:
+    """Return a concrete attribute when a pre-final turn needs a question."""
+
+    unasked = tuple(
+        attribute for attribute in QUESTION_ATTRIBUTES if attribute not in state.asked
+    )
+    candidates = unasked or QUESTION_ATTRIBUTES
+    return next(
+        (
+            attribute
+            for attribute in candidates
+            if attribute != state.last_ask
+        ),
+        candidates[0],
+    )
 
 
 def explain_question(attribute: str | None) -> str:

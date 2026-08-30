@@ -64,4 +64,11 @@ included as weak tie-breakers and never replace the current request.
 - `belief_from_hits` in `belief.py`
 - `QwenSemanticReranker` / `semantic_belief` in `semantic.py`
 - `normalize_probabilities` in `normalize.py`
+
+Multi-route RRF scores use an adaptive bounded temperature before
+normalization. RRF scores are much smaller than structured catalog scores;
+using the structured-score temperature would make a 300–500 item library look
+almost uniform and would systematically push Dynamic Slating toward wide
+slates. This transform is a confidence heuristic, not a claim that retrieval
+scores are calibrated purchase probabilities.
 - `Ranker.apply` (this package's `__init__.py`)

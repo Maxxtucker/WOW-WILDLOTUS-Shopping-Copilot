@@ -126,7 +126,7 @@ class StateTest(unittest.TestCase):
         self.assertIn("A", state.excluded_asins)
         self.assertIn("Rubber sole", state.active_constraints)
 
-    def test_closed_override_gate_does_not_turn_slate_into_negative_feedback(self) -> None:
+    def test_closed_gate_excludes_previously_shown_slate(self) -> None:
         state = SessionState("s", {})
         state.begin_turn("I'm looking for Men Shoes. Prefer an old style.", 1)
         _commit(state)
@@ -134,7 +134,7 @@ class StateTest(unittest.TestCase):
         state.record_action(["A"], "other")
         state.begin_turn("For that, what matters is: leather; Rubber sole.", 2)
         _commit(state)
-        self.assertNotIn("A", state.excluded_asins)
+        self.assertIn("A", state.excluded_asins)
         state.record_action(["A"], "other")
         state.begin_turn(
             "Actually, ignore my earlier preference. What I need is: leather.", 3

@@ -117,6 +117,8 @@ def finish_override_gate(state: SessionState) -> None:
 
     open_conversion_gate(state)
     state.last_ranked.clear()
+    # Raw-text retrieval must not replay language from the superseded intent.
+    state.current_intent_messages = [state.latest_message] if state.latest_message else []
 
 
 def apply_override_decision(state: SessionState, decision: OverrideDecision) -> None:

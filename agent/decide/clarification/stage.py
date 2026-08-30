@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...progress import emit, skip_nodes
+from .dynamic_adapter import CatalogSignatureTransitionModel
+from .dynamic_slate import DynamicSlateConfig, DynamicSlatePlanner
 from .planner import ScoreAwarePlanner
 from .questions import eligible_questions
 from .replies import make_answer_signature
@@ -31,7 +33,8 @@ class Clarifier:
         planner: ScoreAwarePlanner | None = None,
     ) -> None:
         self.retriever = retriever
-        self.planner = planner or ScoreAwarePlanner(max_planning_candidates=500)
+        legacy = planner or ScoreAwarePlanner(max_planning_candidates=500)
+        self.max_planning_candidates = legacy.max_planning_candidates
 
     def apply(
         self,
@@ -55,7 +58,7 @@ class Clarifier:
             state,
             ranked,
             answer_signature,
-            self.planner.max_planning_candidates,
+            self.max_planning_candidates,
         )
         emit(
             "decide",
@@ -67,11 +70,23 @@ class Clarifier:
             },
         )
         emit("decide", "planner", "running")
-        plan = self.planner.plan(
-            state,
-            ranked,
-            min(10, int(top_k)),
+        transition_model = CatalogSignatureTransitionModel(
             answer_signature,
+            max_candidates=min(80, self.max_planning_candidates),
+        )
+        dynamic_state = transition_model.root_state(
+            turn=state.turn,
+            candidates=ranked,
+            questions=questions,
+            gate_open=state.gate_open,
+        )
+        dynamic_planner = DynamicSlatePlanner(
+            transition_model,
+            DynamicSlateConfig(lookahead_steps=2, allow_zero=True),
+        )
+        plan = dynamic_planner.plan(
+            dynamic_state,
+            min(10, int(top_k)),
         )
         emit(
             "decide",
@@ -80,7 +95,12 @@ class Clarifier:
             {
                 "ask_attribute": plan.ask_attribute,
                 "reason": plan.reason,
-                "input": {"top_k": min(10, int(top_k)), "ranked": len(ranked)},
+                "input": {
+                    "top_k": min(10, int(top_k)),
+                    "ranked": len(ranked),
+                    "policy": "dynamic_slate",
+                    "lookahead_steps": 2,
+                },
                 "output": {
                     "ask_attribute": plan.ask_attribute,
                     "reason": plan.reason,

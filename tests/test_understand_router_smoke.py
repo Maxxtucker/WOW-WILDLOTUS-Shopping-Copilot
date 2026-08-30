@@ -414,16 +414,18 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
             "agent.intent_router.router.probe_exact_pool",
             wraps=probe_exact_pool,
         ) as probe:
-            with patch.object(self.retriever, "search") as search:
+            with patch.object(
+                self.retriever, "search", wraps=self.retriever.search
+            ) as search:
                 exact = route_intention(state, self.retriever)
                 hits = organizer.apply(state, exact)
-        search.assert_not_called()
+        self.assertGreaterEqual(search.call_count, 2)
         self.assertEqual(probe.call_count, 2)
         self.assertEqual(exact, {BLUE_SHOE, PINK_SHOE})
         self.assertEqual(state.intention, "browsing")
         self.assertIsNone(state.candidate_count_before_delta)
         self.assertEqual(state.candidate_count, 2)
-        self.assertEqual({hit.parent_asin for hit in hits}, {BLUE_SHOE, PINK_SHOE})
+        self.assertTrue({BLUE_SHOE, PINK_SHOE} <= {hit.parent_asin for hit in hits})
         session_tags = _category_canonicals(state.typed_constraints)
         self.assertTrue(session_tags & {"shoe", "sandal"})
         self.assertIn("woman", session_tags)
@@ -457,15 +459,17 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
             slot for slot in state.typed_constraints if slot.attribute == "color"
         ]
         self.assertEqual(prior_colors, [])
-        with patch.object(self.retriever, "search") as search:
+        with patch.object(
+            self.retriever, "search", wraps=self.retriever.search
+        ) as search:
             exact = route_intention(state, self.retriever)
             hits = organizer.apply(state, exact)
-        search.assert_not_called()
+        self.assertGreaterEqual(search.call_count, 2)
         self.assertEqual(exact, {BLUE_SHOE})
         self.assertEqual(state.intention, "buying")
         self.assertEqual(state.candidate_count_before_delta, 2)
         self.assertEqual(state.candidate_count, 1)
-        self.assertEqual([hit.parent_asin for hit in hits], [BLUE_SHOE])
+        self.assertEqual(hits[0].parent_asin, BLUE_SHOE)
         self.assertTrue(
             _category_canonicals(state.typed_constraints) & {"shoe", "sandal"}
         )
@@ -484,10 +488,12 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
             "agent.intent_router.router.probe_exact_pool",
             wraps=probe_exact_pool,
         ) as probe:
-            with patch.object(self.retriever, "search") as search:
+            with patch.object(
+                self.retriever, "search", wraps=self.retriever.search
+            ) as search:
                 exact = route_intention(state, self.retriever)
                 hits = organizer.apply(state, exact)
-        search.assert_not_called()
+        self.assertGreaterEqual(search.call_count, 2)
         self.assertEqual(probe.call_count, 1)
         self.assertNotIn("route", self._kinds())
         self.assertEqual(self._kinds().count("override_l1"), 1)
@@ -496,7 +502,7 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.assertTrue(state.gate_open)
         self.assertIsNone(state.candidate_count_before_delta)
         self.assertEqual(exact, {BLUE_SHOE})
-        self.assertEqual({hit.parent_asin for hit in hits}, {BLUE_SHOE})
+        self.assertIn(BLUE_SHOE, {hit.parent_asin for hit in hits})
         colors = [
             slot for slot in state.typed_constraints if slot.attribute == "color"
         ]

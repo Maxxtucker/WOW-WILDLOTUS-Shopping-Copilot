@@ -90,11 +90,17 @@ def build_retrieve_trace(
 ) -> dict[str, Any]:
     top: list[dict[str, Any]] = []
     for hit in hits[:TRACE_TOP]:
+        routes = [
+            reason.removeprefix("route:").split("+")
+            for reason in hit.reasons
+            if reason.startswith("route:")
+        ]
         top.append(
             {
                 "parent_asin": hit.parent_asin,
                 "score": round(float(hit.score), 4),
                 "matched_constraints": list(hit.matched_constraints),
+                "routes": routes[0] if routes else [],
             }
         )
     return {

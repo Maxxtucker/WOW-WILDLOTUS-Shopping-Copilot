@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...progress import emit, skip_nodes
-from ..catalog.types import DimensionSpec
+from ..catalog.types import DimensionSpec, SearchWeights
 from ..from_slots import (
     exact_pool_groups,
     preferred_groups,
@@ -23,6 +23,12 @@ from ..from_slots import (
 )
 from .query import rewrite_query
 from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
+from .multi_route import (
+    RAW_TEXT_WEIGHT,
+    RELAXED_WEIGHT,
+    STRICT_WEIGHT,
+    fuse_routes,
+)
 
 if TYPE_CHECKING:
     from ..catalog.retriever import CatalogRetriever
@@ -59,6 +65,90 @@ def _group_rows(groups: object) -> list[dict[str, Any]]:
         attribute, values = item
         rows.append({"attribute": str(attribute), "values": list(values)})
     return rows
+
+
+RAW_RECALL_WEIGHTS = SearchWeights(
+    lexical=2.2,
+    required=0.0,
+    preferred=0.0,
+    category=0.0,
+    budget=0.0,
+    rating=0.03,
+    popularity=0.05,
+    missing_required=0.0,
+    excluded=-8.0,
+    dimension=0.0,
+    text=0.0,
+    profile=0.0,
+)
+
+
+def _safe_route_fusion(
+    retriever: CatalogRetriever,
+    state: SessionState,
+    base_hits: list[SearchHit],
+    *,
+    query: str,
+    groups: object,
+    soft_groups: object,
+    candidate_limit: int,
+) -> list[SearchHit]:
+    """Add relaxed and raw-text recall when live utterance evidence exists."""
+
+    raw_text = state.current_intent_text.strip()
+    if not raw_text:
+        return base_hits
+    limit = library_limit_for(state.intention)
+    # Before the latest possible override turn has passed, another Agent call
+    # does not prove that every displayed ASIN was a scored miss. Keep strict
+    # precision, but let independent safety routes recover such candidates.
+    safety_exclusions = (
+        state.excluded_asins
+        if state.override_seen or state.turn >= 5
+        else ()
+    )
+    relaxed = retriever.search(
+        query,
+        required_groups=groups,
+        preferred_groups=soft_groups,
+        categories=(),
+        budget=None,
+        exclude_asins=safety_exclusions,
+        limit=limit,
+        candidate_limit=candidate_limit,
+        weights=routing_for(state.intention).weights,
+        hard_required=False,
+        hard_budget=False,
+        dimensions=None,
+        hard_dimension=False,
+        text_query=" ".join(soft_text_terms(state)),
+        profile_tags=state.preference_tags,
+    )
+    raw = retriever.search(
+        raw_text,
+        required_groups=(),
+        preferred_groups=(),
+        categories=(),
+        budget=None,
+        exclude_asins=safety_exclusions,
+        limit=limit,
+        candidate_limit=max(candidate_limit, 2_000),
+        weights=RAW_RECALL_WEIGHTS,
+        hard_required=False,
+        hard_budget=False,
+        dimensions=None,
+        hard_dimension=False,
+        text_query="",
+        profile_tags=(),
+    )
+    return fuse_routes(
+        (
+            ("strict", STRICT_WEIGHT, base_hits),
+            ("relaxed", RELAXED_WEIGHT, relaxed),
+            ("raw", RAW_TEXT_WEIGHT, raw),
+        ),
+        limit=limit,
+    )
 
 
 def retrieve_candidates(
@@ -193,7 +283,15 @@ def retrieve_candidates(
                     "hit_count": len(capped),
                 },
             )
-            return capped
+            return _safe_route_fusion(
+                retriever,
+                state,
+                capped,
+                query=query,
+                groups=groups,
+                soft_groups=soft_groups,
+                candidate_limit=routing.candidate_limit,
+            )
         library_limit = library_limit_for(state.intention)
         need = max(0, library_limit - len(exact_hits))
         fill_exclude = set(state.excluded_asins) | set(exact)
@@ -237,7 +335,15 @@ def retrieve_candidates(
                 "hit_count": len(combined),
             },
         )
-        return combined
+        return _safe_route_fusion(
+            retriever,
+            state,
+            combined,
+            query=query,
+            groups=groups,
+            soft_groups=soft_groups,
+            candidate_limit=routing.candidate_limit,
+        )
 
     # None means no reliable exact signal; an empty set means the strict
     # intersection over-pruned. Both need lexical recovery rather than an
@@ -276,4 +382,12 @@ def retrieve_candidates(
             "hit_count": len(hits),
         },
     )
-    return hits
+    return _safe_route_fusion(
+        retriever,
+        state,
+        hits,
+        query=query,
+        groups=groups,
+        soft_groups=soft_groups,
+        candidate_limit=routing.candidate_limit,
+    )

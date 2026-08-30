@@ -2,7 +2,7 @@
 
 Input: SessionState, candidates, answer_signature callback.
 Output: askable attributes (including None = ask nothing); explain_question returns natural language.
-Role: skip already-asked typed attributes and empty partitions; other may repeat.
+Role: skip exhausted questions and empty partitions; other may repeat only after useful evidence.
 """
 
 from __future__ import annotations
@@ -27,6 +27,15 @@ def eligible_questions(
     if state.turn >= 10:
         return [None]
     result: list[str | None] = [None]
+    # With an empty retrieval head, retain high-coverage recovery questions.
+    # Dynamic Slate's tail model decides whether asking one is worth more than
+    # returning an empty recommendation list.
+    if not candidates:
+        for attribute in ("feature", "material", "color", "other"):
+            if attribute in state.asked:
+                continue
+            result.append(attribute)
+        return result
     for attribute in QUESTION_ATTRIBUTES:
         signatures = {
             answer_signature(item.parent_asin, attribute)
@@ -35,9 +44,13 @@ def eligible_questions(
         informative = {value for value in signatures if value != NO_ADDITIONAL}
         if not informative:
             continue
-        # Repeated ``other`` is useful because it reveals the next pair of
-        # undisclosed constraints. Already-asked and already-locked typed
-        # attributes are not repeated.
+        # Repeated ``other`` can reveal another pair of constraints, but it is
+        # exhausted after an explicit no-additional-preference observation.
+        # Already-asked and already-locked typed attributes are not repeated.
+        if attribute == "other" and (
+            state.disclosure_empty is True or attribute in state.asked
+        ):
+            continue
         if attribute != "other" and attribute in state.asked:
             continue
         if attribute != "other" and any(

@@ -14,7 +14,7 @@ from agent.intent_router.llm import (
     classify_override,
     should_keep_l1,
 )
-from agent.intent_router.router import route_intention
+from agent.intent_router.router import route_intention, strong_override_fallback
 from agent.intent_router.writeback import (
     apply_delta,
     apply_override_decision,
@@ -195,6 +195,38 @@ class HierarchyWritebackTest(unittest.TestCase):
 
 
 class HierarchyRouterTest(unittest.TestCase):
+    def test_strong_start_over_fallback_recovers_missed_router_decision(self) -> None:
+        state = _seeded()
+        state.latest_message = (
+            "Actually, ignore my earlier preference. What I need is water resistant."
+        )
+        state.current_intent_messages = ["old request", state.latest_message]
+        state.turn_delta = ObservationExtract(
+            slots=(_slot("feature", "water resistant"),),
+            source="llm",
+        )
+        with (
+            patch(_OVERRIDE, return_value=OverrideDecision(0)),
+            patch(_PROBE, return_value={"A"}),
+        ):
+            route_intention(state, MagicMock())
+
+        self.assertTrue(state.override_seen)
+        self.assertEqual(state.intention, "override")
+        self.assertEqual(state.current_intent_messages, [state.latest_message])
+        self.assertEqual(
+            [(slot.attribute, slot.surface) for slot in state.typed_constraints],
+            [("feature", "water resistant")],
+        )
+
+    def test_catalog_copy_words_do_not_trigger_strong_override(self) -> None:
+        state = _seeded()
+        state.latest_message = (
+            "For that, what matters is: use this instead of a clasp; "
+            "a keepsake you will never forget."
+        )
+        self.assertFalse(strong_override_fallback(state))
+
     def test_l2_decision_skips_replace_and_route(self) -> None:
         state = _seeded()
         state.turn_delta = ObservationExtract(

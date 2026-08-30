@@ -394,9 +394,10 @@ class ConsoleRetrieveHandoffTest(unittest.TestCase):
         self.assertEqual(console.last_router["exact"], 1)
         self.assertEqual(console.last_exact, {"BLUE_SHOE"})
         self.assertTrue(console.last_retrieve["scored_exact"])
-        top_asins = {row["parent_asin"] for row in console.last_retrieve["top"]}
-        self.assertTrue(top_asins <= {"BLUE_SHOE"})
-        self.assertNotIn("BOOK", top_asins)
+        top_rows = console.last_retrieve["top"]
+        top_asins = {row["parent_asin"] for row in top_rows}
+        self.assertIn("BLUE_SHOE", top_asins)
+        self.assertEqual(top_rows[0]["parent_asin"], "BLUE_SHOE")
         self.assertIsNotNone(console.last_trace)
         self.assertIn("message", console.last_trace.response)
         self.assertTrue(console.last_trace.response["recommendations"])

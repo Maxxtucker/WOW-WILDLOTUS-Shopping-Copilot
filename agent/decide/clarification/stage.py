@@ -1,4 +1,4 @@
-"""Purpose: Clarifier stage entry for question choice + slate gating.
+"""Purpose: Clarifier stage entry for question choice + dynamic slate planning.
 
 Input: SessionState, RankedCandidate, top_k.
 Output: (Plan, slate: list[str]).
@@ -9,10 +9,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...domain import QUESTION_ATTRIBUTES
 from ...progress import emit, skip_nodes
-from .dynamic_adapter import CatalogSignatureTransitionModel
-from .dynamic_slate import DynamicSlateAction, DynamicSlateConfig, DynamicSlatePlanner, DynamicSlateState
+from .dynamic_adapter import (
+    ATTRIBUTE_COVERAGE,
+    PARSER_RELIABILITY,
+    CatalogSignatureTransitionModel,
+)
+from .dynamic_slate import (
+    DynamicSlateAction,
+    DynamicSlateConfig,
+    DynamicSlatePlanner,
+    DynamicSlateState,
+)
 from .planner import ScoreAwarePlanner
 from .questions import eligible_questions, recovery_question
 from .replies import make_answer_signature
@@ -21,8 +29,33 @@ from .types import Plan
 
 if TYPE_CHECKING:
     from ...retrieve.catalog.retriever import CatalogRetriever
-    from ..ranking.normalize import RankedCandidate
     from ...understand.state.session import SessionState
+    from ..ranking.normalize import RankedCandidate
+
+
+def _question_label(attribute: str | None) -> str:
+    return "none" if attribute is None else attribute
+
+
+def _question_viability(attribute: str | None) -> dict[str, object]:
+    if attribute is None:
+        return {
+            "attribute": "none",
+            "coverage": None,
+            "parser_reliability": None,
+            "useful_probability": None,
+            "viable": True,
+        }
+    coverage = float(ATTRIBUTE_COVERAGE.get(attribute, 0.0))
+    reliability = float(PARSER_RELIABILITY.get(attribute, 0.50))
+    useful_probability = coverage * reliability
+    return {
+        "attribute": attribute,
+        "coverage": round(coverage, 4),
+        "parser_reliability": round(reliability, 4),
+        "useful_probability": round(useful_probability, 6),
+        "viable": useful_probability >= 0.10,
+    }
 
 
 def _choose_fallback_question(
@@ -31,63 +64,58 @@ def _choose_fallback_question(
     state_asked: list[str],
     eligible_candidates: list[str | None],
 ) -> str | None:
-    """Select highest-value attribute from eligible candidates.
-    
-    Used when turn < 10 and planner returned None. Ranks eligible concrete attributes
-    by two-step expected utility, avoiding attributes already in state.asked.
-    Only selects from candidates that passed the eligibility filter.
-    
-    Returns None only if no concrete candidate is available.
-    """
-    # Filter to concrete attributes only, preserving order from eligibility filter
-    concrete_candidates = [c for c in eligible_candidates if c is not None]
-    
+    """Select the highest-value concrete eligible attribute before turn 10."""
+
+    concrete_candidates = [
+        candidate for candidate in eligible_candidates if candidate is not None
+    ]
     if not concrete_candidates:
-        # No concrete candidate available; allow turn < 10 to return None
-        # (this is a boundary case where literally no question is eligible)
         return None
-    
-    # Score each concrete candidate: for each attribute, find its best slate size's expected value
+
     best_attr = None
     best_score = -1.0
     best_is_never_asked = False
-    
-    # Partition candidates by ask status
-    never_asked = [c for c in concrete_candidates if c not in state_asked]
-    repeatable = concrete_candidates
-    
-    # Prefer never-asked candidates first
-    preference = never_asked if never_asked else repeatable
-    
+    never_asked = [
+        candidate
+        for candidate in concrete_candidates
+        if candidate not in state_asked
+    ]
+    preference = never_asked if never_asked else concrete_candidates
+
     for attr in preference:
         is_never_asked = attr in never_asked
         attr_best_value = 0.0
-        
-        # Try all feasible slate sizes and pick the best value for this attribute
         limit = min(10, len(dynamic_state.candidates))
-        minimum = 0 if dynamic_planner.config.allow_zero else (1 if limit > 0 else 0)
+        minimum = (
+            0
+            if dynamic_planner.config.allow_zero
+            else (1 if limit > 0 else 0)
+        )
         for slate_size in range(minimum, limit + 1):
             action = DynamicSlateAction(attr, slate_size)
             value = dynamic_planner._action_value(
-                dynamic_state, action, dynamic_planner.config.lookahead_steps
+                dynamic_state,
+                action,
+                dynamic_planner.config.lookahead_steps,
             )
             attr_best_value = max(attr_best_value, value)
-        
-        # Deterministic tie-break: prefer never-asked, then higher score
         if (
             best_attr is None
             or attr_best_value > best_score
-            or (attr_best_value == best_score and is_never_asked and not best_is_never_asked)
+            or (
+                attr_best_value == best_score
+                and is_never_asked
+                and not best_is_never_asked
+            )
         ):
             best_attr = attr
             best_score = attr_best_value
             best_is_never_asked = is_never_asked
-    
     return best_attr
 
 
 class Clarifier:
-    """Stage 7: joint question selection and slate construction."""
+    """Stage 7: jointly choose question and ranked-prefix slate size."""
 
     def __init__(
         self,
@@ -111,10 +139,19 @@ class Clarifier:
             "answer_signature",
             "completed",
             {
-                "input": {"disclosed": list(state.disclosed)[:8], "turn": state.turn},
-                "output": {"ready": True},
+                "input": {
+                    "turn": state.turn,
+                    "ranked_candidates": len(ranked),
+                    "disclosed": sorted(state.disclosed)[:12],
+                },
+                "output": {
+                    "ready": True,
+                    "no_additional_sentinel": "__no_additional__",
+                    "scope": "catalog-predicted replies for candidate × attribute",
+                },
             },
         )
+
         emit("decide", "eligible_questions", "running")
         questions = eligible_questions(
             state,
@@ -127,15 +164,23 @@ class Clarifier:
             "eligible_questions",
             "completed",
             {
-                "input": {"turn": state.turn, "ranked": len(ranked)},
-                "output": {"questions": [item if item is not None else "none" for item in questions]},
+                "input": {
+                    "turn": state.turn,
+                    "ranked": len(ranked),
+                    "already_asked": list(state.asked),
+                    "disclosure_empty": state.disclosure_empty,
+                },
+                "output": {
+                    "questions": [_question_label(item) for item in questions],
+                },
             },
         )
-        emit("decide", "planner", "running")
+
         transition_model = CatalogSignatureTransitionModel(
             answer_signature,
             max_candidates=min(80, self.max_planning_candidates),
         )
+        emit("decide", "viability_filter", "running")
         dynamic_state = transition_model.root_state(
             turn=state.turn,
             candidates=ranked,
@@ -143,63 +188,173 @@ class Clarifier:
             gate_open=state.gate_open,
             scoring_weights=state.scoring_weights,
         )
+        emit(
+            "decide",
+            "viability_filter",
+            "completed",
+            {
+                "input": {
+                    "minimum_useful_probability": 0.10,
+                    "eligible": [
+                        _question_viability(item) for item in questions
+                    ],
+                },
+                "output": {
+                    "planner_questions": [
+                        _question_label(item) for item in dynamic_state.questions
+                    ],
+                    "injected_recovery_question": (
+                        state.turn < 10
+                        and bool(dynamic_state.questions)
+                        and all(
+                            item not in questions
+                            for item in dynamic_state.questions
+                            if item is not None
+                        )
+                    ),
+                },
+            },
+        )
+
+        emit("decide", "planning_head", "running")
+        head_mass = sum(
+            float(candidate.probability)
+            for candidate in dynamic_state.candidates
+        )
+        emit(
+            "decide",
+            "planning_head",
+            "completed",
+            {
+                "input": {
+                    "ranked_candidates": len(ranked),
+                    "max_planning_candidates": min(
+                        80, self.max_planning_candidates
+                    ),
+                    "tail_floor": 0.20,
+                },
+                "output": {
+                    "head_count": len(dynamic_state.candidates),
+                    "head_probability_mass": round(head_mass, 6),
+                    "tail_probability": round(
+                        float(dynamic_state.tail_probability), 6
+                    ),
+                    "gate_probability": round(
+                        float(dynamic_state.gate_probability), 4
+                    ),
+                },
+            },
+        )
+
         dynamic_planner = DynamicSlatePlanner(
             transition_model,
             DynamicSlateConfig(lookahead_steps=2, allow_zero=True),
         )
-        plan = dynamic_planner.plan(
-            dynamic_state,
-            min(10, int(top_k)),
+        allowed_top_k = min(10, max(0, int(top_k)))
+        k_max = min(allowed_top_k, len(dynamic_state.candidates))
+        final_turn = state.turn == 10
+        action_count = (
+            1
+            if final_turn
+            else len(dynamic_state.questions) * (k_max + 1)
         )
-        
-        # Before turn 10, if planner returned None, use fallback to select a concrete question
-        if state.turn < 10 and plan.ask_attribute is None:
-            fallback_attr = _choose_fallback_question(
-                dynamic_state, dynamic_planner, state.asked, questions
-            ) or recovery_question(state)
-            emit(
-                "decide",
-                "fallback_question",
-                "running",
-            )
-            # Recompute plan with the fallback attribute, keeping the original slate
-            plan = Plan(
-                plan.recommendations,
-                fallback_attr,
-                plan.expected_value,  # Use original value; re-score would be expensive
-                f"{plan.reason} (fallback: {fallback_attr})",
-            )
-            emit(
-                "decide",
-                "fallback_question",
-                "completed",
-                {
-                    "input": {"original_ask_attribute": None},
-                    "output": {"ask_attribute": fallback_attr},
+        emit("decide", "action_space", "running")
+        emit(
+            "decide",
+            "action_space",
+            "completed",
+            {
+                "input": {
+                    "questions": [
+                        _question_label(item) for item in dynamic_state.questions
+                    ],
+                    "top_k": allowed_top_k,
+                    "head_count": len(dynamic_state.candidates),
                 },
-            )
-        
+                "output": {
+                    "k_range": (
+                        [k_max, k_max]
+                        if final_turn
+                        else [0, k_max]
+                    ),
+                    "allow_zero": not final_turn,
+                    "action_count": action_count,
+                    "lookahead_steps": 0 if final_turn else 2,
+                    "mode": (
+                        "final-turn full slate"
+                        if final_turn
+                        else "question × slate-size joint search"
+                    ),
+                },
+            },
+        )
+
+        emit("decide", "planner", "running")
+        raw_plan = dynamic_planner.plan(dynamic_state, allowed_top_k)
         emit(
             "decide",
             "planner",
             "completed",
             {
-                "ask_attribute": plan.ask_attribute,
-                "reason": plan.reason,
+                "ask_attribute": raw_plan.ask_attribute,
+                "reason": raw_plan.reason,
                 "input": {
-                    "top_k": min(10, int(top_k)),
-                    "ranked": len(ranked),
+                    "turn": state.turn,
+                    "gate_probability": dynamic_state.gate_probability,
+                    "head_count": len(dynamic_state.candidates),
+                    "tail_probability": dynamic_state.tail_probability,
                     "policy": "dynamic_slate",
                     "lookahead_steps": 2,
                 },
                 "output": {
-                    "ask_attribute": plan.ask_attribute,
-                    "reason": plan.reason,
-                    "planned": len(plan.recommendations),
-                    "expected_value": round(float(plan.expected_value), 4),
+                    "ask_attribute": raw_plan.ask_attribute,
+                    "reason": raw_plan.reason,
+                    "planned": len(raw_plan.recommendations),
+                    "recommendations": list(raw_plan.recommendations),
+                    "expected_value": round(
+                        float(raw_plan.expected_value), 4
+                    ),
                 },
             },
         )
+
+        emit("decide", "fallback_question", "running")
+        plan = raw_plan
+        fallback_attr: str | None = None
+        fallback_used = False
+        if state.turn < 10 and raw_plan.ask_attribute is None:
+            fallback_attr = _choose_fallback_question(
+                dynamic_state,
+                dynamic_planner,
+                state.asked,
+                questions,
+            ) or recovery_question(state)
+            plan = Plan(
+                raw_plan.recommendations,
+                fallback_attr,
+                raw_plan.expected_value,
+                f"{raw_plan.reason} (fallback: {fallback_attr})",
+            )
+            fallback_used = True
+        emit(
+            "decide",
+            "fallback_question",
+            "completed",
+            {
+                "input": {
+                    "turn": state.turn,
+                    "planner_ask_attribute": raw_plan.ask_attribute,
+                    "eligible": [_question_label(item) for item in questions],
+                },
+                "output": {
+                    "used": fallback_used,
+                    "ask_attribute": plan.ask_attribute,
+                    "fallback_attribute": fallback_attr,
+                    "slate_unchanged": True,
+                },
+            },
+        )
+
         emit("decide", "sequential_gate", "running")
         slate = apply_sequential_gate(state, plan, ranked)
         gated = list(plan.recommendations) != list(slate)
@@ -215,7 +370,15 @@ class Clarifier:
                     "turn": state.turn,
                     "empty_disclosure_reveal": state.empty_disclosure_reveal,
                 },
-                "output": {"slate": len(slate), "gated": gated},
+                "output": {
+                    "slate": len(slate),
+                    "gated": gated,
+                    "behavior": (
+                        "planned slate changed"
+                        if gated
+                        else "compatibility gate kept planned slate unchanged"
+                    ),
+                },
             },
         )
         if gated:
@@ -224,28 +387,33 @@ class Clarifier:
                 "gate_rank1",
                 "completed",
                 {
-                    "output": {"slate": list(slate)[:5], "count": len(slate)},
+                    "output": {
+                        "slate": list(slate)[:5],
+                        "count": len(slate),
+                    },
                 },
             )
             skip_nodes(
                 "decide",
                 "keep_planned",
-                why="sequential gate kept rank-1",
+                why="sequential gate changed the planned slate",
             )
         else:
             skip_nodes(
                 "decide",
                 "gate_rank1",
-                why="gate did not truncate the planned slate",
+                why="current sequential gate is a no-op",
             )
             emit(
                 "decide",
                 "keep_planned",
                 "completed",
                 {
+                    "input": {"planned": len(plan.recommendations)},
                     "output": {
                         "slate": list(slate)[:5],
                         "count": len(slate),
+                        "unchanged": True,
                     },
                 },
             )

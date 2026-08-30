@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from evaluator.user_agent import OpenAICompatibleClient, ScenarioUserAgent
+from evaluator.scenario_evaluator import OpenAICompatibleClient, ScenarioEvaluator
 
 
 def sample(scenario: str = "buying") -> dict:
@@ -39,10 +39,10 @@ class FakeClient:
         return next(self.replies), {"prompt_tokens": 1, "completion_tokens": 2}
 
 
-class ScenarioUserAgentTest(unittest.TestCase):
+class ScenarioEvaluatorTest(unittest.TestCase):
     def test_mode_one_is_exact_original_and_does_not_call_client(self) -> None:
         client = FakeClient([])
-        buyer = ScenarioUserAgent(mode=1, client=client)
+        buyer = ScenarioEvaluator(mode=1, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         self.assertEqual(
@@ -56,7 +56,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         self.assertEqual(client.payloads, [])
 
     def test_compatibility_interface_remains(self) -> None:
-        buyer = ScenarioUserAgent(mode=1)
+        buyer = ScenarioEvaluator(mode=1)
         disclosed: set[str] = set()
         self.assertEqual(
             buyer.initial_message(sample(), "Men Shoes", disclosed),
@@ -72,7 +72,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
             {"message": "I would like Men Shoes; the key requirement is: leather."},
             {"message": "For me, the important part is Rubber sole."},
         ])
-        buyer = ScenarioUserAgent(mode=2, client=client)
+        buyer = ScenarioEvaluator(mode=2, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         self.assertEqual(
@@ -91,7 +91,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
             {"message": "I need men's footwear; hide is essential."},
             {"message": "I prefer cotton instead."},
         ])
-        buyer = ScenarioUserAgent(mode=2, client=client)
+        buyer = ScenarioEvaluator(mode=2, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         self.assertEqual(
@@ -108,7 +108,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
             {"message": "I'm shopping for men's footwear, and genuine hide is what I need."},
             {"message": "The bottom part made of rubber is important for me."},
         ])
-        buyer = ScenarioUserAgent(mode=3, client=client)
+        buyer = ScenarioEvaluator(mode=3, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         self.assertEqual(
@@ -124,7 +124,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "I'm shopping for men's footwear, but I do not want leather."},
         ])
-        buyer = ScenarioUserAgent(mode=3, client=client)
+        buyer = ScenarioEvaluator(mode=3, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         message = buyer.initial_message("s", disclosed)
@@ -136,7 +136,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
             {"message": "I am look for men's footwear, and I need the thing which comes from real animal skin, okay."},
             {"message": "For the bottom part, I want the thing made from rubber, but my English not very good."},
         ])
-        buyer = ScenarioUserAgent(mode=4, client=client)
+        buyer = ScenarioEvaluator(mode=4, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         self.assertEqual(
@@ -152,7 +152,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "I am look for men's footwear, but I do not want leather."},
         ])
-        buyer = ScenarioUserAgent(mode=4, client=client)
+        buyer = ScenarioEvaluator(mode=4, client=client)
         disclosed: set[str] = set()
         buyer.reset("s", sample(), "Men Shoes")
         message = buyer.initial_message("s", disclosed)
@@ -163,7 +163,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "I don't have a preference for feature; you decide for me."},
         ])
-        buyer = ScenarioUserAgent(mode=3, client=client)
+        buyer = ScenarioEvaluator(mode=3, client=client)
         message, boundary = buyer.customer_reply(sample("boundary"), "feature", set(), False)
         self.assertEqual(message, "I don't have a preference for feature; you decide for me.")
         self.assertTrue(boundary)
@@ -172,7 +172,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "The bottom part made of rubber is important for me."},
         ])
-        buyer = ScenarioUserAgent(mode=3, client=client)
+        buyer = ScenarioEvaluator(mode=3, client=client)
         disclosed = {"leather"}
         buyer.customer_reply(sample(), "feature", disclosed, False)
         self.assertIn("Rubber sole", disclosed)
@@ -181,7 +181,7 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "I want men shoes, and leather is required."},
         ])
-        buyer = ScenarioUserAgent(mode=2, client=client)
+        buyer = ScenarioEvaluator(mode=2, client=client)
         message = buyer.initial_message(sample(), "Men Shoes", set())
         self.assertEqual(
             message,
@@ -192,13 +192,13 @@ class ScenarioUserAgentTest(unittest.TestCase):
         client = FakeClient([
             {"message": "I'm shopping for men's footwear, and genuine hide is what I need."},
         ])
-        buyer = ScenarioUserAgent(mode=4, client=client)
+        buyer = ScenarioEvaluator(mode=4, client=client)
         message = buyer.initial_message(sample(), "Men Shoes", set())
         self.assertTrue(message.startswith("I am look for"))
 
     def test_mode_four_browsing_does_not_leak_hidden_constraint(self) -> None:
         client = FakeClient([{}])
-        buyer = ScenarioUserAgent(mode=4, client=client)
+        buyer = ScenarioEvaluator(mode=4, client=client)
         message = buyer.initial_message(sample("browsing"), "Watch Bands", set())
         self.assertIn("still checking", message)
         self.assertNotIn("leather", message.casefold())

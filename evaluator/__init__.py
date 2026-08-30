@@ -1,6 +1,6 @@
 """Public evaluation package."""
 
-from .user_agent import ScenarioUserAgent
+from .scenario_evaluator import ScenarioEvaluator
 
-__all__ = ["ScenarioUserAgent"]
+__all__ = ["ScenarioEvaluator"]
 

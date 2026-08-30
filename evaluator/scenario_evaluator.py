@@ -1,7 +1,7 @@
-"""Scenario-based Buyer agent for local dialogue simulation.
+"""Scenario evaluator Buyer for local dialogue simulation.
 
 The public methods intentionally mirror the original evaluator helpers.  The
-agent is standalone: it generates Buyer messages, while the shopping agent
+module is standalone: it generates Buyer messages, while the shopping agent
 continues to own recommendations and ``ask_attribute`` decisions.
 """
 
@@ -554,7 +554,7 @@ class _BuyerSession:
     last_usage: dict = field(default_factory=dict)
 
 
-class ScenarioUserAgent:
+class ScenarioEvaluator:
     """Generate Buyer messages for four controlled scenario modes."""
 
     def __init__(self, mode: int | str | None = None, client: object | None = None) -> None:
@@ -668,7 +668,7 @@ class ScenarioUserAgent:
             try:
                 return self.sessions[session_id]
             except KeyError as exc:
-                raise RuntimeError("reset must be called before using the user agent") from exc
+                raise RuntimeError("reset must be called before using the scenario evaluator") from exc
 
     def _shape(
         self,
@@ -715,7 +715,7 @@ class ScenarioUserAgent:
         protected: list[str],
         message: object,
     ) -> bool:
-        if not ScenarioUserAgent._valid_message(message):
+        if not ScenarioEvaluator._valid_message(message):
             return False
         text = str(message)
         if not all(_contains_exact(text, keyword) for keyword in protected if keyword):
@@ -744,7 +744,7 @@ class ScenarioUserAgent:
         semantic_values: list[str] | None = None,
         ask_attribute: str | None = None,
     ) -> bool:
-        if not ScenarioUserAgent._valid_message(message):
+        if not ScenarioEvaluator._valid_message(message):
             return False
         text = str(message)
         if _contains_negative_change(text):
@@ -782,7 +782,7 @@ class ScenarioUserAgent:
         semantic_values: list[str] | None = None,
         ask_attribute: str | None = None,
     ) -> bool:
-        if not ScenarioUserAgent._mode3_safe(session, kind, base, message, semantic_values, ask_attribute):
+        if not ScenarioEvaluator._mode3_safe(session, kind, base, message, semantic_values, ask_attribute):
             return False
         text = str(message)
         grammar_or_spelling = bool(re.search(
@@ -908,4 +908,4 @@ def customer_reply(
     return _mode1_customer_reply(sample, ask_attribute, disclosed, boundary_used)
 
 
-__all__ = ["OpenAICompatibleClient", "ScenarioUserAgent", "customer_reply", "initial_message"]
+__all__ = ["OpenAICompatibleClient", "ScenarioEvaluator", "customer_reply", "initial_message"]

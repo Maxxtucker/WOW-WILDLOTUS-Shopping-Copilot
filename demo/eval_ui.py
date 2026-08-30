@@ -10,9 +10,13 @@ import chainlit as cl
 
 from demo.eval_harness import (
     EVALUATORS,
+    RUNNABLE_EVALUATORS,
     StepState,
     apply_step_response,
+    buyer_has_llm_client,
     group_metrics,
+    parse_buyer_mode,
+    run_evaluate_with_buyer,
     run_official_evaluate,
     sample_summaries,
     select_samples,
@@ -22,7 +26,7 @@ from demo.eval_harness import (
 EVAL_COMMAND = {
     "id": "Eval",
     "icon": "flask-conical",
-    "description": "Local evaluator",
+    "description": "Public-set evaluator",
     "button": True,
 }
 
@@ -52,6 +56,7 @@ def picker_props(**overrides: Any) -> dict:
         "rangeEnd": "10",
         "randomN": "5",
         "mode": "auto",
+        "buyerMode": 1,
         "status": "idle",
         "statusDetail": "",
         "selectedCount": 0,
@@ -63,10 +68,14 @@ def picker_props(**overrides: Any) -> dict:
     return props
 
 
+PICKER_ELEMENT = "EvalDock"
+
+
 async def open_picker() -> None:
     existing = cl.user_session.get("eval_picker_el")
-    if existing is not None:
+    if existing is not None and getattr(existing, "name", None) == PICKER_ELEMENT:
         props = cl.user_session.get("eval_picker_props") or picker_props()
+        props["evaluators"] = list(EVALUATORS)
         props["status"] = "idle"
         props["statusDetail"] = ""
         props["canStep"] = False
@@ -78,13 +87,32 @@ async def open_picker() -> None:
     message = cl.Message(content="", author="Evaluator")
     await message.send()
     element = cl.CustomElement(
-        name="EvaluatorPicker",
+        name=PICKER_ELEMENT,
         props=props,
         display="inline",
     )
     await element.send(for_id=message.id)
     cl.user_session.set("eval_picker_el", element)
     cl.user_session.set("eval_picker_props", props)
+
+
+async def configure_picker(payload: dict) -> None:
+    """Persist Backend / Buyer mode so the dock re-renders from props."""
+
+    try:
+        buyer_mode = _buyer_mode_from_payload(payload)
+    except ValueError:
+        buyer_mode = 1
+    await refresh_picker(
+        selectedEvaluator=_evaluator_id(payload),
+        selection=str(payload.get("selection") or "one"),
+        sampleId=payload.get("sampleId") or payload.get("sample_id") or "",
+        rangeStart=payload.get("rangeStart") or payload.get("start") or "1",
+        rangeEnd=payload.get("rangeEnd") or payload.get("end") or "10",
+        randomN=payload.get("randomN") or payload.get("n") or "5",
+        mode=str(payload.get("mode") or "auto"),
+        buyerMode=buyer_mode,
+    )
 
 
 async def refresh_picker(**updates: Any) -> None:
@@ -117,6 +145,24 @@ def _samples_from_payload(payload: dict) -> list[dict]:
     )
 
 
+def _evaluator_id(payload: dict) -> str:
+    return str(payload.get("evaluator") or payload.get("selectedEvaluator") or "")
+
+
+def _buyer_mode_from_payload(payload: dict) -> int:
+    return parse_buyer_mode(payload.get("buyerMode") or payload.get("buyer_mode"))
+
+
+def _scenario_run_detail(sample_count: int, buyer_mode: int) -> str:
+    detail = f"Running {sample_count} session(s)…"
+    if buyer_mode >= 2 and not buyer_has_llm_client():
+        return (
+            f"{detail} Buyer mode {buyer_mode} has no API key; "
+            "using deterministic fallback."
+        )
+    return detail
+
+
 def _cancel_flag() -> dict:
     flag = cl.user_session.get("eval_cancel")
     if not isinstance(flag, dict):
@@ -128,22 +174,32 @@ def _cancel_flag() -> dict:
 async def run_auto(payload: dict) -> None:
     from demo.chainlit_app import get_agent
 
-    evaluator = str(payload.get("evaluator") or payload.get("selectedEvaluator") or "")
-    if evaluator != "local":
-        await refresh_picker(status="error", statusDetail="Select Local evaluator first.")
+    evaluator = _evaluator_id(payload)
+    if evaluator not in RUNNABLE_EVALUATORS:
+        await refresh_picker(
+            status="error",
+            statusDetail="Select Local evaluator or Scenario evaluator first.",
+        )
         return
     try:
         samples = _samples_from_payload(payload)
+        buyer_mode = _buyer_mode_from_payload(payload) if evaluator == "scenario" else 1
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     flag = {"cancelled": False}
     cl.user_session.set("eval_cancel", flag)
+    status_detail = (
+        _scenario_run_detail(len(samples), buyer_mode)
+        if evaluator == "scenario"
+        else f"Running {len(samples)} session(s)…"
+    )
     await refresh_picker(
         status="running",
         canStep=False,
         selectedCount=len(samples),
-        statusDetail=f"Running {len(samples)} session(s)…",
+        buyerMode=buyer_mode if evaluator == "scenario" else 1,
+        statusDetail=status_detail,
         warning=(
             f"All {len(samples)} sessions × up to 10 live NLU turns can take a long time."
             if len(samples) >= 50
@@ -167,13 +223,24 @@ async def run_auto(payload: dict) -> None:
                 await send_score_card(kind="group", payload=group_metrics(finished))
             return
         sample_id = str(sample.get("sample_id") or "")
+        progress = f"Running {sample_id} ({index}/{len(samples)})"
+        if evaluator == "scenario" and buyer_mode >= 2 and not buyer_has_llm_client():
+            progress = (
+                f"{progress}. Buyer mode {buyer_mode} has no API key; "
+                "using deterministic fallback."
+            )
         await refresh_picker(
             status="running",
-            statusDetail=f"Running {sample_id} ({index}/{len(samples)})",
+            statusDetail=progress,
             selectedCount=len(samples),
         )
         try:
-            result = await asyncio.to_thread(run_official_evaluate, agent, [sample])
+            if evaluator == "scenario":
+                result = await asyncio.to_thread(
+                    run_evaluate_with_buyer, agent, [sample], buyer_mode
+                )
+            else:
+                result = await asyncio.to_thread(run_official_evaluate, agent, [sample])
         except Exception as exc:
             await refresh_picker(status="error", statusDetail=str(exc))
             return
@@ -254,25 +321,34 @@ async def play_pending_turn(state: StepState) -> None:
 
 
 async def run_step(payload: dict) -> None:
-    evaluator = str(payload.get("evaluator") or payload.get("selectedEvaluator") or "")
-    if evaluator != "local":
-        await refresh_picker(status="error", statusDetail="Select Local evaluator first.")
+    evaluator = _evaluator_id(payload)
+    if evaluator not in RUNNABLE_EVALUATORS:
+        await refresh_picker(
+            status="error",
+            statusDetail="Select Local evaluator or Scenario evaluator first.",
+        )
         return
     try:
         samples = _samples_from_payload(payload)
+        buyer_mode = _buyer_mode_from_payload(payload) if evaluator == "scenario" else None
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     cl.user_session.set("eval_cancel", {"cancelled": False})
     try:
-        state = start_step_run(samples)
+        state = start_step_run(samples, buyer_mode=buyer_mode)
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     cl.user_session.set("eval_step", state)
+    status_detail = ""
+    if evaluator == "scenario" and buyer_mode is not None:
+        status_detail = _scenario_run_detail(len(samples), buyer_mode)
     await refresh_picker(
         status="step",
         selectedCount=len(samples),
+        buyerMode=buyer_mode if buyer_mode is not None else 1,
+        statusDetail=status_detail,
         warning=(
             f"All {len(samples)} sessions × up to 10 live NLU turns can take a long time."
             if len(samples) >= 50

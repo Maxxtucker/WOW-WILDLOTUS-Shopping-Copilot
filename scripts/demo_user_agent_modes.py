@@ -1,4 +1,4 @@
-"""Small terminal demo for the four ScenarioUserAgent initial-message modes.
+"""Small terminal demo for the four ScenarioEvaluator initial-message modes.
 
 Examples:
     python scripts/demo_user_agent_modes.py
@@ -27,7 +27,7 @@ from evaluator.local_evaluator import (  # noqa: E402
     load_jsonl,
     materialize_hidden_fields,
 )
-from evaluator.user_agent import OpenAICompatibleClient, ScenarioUserAgent  # noqa: E402
+from evaluator.scenario_evaluator import OpenAICompatibleClient, ScenarioEvaluator  # noqa: E402
 
 
 def short(value: object, limit: int = 180) -> str:
@@ -54,7 +54,7 @@ def main() -> None:
 
     # Constructing this once also shows which real provider the demo will use.
     client = OpenAICompatibleClient.from_environment()
-    print("ScenarioUserAgent initial-message demo")
+    print("ScenarioEvaluator initial-message demo")
     print(f"samples={len(chosen)}, seed={args.seed}")
     print(f"provider={os.environ.get('CONVERGE_LLM_PROVIDER', 'from .env/default')}")
     print(f"model={client.model if client else '(no LLM client; Mode 1 only)'}")
@@ -69,7 +69,7 @@ def main() -> None:
         print(f"category: {category}")
         print(f"hard constraint: {short((card.get('hard_constraints') or ['(none)'])[0])}")
         for mode in (1, 2, 3, 4):
-            buyer = ScenarioUserAgent(mode=mode)
+            buyer = ScenarioEvaluator(mode=mode)
             disclosed: set[str] = set()
             message = buyer.initial_message(sample, category, disclosed)
             print(f"Mode {mode}: {message}")

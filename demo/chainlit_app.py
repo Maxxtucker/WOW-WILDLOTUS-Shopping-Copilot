@@ -40,6 +40,7 @@ from demo.progress_ui import (
 from demo.eval_ui import (
     EVAL_COMMAND,
     cancel_eval,
+    configure_picker,
     open_picker,
     run_auto,
     run_step,
@@ -454,6 +455,11 @@ async def on_view_graph(action: cl.Action) -> None:
     await _sync_circuit(turn, view_graph=graph)
     turns = list(cl.user_session.get("inspect_turns") or [])
     await _publish_sidebar(turns, cl.user_session.get("inspect_turn"))
+
+
+@cl.action_callback("eval_configure")
+async def on_eval_configure(action: cl.Action) -> None:
+    await configure_picker(action.payload or {})
 
 
 @cl.action_callback("eval_run")

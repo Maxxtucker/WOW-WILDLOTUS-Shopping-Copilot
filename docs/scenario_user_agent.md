@@ -1,14 +1,15 @@
-# Scenario Buyer agent
+# Scenario evaluator
 
-`evaluator.user_agent.ScenarioUserAgent` is a standalone Buyer module for the
-four-mode design. It does not replace `starter.agent.Agent`, and this revision
-does not wire it into `evaluator.local_evaluator`; that original evaluation
-flow remains unchanged until integration is explicitly requested.
+`evaluator.scenario_evaluator.ScenarioEvaluator` is a standalone Buyer module
+for the four-mode design. It does not replace `starter.agent.Agent`. Official
+`evaluator.local_evaluator.evaluate()` still uses the original template customer
+(equivalent to Scenario Mode 1). The demo Eval dock can run this Buyer on
+selected `public_set` sessions.
 
 The compatibility calls are:
 
 ```python
-buyer = ScenarioUserAgent(mode=2)
+buyer = ScenarioEvaluator(mode=2)
 message = buyer.initial_message(sample, category, disclosed)
 message, boundary_used = buyer.customer_reply(
     sample, ask_attribute, disclosed, boundary_used
@@ -46,7 +47,7 @@ recommendations or `ask_attribute` response field.
 
 ## API key configuration
 
-The agent automatically reads `.env` from the repository root. Fill in the
+The Buyer automatically reads `.env` from the repository root. Fill in the
 provided `.env` file (it is ignored by Git), or copy `.env.example` to `.env`:
 
 ```dotenv
@@ -104,7 +105,7 @@ is present, DeepSeek when a DeepSeek key is present, otherwise OpenAI.
 Run only the module tests with:
 
 ```powershell
-python -m unittest tests.test_user_agent -v
+python -m unittest tests.test_scenario_evaluator -v
 ```
 
 Show multiple random initial-message examples in the terminal with:

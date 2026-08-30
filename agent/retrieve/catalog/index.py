@@ -96,7 +96,7 @@ class IndexMixin:
                     details,
                     store,
                     description,
-                    tokenize='unicode61 remove_diacritics 2'
+                    tokenize='porter unicode61 remove_diacritics 2'
                 );
 
                 CREATE TABLE signature_values (

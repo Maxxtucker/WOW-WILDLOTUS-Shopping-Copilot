@@ -80,12 +80,21 @@ def leftover_page_stats(state: SessionState) -> dict[str, object]:
 
 
 def pages_empty_disclosure(state: SessionState) -> bool:
-    """True when disclosure is empty and last_ranked still has an unshown ASIN."""
+    """True when disclosure is empty and last_ranked still has an unshown ASIN.
+    
+    Paging shortcut skips router and retrieve when no new evidence (turn_delta=None).
+    last_ask does NOT block paging; it only prevents re-asking the same attribute.
+    """
 
+    # New evidence provided? Must re-route and re-retrieve
     if state.turn_delta is not None:
         return False
+    
+    # No new evidence (including "no preference" answers to structured questions)
     if state.disclosure_empty is False:
         return False
+    
+    # Can page from previous ranking?
     return bool(next_ranked_page(state, limit=1))
 
 
@@ -147,8 +156,12 @@ class TurnPipeline:
         router = build_router_trace(state, exact)
         emit("router", "stage", "completed", router)
         emit("retrieve", "stage", "running")
-        hits = self.organizer.apply(state, exact)
-        retrieve = build_retrieve_trace(hits, exact)
+        hits = self.organizer.apply(
+            state, exact, exact_lenient=state.exact_lenient
+        )
+        retrieve = build_retrieve_trace(
+            hits, exact, exact_lenient=state.exact_lenient
+        )
         ranked = self.ranker.apply(hits, state)
         state.last_ranked = [item.parent_asin for item in ranked]
         ranking = build_ranking_trace(ranked)

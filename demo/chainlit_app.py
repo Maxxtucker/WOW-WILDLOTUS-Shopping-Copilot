@@ -40,6 +40,7 @@ from demo.progress_ui import (
 from demo.eval_ui import (
     EVAL_COMMAND,
     cancel_eval,
+    configure_picker,
     open_picker,
     run_auto,
     run_step,
@@ -49,6 +50,7 @@ from demo.render import prepare_reply
 from demo.turn_monitor import maybe_log_progress_event
 from demo.session import get_session_id, next_turn, start_session
 from starter.agent import Agent
+from agent.decide.clarification.utility import DEFAULT_SLIDER_POSITION
 
 _FULL_CATALOG = _REPO_ROOT / "data" / "catalog.jsonl"
 _AGENT: Agent | None = None
@@ -93,13 +95,17 @@ async def _deliver_assistant(
     """
 
     text = (content or "").strip() or "I finished this turn but had nothing to say."
+    custom = [el for el in (elements or []) if isinstance(el, cl.CustomElement)]
     reply_msg.content = text
-    reply_msg.elements = list(elements or [])
+    reply_msg.elements = []
     reply_msg.actions = list(actions or [])
     last_exc: Exception | None = None
     for _ in range(3):
         try:
             await reply_msg.update()
+            for el in custom:
+                el.display = "inline"
+                await el.send(for_id=reply_msg.id)
             return
         except Exception as exc:
             last_exc = exc
@@ -145,6 +151,40 @@ async def _publish_sidebar(turns: list[dict], expanded_turn: int | None) -> None
         await sidebar.set_elements([panel])
         return
     await panel.send()
+
+
+async def _show_recommendation_preference() -> None:
+    props = {
+        "position": DEFAULT_SLIDER_POSITION,
+        "locked": False,
+    }
+    message = cl.Message(content="")
+    await message.send()
+    element = cl.CustomElement(
+        name="RecommendationPreference",
+        props=props,
+        display="inline",
+    )
+    await element.send(for_id=message.id)
+    cl.user_session.set("recommendation_preference_el", element)
+    cl.user_session.set("recommendation_preference_props", props)
+
+
+async def _lock_recommendation_preference() -> None:
+    props = dict(
+        cl.user_session.get("recommendation_preference_props")
+        or {
+            "position": DEFAULT_SLIDER_POSITION,
+            "locked": False,
+        }
+    )
+    if props.get("locked"):
+        return
+    props["locked"] = True
+    element = cl.user_session.get("recommendation_preference_el")
+    if element is not None:
+        await _update_element(element, props)
+    cl.user_session.set("recommendation_preference_props", props)
 
 
 def _circuits_by_turn() -> dict:
@@ -195,6 +235,8 @@ async def on_chat_start() -> None:
     cl.user_session.set("inspect_graph", "understand")
     cl.user_session.set("inspect_turn", 0)
     cl.user_session.set("circuits_by_turn", {})
+    cl.user_session.set("recommendation_preference_el", None)
+    cl.user_session.set("recommendation_preference_props", None)
     try:
         await cl.context.emitter.set_commands([EVAL_COMMAND])
     except Exception:
@@ -236,6 +278,7 @@ async def on_chat_start() -> None:
         return
 
     await _publish_sidebar([], 0)
+    await _show_recommendation_preference()
     await cl.Message(
         content=(
             "Hi — tell me what you're looking for.\n\n"
@@ -260,6 +303,8 @@ async def handle_user_text(
         await cl.Message(content="Please type what you're looking for.").send()
         return None
 
+    main_chat_turn = session_id is None
+
     if turn is None:
         turn = next_turn(cl.user_session)
     if turn is None:
@@ -279,6 +324,17 @@ async def handle_user_text(
 
     if session_id is None:
         session_id = get_session_id(cl.user_session)
+    if main_chat_turn:
+        sessions = getattr(agent, "sessions", {})
+        state = sessions.get(session_id) if hasattr(sessions, "get") else None
+        if state is not None:
+            current_props = dict(
+                cl.user_session.get("recommendation_preference_props") or {}
+            )
+            current_props["position"] = state.recommendation_preference_position
+            cl.user_session.set("recommendation_preference_props", current_props)
+        await _lock_recommendation_preference()
+
     circuit = empty_circuit_state()
     circuit["turn"] = turn
     circuit["selectedNode"] = ""
@@ -377,22 +433,12 @@ async def handle_user_text(
     if cl.user_session.get("inspect_turn") == turn and not circuit.get("viewGraph"):
         cl.user_session.set("inspect_graph", "decide")
 
-    official = str((result or {}).get("message") or "").strip()
-    if official:
-        await _deliver_assistant(
-            reply_msg,
-            official,
-            [],
-            [],
-            fallback_msg=progress_msg,
-        )
-
     state = agent.sessions.get(session_id)
     content, elements, actions = prepare_reply(
         agent.retriever,
         result,
         state=state,
-        show_n=8,
+        show_n=10,
     )
     await _deliver_assistant(
         reply_msg,
@@ -422,6 +468,29 @@ async def on_quick_reply(action: cl.Action) -> None:
     if not text:
         return
     await handle_user_text(text)
+
+
+@cl.action_callback("set_recommendation_preference")
+async def on_set_recommendation_preference(action: cl.Action) -> None:
+    payload = action.payload or {}
+    position = payload.get("position")
+    try:
+        agent = get_agent()
+        session_id = get_session_id(cl.user_session)
+        agent.set_recommendation_preference(session_id, position)
+        state = agent.sessions[session_id]
+    except (ValueError, RuntimeError) as exc:
+        await cl.Message(content=f"Recommendation preference was not changed: {exc}").send()
+        return
+
+    props = {
+        "position": state.recommendation_preference_position,
+        "locked": state.recommendation_preference_locked,
+    }
+    element = cl.user_session.get("recommendation_preference_el")
+    if element is not None:
+        await _update_element(element, props)
+    cl.user_session.set("recommendation_preference_props", props)
 
 
 @cl.action_callback("inspect_node")
@@ -454,6 +523,11 @@ async def on_view_graph(action: cl.Action) -> None:
     await _sync_circuit(turn, view_graph=graph)
     turns = list(cl.user_session.get("inspect_turns") or [])
     await _publish_sidebar(turns, cl.user_session.get("inspect_turn"))
+
+
+@cl.action_callback("eval_configure")
+async def on_eval_configure(action: cl.Action) -> None:
+    await configure_picker(action.payload or {})
 
 
 @cl.action_callback("eval_run")

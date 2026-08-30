@@ -18,7 +18,12 @@ from .questions import eligible_questions, explain_question
 from .slate import apply_sequential_gate
 from .stage import Clarifier
 from .types import NO_ADDITIONAL, Plan
-from .utility import hit_utility
+from .utility import (
+    DEFAULT_RECOMMENDATION_SCORE_WEIGHTS,
+    DEFAULT_SLIDER_POSITION,
+    RecommendationScoreWeights,
+    hit_utility,
+)
 
 __all__ = [
     "NO_ADDITIONAL",
@@ -35,4 +40,7 @@ __all__ = [
     "eligible_questions",
     "explain_question",
     "hit_utility",
+    "RecommendationScoreWeights",
+    "DEFAULT_RECOMMENDATION_SCORE_WEIGHTS",
+    "DEFAULT_SLIDER_POSITION",
 ]

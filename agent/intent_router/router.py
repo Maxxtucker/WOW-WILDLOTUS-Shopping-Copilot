@@ -7,17 +7,42 @@ Role: LLM override decision, then replace or accumulate, then pool probes.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from ..progress import emit, skip_nodes
 from ..understand.state.failsafe import apply_override_failsafe
-from .llm import as_override_decision, classify_override, classify_route, has_committed_intent
-from .probe import pool_ratio, pool_size, probe_exact_pool
+from .exact_pool import ExactPools
+from .llm import (
+    OverrideDecision,
+    as_override_decision,
+    classify_override,
+    classify_route,
+    has_committed_intent,
+)
+from .probe import pool_ratio, pool_size, probe_exact_pools
 from .writeback import apply_delta, apply_override_decision
 
 if TYPE_CHECKING:
     from ..retrieve.catalog.retriever import CatalogRetriever
     from ..understand.state.session import SessionState
+
+
+_STRONG_OVERRIDE_RE = re.compile(
+    r"^\s*(?:actually\s*[,;:-]?\s*)?(?:please\s+)?(?:"
+    r"(?:ignore|forget|disregard)\s+(?:my|the)\s+"
+    r"(?:earlier|previous|old)\s+(?:preference|request|requirement|choice)"
+    r"|i(?:'ve| have)?\s+changed\s+my\s+mind"
+    r"|i\s+no\s+longer\s+(?:want|need|am\s+looking\s+for)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def strong_override_fallback(state: SessionState) -> bool:
+    """Recognize explicit start-over language when the local router misses it."""
+
+    return bool(_STRONG_OVERRIDE_RE.search(state.latest_message or ""))
 
 
 class IntentRouter:
@@ -59,16 +84,27 @@ def _emit_route_label(intention: str) -> None:
     skip_nodes("router", "buying", "browsing", why=f"route labeled {intention}")
 
 
+def _commit_pools(state: SessionState, pools: ExactPools) -> set[str] | None:
+    state.exact_strict = pools.strict
+    state.exact_lenient = pools.lenient
+    return pools.strict
+
+
 def _run_override_branch(state: SessionState, retriever: CatalogRetriever):
     emit("router", "probe_override", "running")
-    exact = probe_exact_pool(retriever, state)
+    pools = probe_exact_pools(retriever, state)
+    exact = _commit_pools(state, pools)
     emit(
         "router",
         "probe_override",
         "completed",
         {
             "exact": pool_size(exact),
-            "output": {"exact": pool_size(exact)},
+            "exact_lenient": pool_size(pools.lenient),
+            "output": {
+                "exact": pool_size(exact),
+                "exact_lenient": pool_size(pools.lenient),
+            },
         },
     )
     emit(
@@ -99,8 +135,10 @@ def route_intention(
     retriever: CatalogRetriever,
 ) -> set[str] | None:
     state.previous_candidate_count = state.candidate_count
-    decision = as_override_decision(classify_override(state))
     committed = has_committed_intent(state)
+    decision = as_override_decision(classify_override(state))
+    if decision.level == 0 and committed and strong_override_fallback(state):
+        decision = OverrideDecision(2)
     if decision.level == 0 and not committed:
         skip_nodes(
             "router",
@@ -169,7 +207,8 @@ def route_intention(
         why="accumulate branch taken",
     )
     emit("router", "probe_before", "running")
-    before = probe_exact_pool(retriever, state)
+    before_pools = probe_exact_pools(retriever, state)
+    before = before_pools.strict
     emit(
         "router",
         "probe_before",
@@ -185,7 +224,8 @@ def route_intention(
         {"mode": "accumulate", "output": {"mode": "accumulate"}},
     )
     emit("router", "probe_after", "running")
-    after = probe_exact_pool(retriever, state)
+    after_pools = probe_exact_pools(retriever, state)
+    after = _commit_pools(state, after_pools)
     emit(
         "router",
         "probe_after",
@@ -194,7 +234,12 @@ def route_intention(
             "before": pool_size(before),
             "after": pool_size(after),
             "exact": pool_size(after),
-            "output": {"before": pool_size(before), "after": pool_size(after)},
+            "exact_lenient": pool_size(after_pools.lenient),
+            "output": {
+                "before": pool_size(before),
+                "after": pool_size(after),
+                "exact_lenient": pool_size(after_pools.lenient),
+            },
         },
     )
     state.candidate_count_before_delta = pool_size(before)

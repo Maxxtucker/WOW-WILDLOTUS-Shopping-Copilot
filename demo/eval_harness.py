@@ -17,6 +17,7 @@ from typing import Any
 
 from evaluator.local_evaluator import (
     MAX_TURNS,
+    TOP_K,
     catalog_index,
     coarse_category,
     customer_reply,
@@ -26,6 +27,12 @@ from evaluator.local_evaluator import (
     materialize_hidden_fields,
     metric_summary,
     normalize_recommendations,
+)
+from evaluator.scenario_evaluator import (
+    OpenAICompatibleClient,
+    ScenarioEvaluator,
+    parse_llm_mode,
+    resolve_buyer_llm_backend,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -40,12 +47,20 @@ EVALUATORS = (
         "enabled": True,
     },
     {
+        "id": "scenario",
+        "label": "Scenario evaluator",
+        "path": "evaluator/scenario_evaluator.py",
+        "enabled": True,
+    },
+    {
         "id": "hosted",
         "label": "Hosted evaluator",
         "path": "",
         "enabled": False,
     },
 )
+
+RUNNABLE_EVALUATORS = frozenset({"local", "scenario"})
 
 _SAMPLE_ID_RE = re.compile(r"(?:public_)?(\d+)$", re.IGNORECASE)
 
@@ -196,11 +211,162 @@ def group_metrics(sessions: list[dict]) -> dict:
     }
 
 
+def parse_buyer_mode(value: object) -> int:
+    """Return Buyer mode 1-4. Empty values default to Mode 1."""
+
+    if value is None or value == "":
+        return 1
+    try:
+        mode = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("buyerMode must be 1, 2, 3, or 4") from exc
+    if mode not in {1, 2, 3, 4}:
+        raise ValueError("buyerMode must be 1, 2, 3, or 4")
+    return mode
+
+
+def buyer_has_llm_client() -> bool:
+    """True when Modes 2-4 can call a configured OpenAI-compatible client."""
+
+    return OpenAICompatibleClient.from_environment() is not None
+
+
+def buyer_llm_status(buyer_mode: int, llm_mode: object = None) -> str:
+    """Status line for Scenario Buyer LLM routing. Empty when nothing to warn."""
+
+    if buyer_mode < 2:
+        return ""
+    chosen = parse_llm_mode(llm_mode)
+    backend = resolve_buyer_llm_backend(chosen)
+    if chosen == "local":
+        return "Buyer LLM: local qwen3.5:4b"
+    if backend == "local":
+        return "Remote env missing; using local qwen3.5:4b"
+    if not buyer_has_llm_client():
+        return (
+            f"Buyer mode {buyer_mode} has no API key; "
+            "using deterministic fallback."
+        )
+    return ""
+
+
 def run_official_evaluate(agent: Any, samples: list[dict]) -> dict:
     """One official evaluate() call on the selected rows."""
 
     catalog_ids, categories, products = get_catalog_bundle()
     return evaluate(agent, samples, catalog_ids, categories, products)
+
+
+def run_evaluate_with_buyer(
+    agent: Any,
+    samples: list[dict],
+    mode: int = 1,
+    llm_mode: str | None = None,
+    *,
+    catalog_ids: set[str] | None = None,
+    categories: dict[str, list[str]] | None = None,
+    products: dict[str, dict] | None = None,
+) -> dict:
+    """Same control flow as official evaluate(), with ScenarioEvaluator Buyer lines.
+
+    Override turns still use ``behavior.override.message``. Scoring matches
+    official ``evaluate()``. Catalog defaults to the demo bundle.
+    """
+
+    buyer = ScenarioEvaluator(
+        mode=parse_buyer_mode(mode),
+        llm_mode=parse_llm_mode(llm_mode),
+    )
+    if catalog_ids is None or categories is None or products is None:
+        catalog_ids, categories, products = get_catalog_bundle()
+    sessions: list[dict] = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for sample in samples:
+        session_id = f"public_{uuid.uuid4().hex}"
+        agent.reset(session_id, sample["user_profile"])
+        target = str(sample["ground_truth"]["parent_asin"])
+        effective_intent_card, effective_behavior = materialize_hidden_fields(
+            sample, products
+        )
+        effective_sample = {
+            **sample,
+            "intent_card": effective_intent_card,
+            "behavior": effective_behavior,
+        }
+        disclosed: set[str] = set()
+        boundary_used = False
+        override_applied = sample["scenario_type"] != "intent_override"
+        user_message = buyer.initial_message(
+            effective_sample,
+            coarse_category(categories.get(target, [])),
+            disclosed,
+        )
+        hit_turn: int | None = None
+        best_rank: int | None = None
+        for turn in range(1, MAX_TURNS + 1):
+            try:
+                response = agent.respond(session_id, user_message, turn, TOP_K)
+            except Exception:
+                response = {"message": "", "ask_attribute": None, "recommendations": []}
+            if not isinstance(response, dict) or not isinstance(response.get("message"), str):
+                response = {"message": "", "ask_attribute": None, "recommendations": []}
+            usage = response.get("usage")
+            if isinstance(usage, dict):
+                if isinstance(usage.get("prompt_tokens"), int) and usage["prompt_tokens"] >= 0:
+                    total_prompt_tokens += usage["prompt_tokens"]
+                if isinstance(usage.get("completion_tokens"), int) and usage["completion_tokens"] >= 0:
+                    total_completion_tokens += usage["completion_tokens"]
+            ranked = normalize_recommendations(response.get("recommendations"), catalog_ids)
+            if override_applied and target in ranked:
+                best_rank = ranked.index(target) + 1
+                hit_turn = turn
+                break
+            if turn == MAX_TURNS:
+                break
+            override = effective_sample.get("behavior", {}).get("override") or {}
+            if not override_applied and turn + 1 == int(override.get("turn", 3)):
+                override_applied = True
+                new_value = str(override.get("new_value", ""))
+                if new_value:
+                    disclosed.add(new_value)
+                user_message = str(
+                    override.get("message", "Actually, please ignore my earlier preference.")
+                )
+            else:
+                user_message, boundary_used = buyer.customer_reply(
+                    effective_sample,
+                    response.get("ask_attribute"),
+                    disclosed,
+                    boundary_used,
+                )
+        sessions.append({
+            "sample_id": sample["sample_id"],
+            "scenario_type": sample["scenario_type"],
+            "hit": hit_turn is not None,
+            "first_hit_turn": hit_turn,
+            "best_rank": best_rank,
+            "reciprocal_rank": 0.0 if best_rank is None else 1.0 / best_rank,
+        })
+
+    overall = metric_summary(sessions)
+    efficiency = max(0.0, min(1.0, (11.0 - float(overall["mttc"])) / 10.0))
+    technical_score = 0.50 * overall["hit_rate_at_10"] + 0.30 * overall["mrr"] + 0.20 * efficiency
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for session in sessions:
+        grouped[session["scenario_type"]].append(session)
+    return {
+        **overall,
+        "efficiency": round(efficiency, 6),
+        "recommended_technical_score": round(technical_score, 6),
+        "reported_token_usage": {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+        },
+        "scenario_metrics": {name: metric_summary(grouped[name]) for name in sorted(grouped)},
+        "sessions": sessions,
+    }
 
 
 @dataclass
@@ -224,6 +390,7 @@ class StepState:
     hit_turn: int | None = None
     best_rank: int | None = None
     cancelled: bool = False
+    buyer: ScenarioEvaluator | None = None
 
     @property
     def current_sample(self) -> dict:
@@ -234,15 +401,26 @@ class StepState:
         return max(0, len(self.samples) - self.sample_index)
 
 
-def start_step_run(samples: list[dict]) -> StepState:
+def start_step_run(
+    samples: list[dict],
+    buyer_mode: int | None = None,
+    llm_mode: str | None = None,
+) -> StepState:
     if not samples:
         raise ValueError("no samples selected")
     catalog_ids, categories, products = get_catalog_bundle()
+    buyer = None
+    if buyer_mode is not None:
+        buyer = ScenarioEvaluator(
+            mode=parse_buyer_mode(buyer_mode),
+            llm_mode=parse_llm_mode(llm_mode),
+        )
     state = StepState(
         samples=list(samples),
         catalog_ids=catalog_ids,
         categories=categories,
         products=products,
+        buyer=buyer,
     )
     _begin_sample(state)
     return state
@@ -257,11 +435,15 @@ def _begin_sample(state: StepState) -> None:
     state.disclosed = set()
     state.boundary_used = False
     state.override_applied = sample["scenario_type"] != "intent_override"
-    state.pending_message = initial_message(
-        state.effective,
-        coarse_category(state.categories.get(state.target, [])),
-        state.disclosed,
-    )
+    category = coarse_category(state.categories.get(state.target, []))
+    if state.buyer is not None:
+        state.pending_message = state.buyer.initial_message(
+            state.effective, category, state.disclosed
+        )
+    else:
+        state.pending_message = initial_message(
+            state.effective, category, state.disclosed
+        )
     state.turn = 1
     state.hit_turn = None
     state.best_rank = None
@@ -302,6 +484,13 @@ def apply_step_response(state: StepState, response: dict | None) -> dict:
             state.disclosed.add(new_value)
         state.pending_message = str(
             override.get("message", "Actually, please ignore my earlier preference.")
+        )
+    elif state.buyer is not None:
+        state.pending_message, state.boundary_used = state.buyer.customer_reply(
+            state.effective,
+            payload.get("ask_attribute"),
+            state.disclosed,
+            state.boundary_used,
         )
     else:
         state.pending_message, state.boundary_used = customer_reply(

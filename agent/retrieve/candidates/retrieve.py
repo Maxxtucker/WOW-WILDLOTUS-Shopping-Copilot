@@ -1,6 +1,7 @@
 """Purpose: score the router's exact pool, then fill with hybrid if under the floor.
 
-Input: CatalogRetriever, SessionState, optional exact ASIN set from the router.
+Input: CatalogRetriever, SessionState, optional exact ASIN set from the router
+and unused exact_lenient (match-or-unknown superset; scoring still uses exact).
 Output: SearchHit values (library at least 300 when exact is under 150; browsing 500).
 Role: pipeline stage 5. Does not recompute the hard intersection. Hard hits
 stay in front; hybrid fill (hard_required=False) pads a small exact pool.
@@ -8,10 +9,12 @@ stay in front; hybrid fill (hard_required=False) pads a small exact pool.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from ...progress import emit, skip_nodes
-from ..catalog.types import DimensionSpec
+from ..catalog.protocol_copy import tokenize
+from ..catalog.types import DimensionSpec, SearchWeights
 from ..from_slots import (
     exact_pool_groups,
     preferred_groups,
@@ -23,6 +26,12 @@ from ..from_slots import (
 )
 from .query import rewrite_query
 from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
+from .multi_route import (
+    RAW_TEXT_WEIGHT,
+    RELAXED_WEIGHT,
+    STRICT_WEIGHT,
+    fuse_routes,
+)
 
 if TYPE_CHECKING:
     from ..catalog.retriever import CatalogRetriever
@@ -40,8 +49,11 @@ class CandidateOrganizer:
         self,
         state: SessionState,
         exact: set[str] | None = None,
+        exact_lenient: set[str] | None = None,
     ) -> list[SearchHit]:
-        return retrieve_candidates(self.retriever, state, exact)
+        return retrieve_candidates(
+            self.retriever, state, exact, exact_lenient=exact_lenient
+        )
 
 
 def _hard_categories(state: SessionState) -> tuple[str, ...]:
@@ -61,11 +73,156 @@ def _group_rows(groups: object) -> list[dict[str, Any]]:
     return rows
 
 
+RAW_RECALL_WEIGHTS = SearchWeights(
+    lexical=2.2,
+    required=0.0,
+    preferred=0.0,
+    category=0.0,
+    budget=0.0,
+    rating=0.03,
+    popularity=0.05,
+    missing_required=0.0,
+    excluded=-8.0,
+    dimension=0.0,
+    text=0.0,
+    profile=0.0,
+)
+
+
+def _without_excluded_hits(
+    hits: list[SearchHit], excluded_asins: set[str]
+) -> list[SearchHit]:
+    """Remove previously displayed ASINs before route fusion and ranking."""
+
+    if not excluded_asins:
+        return hits
+    return [hit for hit in hits if hit.parent_asin not in excluded_asins]
+
+
+def _build_frequency_weighted_raw_text(messages: list[str]) -> str:
+    """Build frequency-weighted raw search text from all current intent messages.
+    
+    Uses all messages in the current intent (post-override), computes term
+    frequencies, and repeats high-frequency terms to boost their BM25 weights.
+    Tokenization handles lowercase, stopword filtering, and deduplication.
+    
+    Args:
+        messages: current_intent_messages from SessionState (already cleared of
+                  pre-override content by open_conversion_gate)
+    
+    Returns:
+        Frequency-weighted text string for BM25 query; empty string if no messages
+    """
+    if not messages:
+        return ""
+    
+    # Concatenate all messages
+    full_text = " ".join(msg.strip() for msg in messages if msg.strip())
+    if not full_text:
+        return ""
+    
+    # Tokenize (handles: lowercase, punctuation removal, stopword filtering)
+    tokens = tokenize(full_text, limit=None)
+    if not tokens:
+        return ""
+    
+    # Count term frequencies
+    term_freq = Counter(tokens)
+    
+    # Build frequency-weighted text by repeating high-frequency terms.
+    # Keep order of first appearance, cap repetitions at 3 for balance.
+    weighted_parts: list[str] = []
+    seen_terms: set[str] = set()
+    
+    for token in tokens:
+        if token not in seen_terms:
+            seen_terms.add(token)
+            freq = min(term_freq[token], 3)  # Cap at 3 repetitions
+            # Repeat the term based on frequency
+            weighted_parts.extend([token] * freq)
+    
+    return " ".join(weighted_parts)
+
+
+def _safe_route_fusion(
+    retriever: CatalogRetriever,
+    state: SessionState,
+    base_hits: list[SearchHit],
+    *,
+    query: str,
+    groups: object,
+    soft_groups: object,
+    candidate_limit: int,
+) -> list[SearchHit]:
+    """Add relaxed and raw-text recall when live utterance evidence exists."""
+
+    base_hits = _without_excluded_hits(base_hits, state.excluded_asins)
+    raw_text = _build_frequency_weighted_raw_text(state.current_intent_messages).strip()
+    if not raw_text:
+        return base_hits
+    limit = library_limit_for(state.intention)
+    relaxed = retriever.search(
+        query,
+        required_groups=groups,
+        preferred_groups=soft_groups,
+        categories=(),
+        budget=None,
+        exclude_asins=state.excluded_asins,
+        limit=limit,
+        candidate_limit=candidate_limit,
+        weights=routing_for(state.intention).weights,
+        hard_required=False,
+        hard_budget=False,
+        dimensions=None,
+        hard_dimension=False,
+        text_query=" ".join(soft_text_terms(state)),
+        profile_tags=state.preference_tags,
+    )
+    raw = retriever.search(
+        raw_text,
+        required_groups=(),
+        preferred_groups=(),
+        categories=(),
+        budget=None,
+        exclude_asins=state.excluded_asins,
+        limit=limit,
+        candidate_limit=max(candidate_limit, 2_000),
+        weights=RAW_RECALL_WEIGHTS,
+        hard_required=False,
+        hard_budget=False,
+        dimensions=None,
+        hard_dimension=False,
+        text_query="",
+        profile_tags=(),
+    )
+    fused = fuse_routes(
+        (
+            ("strict", STRICT_WEIGHT, base_hits),
+            ("relaxed", RELAXED_WEIGHT, relaxed),
+            ("raw", RAW_TEXT_WEIGHT, raw),
+        ),
+        limit=limit,
+    )
+    return _without_excluded_hits(fused, state.excluded_asins)
+
+
 def retrieve_candidates(
     retriever: CatalogRetriever,
     state: SessionState,
     exact: set[str] | None = None,
+    exact_lenient: set[str] | None = None,
 ) -> list[SearchHit]:
+    if exact_lenient is None:
+        exact_lenient = state.exact_lenient
+    exact_pool = exact
+    pool_source = "strict"
+    if (
+        exact is not None
+        and len(exact) < CANDIDATE_FLOOR
+        and exact_lenient
+    ):
+        exact_pool = exact_lenient
+        pool_source = "lenient"
     emit("retrieve", "slot_groups", "running")
     groups, budget = required_and_budget(state)
     soft_groups = preferred_groups(state)
@@ -138,26 +295,31 @@ def retrieve_candidates(
         "text_query": text_query,
         "profile_tags": state.preference_tags,
     }
-    if exact:
+    if exact_pool:
         emit("retrieve", "lexical_in_pool", "running")
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
         in_pool = {
             parent_asin: score
             for parent_asin, score in lexical.items()
-            if parent_asin in exact
+            if parent_asin in exact_pool
         }
         emit(
             "retrieve",
             "lexical_in_pool",
             "completed",
             {
-                "input": {"exact": len(exact), "query": query[:120]},
+                "input": {
+                    "strict_exact": None if exact is None else len(exact),
+                    "exact_pool": len(exact_pool),
+                    "pool_source": pool_source,
+                    "query": query[:120],
+                },
                 "output": {"lexical_in_pool": len(in_pool)},
             },
         )
         emit("retrieve", "score_exact", "running")
         exact_hits = retriever.score_candidates(
-            exact,
+            exact_pool,
             lexical_scores=in_pool,
             in_exact_pool=True,
             **score_kwargs,
@@ -193,17 +355,30 @@ def retrieve_candidates(
                     "hit_count": len(capped),
                 },
             )
-            return capped
+            return _safe_route_fusion(
+                retriever,
+                state,
+                capped,
+                query=query,
+                groups=groups,
+                soft_groups=soft_groups,
+                candidate_limit=routing.candidate_limit,
+            )
         library_limit = library_limit_for(state.intention)
         need = max(0, library_limit - len(exact_hits))
-        fill_exclude = set(state.excluded_asins) | set(exact)
+        fill_exclude = set(state.excluded_asins) | set(exact_pool)
         emit("retrieve", "hybrid_search", "running")
         fill = retriever.search(
             query,
             limit=need,
             candidate_limit=routing.candidate_limit,
             hard_required=False,
-            **{**score_kwargs, "exclude_asins": fill_exclude},
+            **{
+                **score_kwargs,
+                "exclude_asins": fill_exclude,
+                "hard_budget": False,
+                "hard_dimension": False,
+            },
         )
         emit(
             "retrieve",
@@ -237,16 +412,21 @@ def retrieve_candidates(
                 "hit_count": len(combined),
             },
         )
-        return combined
+        return _safe_route_fusion(
+            retriever,
+            state,
+            combined,
+            query=query,
+            groups=groups,
+            soft_groups=soft_groups,
+            candidate_limit=routing.candidate_limit,
+        )
 
-    # None means no reliable exact signal; an empty set means the strict
-    # intersection over-pruned. Both need lexical recovery rather than an
-    # empty recommendation slate.
     skip_nodes(
         "retrieve",
         "lexical_in_pool",
         "score_exact",
-        why="exact pool is empty or missing",
+        why="no strict or lenient exact candidates",
     )
     library_limit = library_limit_for(state.intention)
     emit("retrieve", "hybrid_search", "running")
@@ -276,4 +456,12 @@ def retrieve_candidates(
             "hit_count": len(hits),
         },
     )
-    return hits
+    return _safe_route_fusion(
+        retriever,
+        state,
+        hits,
+        query=query,
+        groups=groups,
+        soft_groups=soft_groups,
+        candidate_limit=routing.candidate_limit,
+    )

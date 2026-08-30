@@ -33,7 +33,7 @@ pipeline → StateDetector.apply
 
 ## Core variables
 
-See `SessionState`: `category`, `intention`, `turn_delta`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `typed_constraints`, `preference_tags`, `disclosed`, `excluded_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`, `disclosure_empty` / `empty_disclosure_reveal`, `candidate_count` / `previous_candidate_count` / `candidate_count_before_delta`. `preference_tags` is a reset-time copy of the aggregate profile tags; semantic ranking uses it only as a weak tie-breaker. Retrieve maps **hard** slots to the exact pool and **soft** slots to preferred scoring in `retrieve/from_slots.py`; those pairs are not stored here.
+See `SessionState`: `category`, `intention`, `turn_delta`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `typed_constraints`, `preference_tags`, `disclosed`, `excluded_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`, `disclosure_empty` / `empty_disclosure_reveal`, `candidate_count` / `previous_candidate_count` / `candidate_count_before_delta`, `exact_strict` / `exact_lenient`. `preference_tags` is a reset-time copy of the aggregate profile tags; semantic ranking uses it only as a weak tie-breaker. Retrieve maps **hard** slots to the exact pool and **soft** slots to preferred scoring in `retrieve/from_slots.py`; those pairs are not stored here. The router writes `exact_strict` (missing fields fail) and `exact_lenient` (match or unknown); retrieve scores lenient when strict is below the candidate floor.
 
 NLU slot shape and grounding rules: [../observation/slots/README.md](../observation/slots/README.md).
 

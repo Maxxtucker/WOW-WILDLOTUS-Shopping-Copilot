@@ -117,13 +117,31 @@ def finish_override_gate(state: SessionState) -> None:
 
     open_conversion_gate(state)
     state.last_ranked.clear()
+    # Raw-text retrieval must not replay language from the superseded intent.
+    state.current_intent_messages = [state.latest_message] if state.latest_message else []
 
 
 def apply_override_decision(state: SessionState, decision: OverrideDecision) -> None:
     """L1 clears all then apply_delta; L2 drops delta fields then apply_delta."""
 
     if decision.level == 1:
+        # A shopper can fully replace the stated preferences without changing
+        # the product family (the official override utterance commonly does
+        # exactly this).  Do not throw away the only retrieval anchor unless
+        # the new turn actually names a replacement category.
+        keeps_category = not delta_has_category(state.turn_delta)
+        category_slots = (
+            [slot for slot in state.typed_constraints if slot.attribute == "category"]
+            if keeps_category
+            else []
+        )
+        category = state.category if keeps_category else None
         clear_typed(state)
+        if category_slots:
+            state.typed_constraints.extend(category_slots)
+            _sync_primary_category(state, fallback=category)
+        elif category:
+            state.category = category
         apply_delta(state)
         finish_override_gate(state)
         return

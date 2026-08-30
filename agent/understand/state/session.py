@@ -1,9 +1,10 @@
 """Purpose: mutable memory for one session (constraints, misses, conversion gate, intention).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
-Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, and related fields.
+Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, recommendation scoring weights, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
+The intention router writes ``exact_strict`` / ``exact_lenient`` for retrieve.
 preference_tags is a reset-time copy of the aggregate profile; semantic ranking
 uses it only as weak evidence.
 Observe writes only turn_delta; the intention router commits constraints.
@@ -18,7 +19,16 @@ from typing import TYPE_CHECKING
 from ..attributes.lookup import build_reply_lookup
 
 if TYPE_CHECKING:
+    from ...decide.clarification.utility import RecommendationScoreWeights
     from ..observation.schema import ObservationExtract
+
+
+def _default_scoring_weights() -> RecommendationScoreWeights:
+    from ...decide.clarification.utility import (
+        DEFAULT_RECOMMENDATION_SCORE_WEIGHTS,
+    )
+
+    return DEFAULT_RECOMMENDATION_SCORE_WEIGHTS
 
 
 def preference_tags_from_profile(profile: Mapping[str, object] | None) -> tuple[str, ...]:
@@ -72,6 +82,7 @@ class SessionState:
     reply_value_lookup: dict[str, tuple[str, ...] | None] = field(default_factory=dict)
     latest_message: str = ""
     message_history: list[str] = field(default_factory=list)
+    current_intent_messages: list[str] = field(default_factory=list)
     turn: int = 0
     typed_constraints: list = field(default_factory=list)
     preference_tags: tuple[str, ...] = field(init=False)
@@ -79,8 +90,15 @@ class SessionState:
     candidate_count: int | None = None
     previous_candidate_count: int | None = None
     candidate_count_before_delta: int | None = None
+    exact_strict: set[str] | None = None
+    exact_lenient: set[str] | None = None
     router_prompt_tokens: int = 0
     router_completion_tokens: int = 0
+    scoring_weights: RecommendationScoreWeights = field(
+        default_factory=_default_scoring_weights
+    )
+    recommendation_preference_position: float = 34.375
+    recommendation_preference_locked: bool = False
 
     def __post_init__(self) -> None:
         self.preference_tags = preference_tags_from_profile(self.user_profile)
@@ -117,6 +135,16 @@ class SessionState:
         """Decide should show a full Top-K slate: shopper added nothing this turn."""
 
         return self.disclosure_empty is True
+
+    @property
+    def current_intent_text(self) -> str:
+        """Natural-language evidence for the active intent only."""
+
+        return " ".join(
+            message.strip()
+            for message in self.current_intent_messages[-4:]
+            if message.strip()
+        )
 
     def begin_turn(self, message: str, turn: int) -> None:
         """Apply guaranteed previous-miss feedback, then parse this observation."""

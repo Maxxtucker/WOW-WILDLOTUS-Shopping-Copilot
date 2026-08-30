@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from ...retrieve.catalog.types import SearchHit
 
 BELIEF_TEMPERATURE = 0.12
+FUSED_MIN_TEMPERATURE = 0.0025
+FUSED_MAX_TEMPERATURE = 0.02
 
 
 def belief_from_hits(hits: list[SearchHit]) -> list[tuple[str, float]]:
@@ -27,11 +29,30 @@ def belief_from_hits(hits: list[SearchHit]) -> list[tuple[str, float]]:
     if not hits:
         return []
     maximum = max(hit.score for hit in hits)
+    minimum = min(hit.score for hit in hits)
+    fused = any(
+        reason.startswith("route:")
+        for hit in hits
+        for reason in hit.reasons
+    )
+    temperature = BELIEF_TEMPERATURE
+    if fused:
+        # Reciprocal-rank fusion scores live around 1/(60 + rank), two orders
+        # of magnitude below the structured catalog score.  Reusing the
+        # structured-score temperature makes hundreds of results look nearly
+        # equiprobable and causes Dynamic Slate to overvalue wide slates.
+        # Scale the temperature to the observed fused-score range while
+        # retaining conservative lower/upper bounds.
+        spread = max(0.0, maximum - minimum)
+        temperature = min(
+            FUSED_MAX_TEMPERATURE,
+            max(FUSED_MIN_TEMPERATURE, spread / 4.0),
+        )
     # The structured score is often constant within an exact-signature
     # bucket.  Temperature 0.12 turns the weak popularity/quality prior
     # into useful ordering without claiming that the raw score is a
     # calibrated probability.
     return [
-        (hit.parent_asin, math.exp((hit.score - maximum) / BELIEF_TEMPERATURE))
+        (hit.parent_asin, math.exp((hit.score - maximum) / temperature))
         for hit in hits
     ]

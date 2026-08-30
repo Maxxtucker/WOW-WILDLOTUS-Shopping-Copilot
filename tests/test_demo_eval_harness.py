@@ -1,11 +1,21 @@
-"""Demo public_set selection helpers. Does not run evaluate()."""
+"""Demo public_set selection helpers and Scenario Buyer harness."""
 
 from __future__ import annotations
 
 import random
 import unittest
 
-from demo.eval_harness import group_metrics, sample_summaries, select_samples
+from demo.eval_harness import (
+    EVALUATORS,
+    buyer_llm_status,
+    group_metrics,
+    parse_buyer_mode,
+    parse_llm_mode,
+    run_evaluate_with_buyer,
+    sample_summaries,
+    select_samples,
+)
+from evaluator.local_evaluator import coarse_category, initial_message, materialize_hidden_fields
 
 
 def _rows(count: int = 8) -> list[dict]:
@@ -112,6 +122,83 @@ class GroupMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(summary["mttc"], 6.0)
         self.assertAlmostEqual(summary["efficiency"], 0.5)
         self.assertAlmostEqual(summary["recommended_technical_score"], 0.5)
+
+
+class RecordingAgent:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def reset(self, session_id: str, user_profile: dict) -> None:
+        self.session_id = session_id
+
+    def respond(self, session_id: str, user_message: str, turn: int, top_k: int) -> dict:
+        self.messages.append(user_message)
+        return {
+            "message": "ok",
+            "ask_attribute": None,
+            "recommendations": [{"parent_asin": "A1"}],
+        }
+
+
+class ScenarioBuyerHarnessTest(unittest.TestCase):
+    def test_evaluators_include_scenario(self) -> None:
+        ids = [item["id"] for item in EVALUATORS]
+        self.assertIn("local", ids)
+        self.assertIn("scenario", ids)
+        scenario = next(item for item in EVALUATORS if item["id"] == "scenario")
+        self.assertTrue(scenario["enabled"])
+        self.assertEqual(scenario["path"], "evaluator/scenario_evaluator.py")
+
+    def test_parse_buyer_mode_defaults_and_rejects(self) -> None:
+        self.assertEqual(parse_buyer_mode(None), 1)
+        self.assertEqual(parse_buyer_mode(""), 1)
+        self.assertEqual(parse_buyer_mode("3"), 3)
+        with self.assertRaises(ValueError):
+            parse_buyer_mode(5)
+
+    def test_mode1_first_message_matches_official_template(self) -> None:
+        sample = {
+            "sample_id": "public_test",
+            "scenario_type": "buying",
+            "user_profile": {},
+            "ground_truth": {"parent_asin": "A1"},
+            "intent_card": {
+                "hard_constraints": ["leather"],
+                "soft_preferences": [],
+            },
+            "behavior": {},
+        }
+        products = {"A1": {"title": "Boot", "parent_asin": "A1"}}
+        categories = {"A1": ["Men Shoes"]}
+        catalog_ids = {"A1"}
+        card, behavior = materialize_hidden_fields(sample, products)
+        effective = {**sample, "intent_card": card, "behavior": behavior}
+        expected = initial_message(
+            effective,
+            coarse_category(categories["A1"]),
+            set(),
+        )
+        agent = RecordingAgent()
+        run_evaluate_with_buyer(
+            agent,
+            [sample],
+            mode=1,
+            catalog_ids=catalog_ids,
+            categories=categories,
+            products=products,
+        )
+        self.assertEqual(agent.messages[0], expected)
+        self.assertEqual(
+            expected,
+            "I'm looking for Men Shoes. A key requirement is: leather.",
+        )
+        self.assertEqual(len(agent.messages), 1)
+
+    def test_parse_llm_mode_and_status(self) -> None:
+        self.assertEqual(parse_llm_mode("remote"), "remote")
+        self.assertEqual(parse_llm_mode("local"), "local")
+        self.assertEqual(buyer_llm_status(1, "remote"), "")
+        self.assertEqual(buyer_llm_status(2, "local"), "Buyer LLM: local qwen3.5:4b")
 
 
 if __name__ == "__main__":

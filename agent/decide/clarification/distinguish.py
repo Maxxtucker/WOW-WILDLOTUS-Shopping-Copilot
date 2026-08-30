@@ -11,15 +11,19 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from .utility import hit_utility
+from .utility import RecommendationScoreWeights, hit_utility
 
 if TYPE_CHECKING:
     from ..ranking.normalize import RankedCandidate
 
 
-def terminal_value(candidates: Sequence[RankedCandidate], turn: int) -> float:
+def terminal_value(
+    candidates: Sequence[RankedCandidate],
+    turn: int,
+    weights: RecommendationScoreWeights | None = None,
+) -> float:
     return sum(
-        item.probability * hit_utility(turn, rank)
+        item.probability * hit_utility(turn, rank, weights)
         for rank, item in enumerate(candidates[:10], start=1)
     )
 
@@ -30,11 +34,12 @@ def future_value(
     next_turn: int,
     answer_signature: Callable[[str, str], tuple[str, ...]],
     max_planning_candidates: int,
+    weights: RecommendationScoreWeights | None = None,
 ) -> float:
     if not residual or next_turn > 10:
         return 0.0
     if attribute is None:
-        return terminal_value(residual, next_turn)
+        return terminal_value(residual, next_turn, weights)
 
     groups: dict[tuple[str, ...], list[RankedCandidate]] = defaultdict(list)
     for item in residual[:max_planning_candidates]:
@@ -42,4 +47,6 @@ def future_value(
 
     # Probabilities remain unconditional here.  Summing each branch's
     # top-10 terminal reward therefore already integrates branch mass.
-    return sum(terminal_value(group, next_turn) for group in groups.values())
+    return sum(
+        terminal_value(group, next_turn, weights) for group in groups.values()
+    )

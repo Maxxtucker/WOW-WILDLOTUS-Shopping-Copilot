@@ -72,6 +72,7 @@ def build_router_trace(
     before = None if overridden else state.candidate_count_before_delta
     after = state.candidate_count
     ratio = None if overridden else pool_ratio(after, before)
+    lenient = state.exact_lenient
     return {
         "intention": state.intention,
         "override": overridden,
@@ -81,26 +82,39 @@ def build_router_trace(
         "ratio": None if ratio is None else round(ratio, 4),
         "exact": None if exact is None else len(exact),
         "exact_sample": None if exact is None else sorted(exact)[:TRACE_TOP],
+        "exact_lenient": None if lenient is None else len(lenient),
+        "exact_lenient_sample": (
+            None if lenient is None else sorted(lenient)[:TRACE_TOP]
+        ),
         "hard_groups": _hard_groups(state),
     }
 
 
 def build_retrieve_trace(
-    hits: list[SearchHit], exact: set[str] | None
+    hits: list[SearchHit],
+    exact: set[str] | None,
+    exact_lenient: set[str] | None = None,
 ) -> dict[str, Any]:
     top: list[dict[str, Any]] = []
     for hit in hits[:TRACE_TOP]:
+        routes = [
+            reason.removeprefix("route:").split("+")
+            for reason in hit.reasons
+            if reason.startswith("route:")
+        ]
         top.append(
             {
                 "parent_asin": hit.parent_asin,
                 "score": round(float(hit.score), 4),
                 "matched_constraints": list(hit.matched_constraints),
+                "routes": routes[0] if routes else [],
             }
         )
     return {
         "hit_count": len(hits),
         "top": top,
         "scored_exact": bool(exact),
+        "exact_lenient": None if exact_lenient is None else len(exact_lenient),
     }
 
 

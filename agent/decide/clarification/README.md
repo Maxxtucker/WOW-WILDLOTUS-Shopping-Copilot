@@ -11,7 +11,7 @@ The simulator reads only structured `ask_attribute`. It does not infer the quest
 | File | Role |
 |---|---|
 | `types.py` | `Plan`, sentinel `NO_ADDITIONAL`. |
-| `utility.py` | `hit_utility(turn, rank) = 0.50 + 0.30/rank + 0.02*(11-turn)`. |
+| `utility.py` | Session-weighted HitRate/MRR utility; defaults to `0.50 + 0.30/rank + 0.02*(11-turn)`. |
 | `questions.py` | Still-informative attributes; `explain_question` templates. |
 | `replies.py` | Cache `predict_reply` for planner counterfactuals. |
 | `distinguish.py` | Partition by predicted reply; estimate next-turn Top-10 utility. |
@@ -72,7 +72,8 @@ with:
 If the target first appears at turn `t` and rank `r`, its score contribution is:
 
 ```math
-U(t,r)=0.50+\frac{0.30}{r}+0.02(11-t).
+U(t,r)=w_H+\frac{w_M}{r}+w_E\frac{11-t}{10},
+\qquad (w_H,w_M,w_E)=(0.50,0.30,0.20)\text{ by default}.
 ```
 
 The current expected hit value of showing the first `k_t` products is:
@@ -141,4 +142,18 @@ In each branch it:
 
 `k_t=0` means asking a question without exposing a product. On turn 10, the default configuration returns the full valid slate because no later answer can be consumed.
 
-`DynamicSlatePlanner` is currently an independent policy. It is not yet connected to `Clarifier`, retrieval, or the response model.
+`Clarifier` now runs `DynamicSlatePlanner` as its production policy. The
+catalog-signature adapter in `dynamic_adapter.py` converts ranked candidates
+into bounded no-hit/answer branches without mutating the live session. The
+runtime uses two answer observations, permits `k=0`, compacts typed answers to
+at most 12 branches, and compacts free-form `other` answers to at most 4
+branches so literal catalog strings are not treated as perfectly parseable.
+The adapter reserves a calibrated tail floor, adds catalog-coverage and parser-
+uncertainty mass to `NO_ADDITIONAL`, and assigns successful tail answers a
+bounded re-retrieval value. Questions below 10% effective coverage (`catalog
+coverage × parser reliability`) are removed from the action set, so a tiny
+modeled advantage cannot waste a turn on a very sparse attribute. A
+no-preference answer to one attribute returns to retrieval and Dynamic Slate
+instead of paging the previous ranking forever. If retrieval produces an empty
+head, the tail model can still choose a high-coverage recovery question with
+`k=0` rather than repeatedly returning no question and no products.

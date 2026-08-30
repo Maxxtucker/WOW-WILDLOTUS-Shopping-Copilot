@@ -12,7 +12,7 @@ import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 
 
-INDEX_VERSION = "agent-retrieval-v3"
+INDEX_VERSION = "agent-retrieval-v4"
 
 SEARCH_FIELDS = (
     "title",
@@ -23,15 +23,15 @@ SEARCH_FIELDS = (
     "description",
 )
 
-# These weights intentionally mirror the strong official starter baseline.
+# These weights favor concise identity and category fields over verbose copy.
 # SQLite's bm25() receives one additional zero weight for parent_asin.
 DEFAULT_FIELD_WEIGHTS = {
     "title": 6.0,
-    "categories": 4.0,
-    "features": 2.5,
-    "details": 2.5,
-    "store": 1.5,
-    "description": 1.0,
+    "categories": 5.0,
+    "features": 3.0,
+    "details": 1.0,
+    "store": 2.0,
+    "description": 0.8,
 }
 
 ALLOWED_ATTRIBUTES = {

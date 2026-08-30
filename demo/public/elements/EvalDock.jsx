@@ -45,7 +45,19 @@ const ghostBtn = {
   color: "#f5f7fb",
 };
 
-export default function EvaluatorPicker() {
+const BUYER_MODES = [
+  { id: "1", label: "1 — Template" },
+  { id: "2", label: "2 — Protected paraphrase" },
+  { id: "3", label: "3 — Synonym rewrite" },
+  { id: "4", label: "4 — Poor English" },
+];
+
+const LLM_MODES = [
+  { id: "remote", label: "Remote" },
+  { id: "local", label: "Local qwen3.5:4b" },
+];
+
+export default function EvalDock() {
   const root = typeof props !== "undefined" ? props : {};
   const evaluators = Array.isArray(root.evaluators) ? root.evaluators : [];
   const catalog = Array.isArray(root.catalog) ? root.catalog : [];
@@ -57,7 +69,12 @@ export default function EvaluatorPicker() {
   const [rangeEnd, setRangeEnd] = useState(root.rangeEnd || "10");
   const [randomN, setRandomN] = useState(String(root.randomN || "5"));
   const [mode, setMode] = useState(root.mode || "auto");
+  const [buyerMode, setBuyerMode] = useState(String(root.buyerMode || "1"));
+  const [llmMode, setLlmMode] = useState(String(root.llmMode || "remote"));
   const [expanded, setExpanded] = useState(true);
+  const selectedBackend = String(evaluator || root.selectedEvaluator || "").trim();
+  const canRun = selectedBackend === "local" || selectedBackend === "scenario";
+  const showBuyerMode = selectedBackend === "scenario";
   const status = root.status || "idle";
   const canStep = Boolean(root.canStep);
   const busy = status === "running" || (status === "step" && !canStep);
@@ -67,27 +84,34 @@ export default function EvaluatorPicker() {
     return hay.includes(query.trim().toLowerCase());
   });
 
-  const payload = () => ({
-    evaluator,
-    selectedEvaluator: evaluator,
+  const payload = (overrides = {}) => ({
+    evaluator: selectedBackend,
+    selectedEvaluator: selectedBackend,
     selection,
     sampleId,
     rangeStart,
     rangeEnd,
     randomN,
     mode,
+    buyerMode: Number(buyerMode) || 1,
+    llmMode: llmMode === "local" ? "local" : "remote",
+    ...overrides,
   });
+
+  const persist = (overrides = {}) => {
+    sendAction("eval_configure", payload(overrides));
+  };
 
   const actions = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {expanded ? (
         <button
           type="button"
-          disabled={busy || evaluator !== "local"}
+          disabled={busy || !canRun}
           onClick={() =>
             sendAction(mode === "step" ? "eval_step_start" : "eval_run", payload())
           }
-          style={{ ...btnStyle, opacity: busy || evaluator !== "local" ? 0.45 : 1 }}
+          style={{ ...btnStyle, opacity: busy || !canRun ? 0.45 : 1 }}
         >
           {mode === "step" ? "Start step-through" : "Run"}
         </button>
@@ -153,8 +177,12 @@ export default function EvaluatorPicker() {
 
             <Field label="Backend">
               <select
-                value={evaluator}
-                onChange={(event) => setEvaluator(event.target.value)}
+                value={selectedBackend}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setEvaluator(next);
+                  persist({ evaluator: next, selectedEvaluator: next });
+                }}
                 style={inputStyle}
               >
                 <option value="">Select an evaluator…</option>
@@ -167,7 +195,46 @@ export default function EvaluatorPicker() {
               </select>
             </Field>
 
-            {evaluator === "local" ? (
+            {showBuyerMode ? (
+              <>
+                <Field label="Buyer mode">
+                  <select
+                    value={buyerMode}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setBuyerMode(next);
+                      persist({ buyerMode: Number(next) || 1 });
+                    }}
+                    style={inputStyle}
+                  >
+                    {BUYER_MODES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="LLM mode">
+                  <select
+                    value={llmMode}
+                    onChange={(event) => {
+                      const next = event.target.value === "local" ? "local" : "remote";
+                      setLlmMode(next);
+                      persist({ llmMode: next });
+                    }}
+                    style={inputStyle}
+                  >
+                    {LLM_MODES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            ) : null}
+
+            {canRun ? (
               <div
                 style={{
                   display: "grid",

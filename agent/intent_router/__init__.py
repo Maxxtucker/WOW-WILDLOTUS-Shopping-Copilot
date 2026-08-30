@@ -5,7 +5,13 @@ Output: state.intention and the exact ASIN set passed to retrieve.
 Role: pipeline stage between understand observe and candidate organization.
 """
 
-from .exact_pool import exact_pool, exact_pool_for_state, exact_pool_from_groups
+from .exact_pool import (
+    ExactPools,
+    exact_pool,
+    exact_pool_for_state,
+    exact_pool_from_groups,
+    exact_pools_for_state,
+)
 from .llm import (
     IntentRouterClient,
     OverrideDecision,
@@ -15,7 +21,7 @@ from .llm import (
     has_committed_intent,
     warmup_intent_router,
 )
-from .probe import pool_ratio, pool_size, probe_exact_pool
+from .probe import pool_ratio, pool_size, probe_exact_pool, probe_exact_pools
 from .router import IntentRouter, route_intention
 from .writeback import apply_delta, apply_override_decision, replace_with_delta
 
@@ -32,9 +38,12 @@ __all__ = [
     "exact_pool",
     "exact_pool_for_state",
     "exact_pool_from_groups",
+    "exact_pools_for_state",
+    "ExactPools",
     "pool_ratio",
     "pool_size",
     "probe_exact_pool",
+    "probe_exact_pools",
     "replace_with_delta",
     "route_intention",
     "warmup_intent_router",

@@ -61,115 +61,8 @@ function Thumb({ card, large }) {
   );
 }
 
-function HeroCard({ card }) {
-  if (!card) return null;
-  const {
-    title = "",
-    price = null,
-    rating = null,
-    blurb = "",
-    tags = [],
-  } = card;
-  const ratingText =
-    rating === null || rating === undefined ? null : Number(rating).toFixed(1);
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 16,
-        padding: 16,
-        borderRadius: 16,
-        background: "linear-gradient(180deg, #151515 0%, #101010 100%)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
-      }}
-    >
-      <Thumb card={card} large />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "#ff2b7a",
-            fontWeight: 600,
-            marginBottom: 6,
-          }}
-        >
-          ⭐ Best match
-        </div>
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: 16,
-            lineHeight: 1.35,
-            color: "#f5f7fb",
-          }}
-        >
-          {title}
-        </div>
-        <div
-          style={{
-            marginTop: 8,
-            display: "flex",
-            gap: 12,
-            alignItems: "baseline",
-            fontSize: 15,
-          }}
-        >
-          <span style={{ fontWeight: 700, color: "#f5f7fb" }}>
-            {formatPrice(price)}
-          </span>
-          {ratingText ? (
-            <span style={{ color: "rgba(255,255,255,0.64)" }}>★ {ratingText}</span>
-          ) : null}
-        </div>
-        {blurb ? (
-          <div
-            style={{
-              marginTop: 8,
-              fontSize: 13,
-              lineHeight: 1.45,
-              color: "rgba(255,255,255,0.68)",
-            }}
-          >
-            {blurb}
-          </div>
-        ) : null}
-        {Array.isArray(tags) && tags.length > 0 ? (
-          <div
-            style={{
-              marginTop: 10,
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-            }}
-          >
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                style={{
-                  fontSize: 12,
-                  color: "#d6fff3",
-                  background: "rgba(32,201,151,0.12)",
-                  border: "1px solid rgba(32,201,151,0.26)",
-                  borderRadius: 999,
-                  padding: "3px 10px",
-                }}
-              >
-                ✓ {tag}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function MiniCard({ card }) {
-  const { title = "", price = null, rating = null } = card || {};
+function ShelfCard({ card }) {
+  const { title = "", price = null, rating = null, on_slate = false } = card || {};
   const ratingText =
     rating === null || rating === undefined ? null : Number(rating).toFixed(1);
   return (
@@ -179,8 +72,13 @@ function MiniCard({ card }) {
         width: "100%",
         padding: 10,
         borderRadius: 12,
-        background: "linear-gradient(180deg, #151515 0%, #101010 100%)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: on_slate
+          ? "linear-gradient(180deg, rgba(255,43,122,0.16) 0%, #151515 100%)"
+          : "linear-gradient(180deg, #151515 0%, #101010 100%)",
+        border: on_slate
+          ? "1px solid rgba(255,43,122,0.55)"
+          : "1px solid rgba(255,255,255,0.08)",
+        boxShadow: on_slate ? "0 0 0 1px rgba(255,43,122,0.2)" : "none",
         boxSizing: "border-box",
       }}
     >
@@ -209,10 +107,20 @@ function MiniCard({ card }) {
   );
 }
 
+function resolveCards(root) {
+  const fromCards = Array.isArray(root.cards) ? root.cards : [];
+  if (fromCards.length) {
+    return fromCards.slice(0, 10);
+  }
+  const legacy = [root.hero, ...(Array.isArray(root.others) ? root.others : [])].filter(
+    Boolean,
+  );
+  return legacy.slice(0, 10);
+}
+
 export default function ProductShelf() {
   const message = String(props.message || "").trim();
-  const hero = props.hero || null;
-  const others = (Array.isArray(props.others) ? props.others : []).slice(0, 10);
+  const cards = resolveCards(typeof props !== "undefined" ? props : {});
   const clarifyPrompt = props.clarify_prompt || "";
   const clarifyActions = Array.isArray(props.clarify_actions)
     ? props.clarify_actions
@@ -222,7 +130,7 @@ export default function ProductShelf() {
   const exploreText =
     props.explore_text || "More like this one would be nice";
 
-  if (!hero && others.length === 0 && !message) {
+  if (cards.length === 0 && !message) {
     return null;
   }
 
@@ -239,7 +147,7 @@ export default function ProductShelf() {
       {message ? (
         <div
           style={{
-            marginBottom: hero || others.length ? 12 : 0,
+            marginBottom: cards.length ? 12 : 0,
             fontSize: 15,
             lineHeight: 1.5,
             color: "rgba(255,255,255,0.86)",
@@ -250,36 +158,17 @@ export default function ProductShelf() {
         </div>
       ) : null}
 
-      {hero ? <HeroCard card={hero} /> : null}
-
-      {others.length > 0 ? (
-        <div style={{ marginTop: 14 }}>
-          <div
-            style={{
-              fontSize: 12,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: "rgba(255,255,255,0.48)",
-              fontWeight: 600,
-              marginBottom: 8,
-            }}
-          >
-            Other good matches
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
-            {others.map((card) => (
-              <MiniCard
-                key={card.parent_asin || card.title}
-                card={card}
-              />
-            ))}
-          </div>
+      {cards.length > 0 ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+            gap: 10,
+          }}
+        >
+          {cards.map((card) => (
+            <ShelfCard key={card.parent_asin || card.title} card={card} />
+          ))}
         </div>
       ) : null}
 
@@ -340,7 +229,7 @@ export default function ProductShelf() {
       ) : null}
 
       {showExplore ? (
-        <div style={{ marginTop: clarifyPrompt ? 16 : 16 }}>
+        <div style={{ marginTop: 16 }}>
           <div
             style={{
               fontSize: 11,

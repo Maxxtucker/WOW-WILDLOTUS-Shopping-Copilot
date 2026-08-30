@@ -94,13 +94,17 @@ async def _deliver_assistant(
     """
 
     text = (content or "").strip() or "I finished this turn but had nothing to say."
+    custom = [el for el in (elements or []) if isinstance(el, cl.CustomElement)]
     reply_msg.content = text
-    reply_msg.elements = list(elements or [])
+    reply_msg.elements = []
     reply_msg.actions = list(actions or [])
     last_exc: Exception | None = None
     for _ in range(3):
         try:
             await reply_msg.update()
+            for el in custom:
+                el.display = "inline"
+                await el.send(for_id=reply_msg.id)
             return
         except Exception as exc:
             last_exc = exc
@@ -378,22 +382,12 @@ async def handle_user_text(
     if cl.user_session.get("inspect_turn") == turn and not circuit.get("viewGraph"):
         cl.user_session.set("inspect_graph", "decide")
 
-    official = str((result or {}).get("message") or "").strip()
-    if official:
-        await _deliver_assistant(
-            reply_msg,
-            official,
-            [],
-            [],
-            fallback_msg=progress_msg,
-        )
-
     state = agent.sessions.get(session_id)
     content, elements, actions = prepare_reply(
         agent.retriever,
         result,
         state=state,
-        show_n=8,
+        show_n=10,
     )
     await _deliver_assistant(
         reply_msg,

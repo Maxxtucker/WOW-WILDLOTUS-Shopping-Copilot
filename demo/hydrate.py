@@ -74,6 +74,7 @@ def to_card(
     parent_asin: str,
     *,
     image_index: dict[str, str] | None = None,
+    on_slate: bool = False,
 ) -> dict[str, Any]:
     """Build one ProductCard props dict from a catalog product."""
 
@@ -89,6 +90,7 @@ def to_card(
         "tags": _shopping_tags(p),
         "accent": _accent_for(parent_asin),
         "image_url": resolve_image_url(p, parent_asin, image_index),
+        "on_slate": bool(on_slate),
     }
 
 
@@ -96,7 +98,7 @@ def hydrate_many(
     retriever: Any,
     recommendations: list[dict],
     *,
-    limit: int = 3,
+    limit: int = 10,
     image_index: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve the head of a recommendations list into card props."""
@@ -107,7 +109,14 @@ def hydrate_many(
         if not asin:
             continue
         product = retriever.get_product(asin)
-        cards.append(to_card(product, asin, image_index=image_index))
+        cards.append(
+            to_card(
+                product,
+                asin,
+                image_index=image_index,
+                on_slate=bool((row or {}).get("on_slate")),
+            )
+        )
     return cards
 
 
@@ -116,30 +125,42 @@ def expand_recommendations_for_ui(
     state: Any,
     recommendations: list[dict],
     *,
-    limit: int = 8,
-) -> list[dict[str, str]]:
-    """Keep Agent slate first, then pad from this turn's last_ranked.
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Take last_ranked head for display. Mark official protocol slate ASINs.
 
     Do not call retrieve again. A second hybrid pass over the full catalog
     blocked the Chainlit reply after Decide had already finished.
     """
 
-    ordered: list[str] = []
-    seen: set[str] = set()
+    del retriever
+    slate: set[str] = set()
+    official: list[str] = []
     for row in recommendations or []:
         asin = str((row or {}).get("parent_asin") or "").strip()
-        if not asin or asin in seen:
+        if not asin or asin in slate:
+            continue
+        official.append(asin)
+        slate.add(asin)
+
+    ranked: list[str] = []
+    if state is not None:
+        for asin in getattr(state, "last_ranked", None) or []:
+            asin = str(asin or "").strip()
+            if asin:
+                ranked.append(asin)
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    source = ranked if ranked else official
+    for asin in source:
+        if asin in seen:
             continue
         ordered.append(asin)
         seen.add(asin)
-
-    if state is not None and len(ordered) < limit:
-        for asin in getattr(state, "last_ranked", None) or []:
-            asin = str(asin or "").strip()
-            if not asin or asin in seen:
-                continue
-            ordered.append(asin)
-            seen.add(asin)
-            if len(ordered) >= limit:
-                break
-    return [{"parent_asin": asin} for asin in ordered[:limit]]
+        if len(ordered) >= limit:
+            break
+    return [
+        {"parent_asin": asin, "on_slate": asin in slate}
+        for asin in ordered[:limit]
+    ]

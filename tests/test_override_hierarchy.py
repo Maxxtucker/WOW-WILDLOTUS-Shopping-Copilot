@@ -8,6 +8,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from agent.intent_router.exact_pool import ExactPools
 from agent.intent_router.llm import (
     OverrideDecision,
     categories_distant,
@@ -29,7 +30,12 @@ from agent.understand.state import SessionState
 
 _OVERRIDE = "agent.intent_router.router.classify_override"
 _ROUTE = "agent.intent_router.router.classify_route"
-_PROBE = "agent.intent_router.router.probe_exact_pool"
+_PROBE = "agent.intent_router.router.probe_exact_pools"
+
+
+def _pools(strict: set[str]) -> ExactPools:
+    values = set(strict)
+    return ExactPools(values, values)
 
 
 def _slot(attribute: str, surface: str, *, hard: bool = True) -> ConstraintSlot:
@@ -84,7 +90,7 @@ class CategoryDistanceTest(unittest.TestCase):
         self.assertFalse(categories_distant("", "backpack"))
         self.assertFalse(categories_distant("sandals", ""))
 
-    def test_keep_l1_requires_distant_category(self) -> None:
+    def test_keep_l1_requires_an_extracted_replacement_category(self) -> None:
         state = _seeded()
         state.turn_delta = ObservationExtract(
             slots=(_slot("material", "polyester"),),
@@ -102,7 +108,7 @@ class CategoryDistanceTest(unittest.TestCase):
             slots=(_slot("category", "women sandals"),),
             source="llm",
         )
-        self.assertFalse(should_keep_l1(state))
+        self.assertTrue(should_keep_l1(state))
 
 
 class HierarchyWritebackTest(unittest.TestCase):
@@ -123,22 +129,22 @@ class HierarchyWritebackTest(unittest.TestCase):
         self.assertEqual(state.shown_asins, set())
         self.assertEqual(state.last_ranked, [])
 
-    def test_l1_preference_only_override_keeps_retrieval_category(self) -> None:
+    def test_l2_preference_only_override_keeps_category_and_other_fields(self) -> None:
         state = _seeded()
         state.turn_delta = ObservationExtract(
             slots=(_slot("feature", "rubber sole"),),
             source="llm",
         )
 
-        apply_override_decision(state, OverrideDecision(1))
+        apply_override_decision(state, OverrideDecision(2))
 
         by_attr = {
             slot.attribute: slot.surface for slot in state.typed_constraints
         }
         self.assertEqual(by_attr["category"], "sandals")
         self.assertEqual(by_attr["feature"], "rubber sole")
-        self.assertNotIn("material", by_attr)
-        self.assertNotIn("color", by_attr)
+        self.assertEqual(by_attr["material"], "suede")
+        self.assertEqual(by_attr["color"], "pink")
 
     def test_l2_color_only_keeps_category_and_material(self) -> None:
         state = _seeded()
@@ -224,7 +230,7 @@ class HierarchyRouterTest(unittest.TestCase):
         )
         with (
             patch(_OVERRIDE, return_value=OverrideDecision(0)),
-            patch(_PROBE, return_value={"A"}),
+            patch(_PROBE, return_value=_pools({"A"})),
         ):
             route_intention(state, MagicMock())
 
@@ -233,7 +239,12 @@ class HierarchyRouterTest(unittest.TestCase):
         self.assertEqual(state.current_intent_messages, [state.latest_message])
         self.assertEqual(
             [(slot.attribute, slot.surface) for slot in state.typed_constraints],
-            [("category", "sandals"), ("feature", "water resistant")],
+            [
+                ("category", "sandals"),
+                ("color", "pink"),
+                ("material", "suede"),
+                ("feature", "water resistant"),
+            ],
         )
 
     def test_catalog_copy_words_do_not_trigger_strong_override(self) -> None:
@@ -254,7 +265,7 @@ class HierarchyRouterTest(unittest.TestCase):
         with (
             patch(_OVERRIDE, return_value=OverrideDecision(2)),
             patch(_ROUTE) as route,
-            patch(_PROBE, return_value={"A"}) as probe,
+            patch(_PROBE, return_value=_pools({"A"})) as probe,
             progress_listener(events.append),
         ):
             exact = route_intention(state, MagicMock())
@@ -282,7 +293,7 @@ class HierarchyRouterTest(unittest.TestCase):
         with (
             patch(_OVERRIDE, return_value=True),
             patch(_ROUTE),
-            patch(_PROBE, return_value={"A"}),
+            patch(_PROBE, return_value=_pools({"A"})),
             progress_listener(events.append),
         ):
             route_intention(state, MagicMock())
@@ -305,7 +316,7 @@ class HierarchyRouterTest(unittest.TestCase):
         with (
             patch(_OVERRIDE, return_value=False),
             patch(_ROUTE, return_value="buying"),
-            patch(_PROBE, return_value={"A"}),
+            patch(_PROBE, return_value=_pools({"A"})),
             progress_listener(events.append),
         ):
             route_intention(state, MagicMock())
@@ -366,7 +377,7 @@ class HierarchyClassifyTest(unittest.TestCase):
         client.last_completion_tokens = 0
         return client
 
-    def test_attribute_only_l1_true_demotes_to_l2_replace(self) -> None:
+    def test_attribute_only_replacement_uses_l2(self) -> None:
         state = _seeded()
         state.latest_message = (
             "Actually, ignore my earlier preference. What I need is: polyester."
@@ -375,7 +386,7 @@ class HierarchyClassifyTest(unittest.TestCase):
             slots=(_slot("material", "polyester"),),
             source="llm",
         )
-        client = self._client({"full": True}, {"override": True})
+        client = self._client({"full": False}, {"override": True})
         with patch(
             "agent.intent_router.llm.get_intent_router_client",
             return_value=client,
@@ -472,7 +483,7 @@ class HierarchyClassifyTest(unittest.TestCase):
             slots=(_slot("category", "women sandals"),),
             source="llm",
         )
-        client = self._client({"full": True}, {"override": True})
+        client = self._client({"full": False}, {"override": True})
         with patch(
             "agent.intent_router.llm.get_intent_router_client",
             return_value=client,
@@ -487,6 +498,40 @@ class DropTypedTest(unittest.TestCase):
         state = _seeded()
         drop_typed(state, set())
         self.assertEqual(len(state.typed_constraints), 3)
+
+
+class OverrideAskedResetTest(unittest.TestCase):
+    """Verify that override clears asked question history."""
+
+    def test_open_conversion_gate_clears_asked(self) -> None:
+        from agent.understand.state.gate import open_conversion_gate
+        
+        state = _seeded()
+        state.asked = ["material", "color", "feature"]
+        
+        open_conversion_gate(state)
+        
+        # Verify asked list is cleared
+        self.assertEqual(state.asked, [])
+        # Verify other state is also cleared as expected
+        self.assertTrue(state.gate_open)
+        self.assertTrue(state.override_seen)
+
+    def test_can_reaskin_after_override(self) -> None:
+        """Verify that after override, previously asked attributes can be asked again."""
+        from agent.understand.state.gate import open_conversion_gate
+        
+        state = _seeded()
+        state.asked = ["material", "color"]
+        initial_asked = list(state.asked)
+        
+        # Override should clear the asked list
+        open_conversion_gate(state)
+        
+        # After clearing, asked should be empty
+        self.assertEqual(len(state.asked), 0)
+        # Previously asked attributes are now available to ask again
+        self.assertNotEqual(state.asked, initial_asked)
 
 
 if __name__ == "__main__":

@@ -153,8 +153,12 @@ class TurnPipeline:
         router = build_router_trace(state, exact)
         emit("router", "stage", "completed", router)
         emit("retrieve", "stage", "running")
-        hits = self.organizer.apply(state, exact)
-        retrieve = build_retrieve_trace(hits, exact)
+        hits = self.organizer.apply(
+            state, exact, exact_lenient=state.exact_lenient
+        )
+        retrieve = build_retrieve_trace(
+            hits, exact, exact_lenient=state.exact_lenient
+        )
         ranked = self.ranker.apply(hits, state)
         state.last_ranked = [item.parent_asin for item in ranked]
         ranking = build_ranking_trace(ranked)

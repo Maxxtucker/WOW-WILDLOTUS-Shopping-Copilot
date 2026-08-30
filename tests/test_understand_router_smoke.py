@@ -18,7 +18,7 @@ from unittest.mock import patch
 from urllib.request import Request
 
 from agent.intent_router.llm import ROUTE_SYSTEM
-from agent.intent_router.probe import probe_exact_pool
+from agent.intent_router.probe import probe_exact_pools
 from agent.intent_router.router import route_intention
 from agent.retrieve.candidates.retrieve import CandidateOrganizer
 from agent.retrieve.catalog import CatalogRetriever
@@ -411,8 +411,8 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         state.begin_turn(TURN1, 1)
         nlu_calls = list(self.calls)
         with patch(
-            "agent.intent_router.router.probe_exact_pool",
-            wraps=probe_exact_pool,
+            "agent.intent_router.router.probe_exact_pools",
+            wraps=probe_exact_pools,
         ) as probe:
             with patch.object(
                 self.retriever, "search", wraps=self.retriever.search
@@ -485,8 +485,8 @@ class OfflineUnderstandRouterSmokeTest(unittest.TestCase):
         self.calls.clear()
         state.begin_turn(TURN3, 3)
         with patch(
-            "agent.intent_router.router.probe_exact_pool",
-            wraps=probe_exact_pool,
+            "agent.intent_router.router.probe_exact_pools",
+            wraps=probe_exact_pools,
         ) as probe:
             with patch.object(
                 self.retriever, "search", wraps=self.retriever.search

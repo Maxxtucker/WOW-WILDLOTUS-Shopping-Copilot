@@ -1,0 +1,4 @@
+. .\scripts\load_nlu_env.ps1
+>> python scripts/nlu_console.py
+I’m looking for a pair of cordovan running shoes suitable for regular training, preferably in an orpiment or saffron hue, around UK size 8.5, and a key is that the  price must be below $1,000.
+Actually, blue and pink also ok for me. and nylon is also applicable. brand wise have to be Nike or Adidas

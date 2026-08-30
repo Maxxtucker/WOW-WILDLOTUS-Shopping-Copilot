@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.domain import ALLOWED_ATTRIBUTES
+from agent.intent_router.exact_pool import ExactPools
 from agent.pipeline import TurnPipeline
 from agent.understand.mode import MODE_NLU, MODE_REGEX, configure_understand
 from agent.understand.observation.llm_nlu import set_nlu_client
@@ -166,7 +167,8 @@ class PipelineSmokeTest(unittest.TestCase):
     def test_none_exact_pool_falls_back_to_search(self) -> None:
         state = SessionState("smoke-hybrid", {})
         with patch(
-            "agent.intent_router.router.probe_exact_pool", return_value=None
+            "agent.intent_router.router.probe_exact_pools",
+            return_value=ExactPools(None, None),
         ):
             response, trace = self.pipeline.run_traced(state, BUYING, 1, 10)
         _assert_official_response(response)

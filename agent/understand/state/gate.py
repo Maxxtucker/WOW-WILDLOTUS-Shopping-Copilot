@@ -24,6 +24,7 @@ def open_conversion_gate(state: SessionState) -> None:
     state.legacy_hints.clear()
     state.excluded_asins.clear()
     state.shown_asins.clear()
+    state.asked.clear()
 
 
 def apply_override(state: SessionState, new_value: str | None) -> None:

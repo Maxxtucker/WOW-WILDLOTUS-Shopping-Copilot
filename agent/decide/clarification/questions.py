@@ -26,7 +26,7 @@ def eligible_questions(
 ) -> list[str | None]:
     if state.turn >= 10:
         return [None]
-    result: list[str | None] = [None]
+    result: list[str | None] = []
     # With an empty retrieval head, retain high-coverage recovery questions.
     # Dynamic Slate's tail model decides whether asking one is worth more than
     # returning an empty recommendation list.

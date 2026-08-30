@@ -75,6 +75,7 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         self._closed = False
         self._slots_attached = False
         self._slots_path = None
+        self._all_parent_asins: frozenset[str] | None = None
         self._configure_connection()
         if rebuild or not self._index_is_current():
             self._build_index()
@@ -197,6 +198,58 @@ class CatalogRetriever(IndexMixin, ScoringMixin, SearchMixin):
         if limit is not None:
             found = found[: max(0, int(limit))]
         return tuple(found)
+
+    def all_parent_asins(self) -> frozenset[str]:
+        """Every catalog ASIN. Cached for lenient unknown-attribute sets."""
+
+        cached = self._all_parent_asins
+        if cached is not None:
+            return cached
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT parent_asin FROM products"
+            ).fetchall()
+        result = frozenset(str(row["parent_asin"]) for row in rows)
+        self._all_parent_asins = result
+        return result
+
+    def asins_with_attribute(
+        self,
+        attribute: str,
+        *,
+        response_only: bool = False,
+    ) -> set[str]:
+        """ASINs that have any indexed value for ``attribute``.
+
+        Uses the same lookup surface as ``signature_candidates``: response
+        signatures only when ``response_only``, otherwise response+search and
+        (when attached) ``slots.product_slots``.
+        """
+
+        attr = normalise_attribute(attribute)
+        if response_only:
+            sql = (
+                "SELECT DISTINCT parent_asin FROM signature_values "
+                "WHERE attribute = ? AND kind = 'response'"
+            )
+            parameters: list[object] = [attr]
+        else:
+            sql = (
+                "SELECT DISTINCT parent_asin FROM signature_values "
+                "WHERE attribute = ? AND kind IN ('response', 'search')"
+            )
+            parameters = [attr]
+        with self._lock:
+            rows = self.connection.execute(sql, parameters).fetchall()
+            found = {str(row["parent_asin"]) for row in rows}
+            if not response_only and getattr(self, "_slots_attached", False):
+                slot_rows = self.connection.execute(
+                    "SELECT DISTINCT parent_asin FROM slots.product_slots "
+                    "WHERE attribute = ?",
+                    (attr,),
+                ).fetchall()
+                found.update(str(row["parent_asin"]) for row in slot_rows)
+        return found
 
     def predict_reply(
         self,

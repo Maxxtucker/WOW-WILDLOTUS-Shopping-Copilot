@@ -164,8 +164,13 @@ class ScoringMixin:
         dimensions: DimensionSpec | None = None,
         hard_budget: bool = False,
         hard_dimension: bool = False,
+        allow_missing: bool = False,
     ) -> set[str]:
-        """Keep ASINs that pass hard budget and/or hard L/W/H/weight."""
+        """Keep ASINs that pass hard budget and/or hard L/W/H/weight.
+
+        ``allow_missing=True`` treats a missing price or dimension axis as
+        unknown (keep). A present value outside the interval is still dropped.
+        """
 
         values = {str(item) for item in parent_asins if item}
         if not values or (not hard_budget and not hard_dimension):
@@ -181,10 +186,17 @@ class ScoringMixin:
         for parent_asin, row in rows.items():
             if hard_budget and budget_range is not None:
                 price = None if row["price"] is None else float(row["price"])
-                if not self._budget_in_range(price, budget_range):
+                if price is None:
+                    if not allow_missing:
+                        continue
+                elif not self._budget_in_range(price, budget_range):
                     continue
             if hard_dimension and dimensions is not None:
-                if not _dimension_matches(dim_map.get(parent_asin), dimensions):
+                if not _dimension_matches(
+                    dim_map.get(parent_asin),
+                    dimensions,
+                    allow_missing=allow_missing,
+                ):
                     continue
             kept.add(parent_asin)
         return kept
@@ -506,9 +518,11 @@ def _dimension_axes(extras: Mapping[str, object]) -> dict[str, float | None]:
 def _dimension_matches(
     axes: Mapping[str, float | None] | None,
     query: DimensionSpec,
+    *,
+    allow_missing: bool = False,
 ) -> bool:
     if axes is None:
-        return False
+        return allow_missing
     stated = False
     for name in ("length", "width", "height", "weight"):
         wanted = getattr(query, name)
@@ -517,6 +531,8 @@ def _dimension_matches(
         stated = True
         have = axes.get(name)
         if have is None:
+            if allow_missing:
+                continue
             return False
         floor = _EQ_ABS_LB if name == "weight" else _EQ_ABS_IN
         tol = max(floor, abs(wanted) * _EQ_REL)

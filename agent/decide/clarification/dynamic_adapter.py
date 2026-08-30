@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 
+from ...domain import QUESTION_ATTRIBUTES
 from ..ranking.normalize import RankedCandidate
 from .dynamic_slate import (
     DynamicSlateAction,
@@ -91,13 +92,23 @@ class CatalogSignatureTransitionModel:
             RankedCandidate(item.parent_asin, item.score, item.probability * scale)
             for item in raw_head
         )
+        # Filter questions by viability; before turn 10, ensure no None-only fallback
+        filtered_questions = tuple(
+            question for question in questions
+            if self._question_is_viable(question)
+        )
+        if turn < 10 and not filtered_questions:
+            # Ensure a concrete attribute is available even if all were filtered.
+            # Use the first viable concrete attribute from QUESTION_ATTRIBUTES.
+            for attr in ("feature", "material", "color", "other"):
+                if self._question_is_viable(attr):
+                    filtered_questions = (attr,)
+                    break
+        final_questions = filtered_questions or (None,)
         return DynamicSlateState(
             turn=turn,
             candidates=head,
-            questions=tuple(
-                question for question in questions
-                if self._question_is_viable(question)
-            ) or (None,),
+            questions=final_questions,
             gate_probability=1.0 if gate_open else 0.0,
             tail_probability=tail,
             cache_key=self._next_key("root"),

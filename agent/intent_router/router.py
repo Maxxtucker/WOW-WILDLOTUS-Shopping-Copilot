@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from ..progress import emit, skip_nodes
 from ..understand.state.failsafe import apply_override_failsafe
+from .exact_pool import ExactPools
 from .llm import (
     OverrideDecision,
     as_override_decision,
@@ -19,7 +20,7 @@ from .llm import (
     classify_route,
     has_committed_intent,
 )
-from .probe import pool_ratio, pool_size, probe_exact_pool
+from .probe import pool_ratio, pool_size, probe_exact_pools
 from .writeback import apply_delta, apply_override_decision
 
 if TYPE_CHECKING:
@@ -83,16 +84,27 @@ def _emit_route_label(intention: str) -> None:
     skip_nodes("router", "buying", "browsing", why=f"route labeled {intention}")
 
 
+def _commit_pools(state: SessionState, pools: ExactPools) -> set[str] | None:
+    state.exact_strict = pools.strict
+    state.exact_lenient = pools.lenient
+    return pools.strict
+
+
 def _run_override_branch(state: SessionState, retriever: CatalogRetriever):
     emit("router", "probe_override", "running")
-    exact = probe_exact_pool(retriever, state)
+    pools = probe_exact_pools(retriever, state)
+    exact = _commit_pools(state, pools)
     emit(
         "router",
         "probe_override",
         "completed",
         {
             "exact": pool_size(exact),
-            "output": {"exact": pool_size(exact)},
+            "exact_lenient": pool_size(pools.lenient),
+            "output": {
+                "exact": pool_size(exact),
+                "exact_lenient": pool_size(pools.lenient),
+            },
         },
     )
     emit(
@@ -126,7 +138,7 @@ def route_intention(
     committed = has_committed_intent(state)
     decision = as_override_decision(classify_override(state))
     if decision.level == 0 and committed and strong_override_fallback(state):
-        decision = OverrideDecision(1)
+        decision = OverrideDecision(2)
     if decision.level == 0 and not committed:
         skip_nodes(
             "router",
@@ -195,7 +207,8 @@ def route_intention(
         why="accumulate branch taken",
     )
     emit("router", "probe_before", "running")
-    before = probe_exact_pool(retriever, state)
+    before_pools = probe_exact_pools(retriever, state)
+    before = before_pools.strict
     emit(
         "router",
         "probe_before",
@@ -211,7 +224,8 @@ def route_intention(
         {"mode": "accumulate", "output": {"mode": "accumulate"}},
     )
     emit("router", "probe_after", "running")
-    after = probe_exact_pool(retriever, state)
+    after_pools = probe_exact_pools(retriever, state)
+    after = _commit_pools(state, after_pools)
     emit(
         "router",
         "probe_after",
@@ -220,7 +234,12 @@ def route_intention(
             "before": pool_size(before),
             "after": pool_size(after),
             "exact": pool_size(after),
-            "output": {"before": pool_size(before), "after": pool_size(after)},
+            "exact_lenient": pool_size(after_pools.lenient),
+            "output": {
+                "before": pool_size(before),
+                "after": pool_size(after),
+                "exact_lenient": pool_size(after_pools.lenient),
+            },
         },
     )
     state.candidate_count_before_delta = pool_size(before)

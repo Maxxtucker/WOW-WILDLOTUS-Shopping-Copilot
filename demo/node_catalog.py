@@ -409,12 +409,14 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "label": "Hybrid search",
         "function": (
             "Recover candidates with BM25 ∪ catalog signatures when the exact "
-            "pool is empty or missing."
+            "pool is empty, missing, or smaller than 150."
         ),
         "implementation": (
             "retriever.search(..., hard_required=False) so an over-pruned "
-            "intersection does not yield an empty slate. Excluded ASINs from "
-            "earlier slates are dropped during scoring."
+            "intersection does not yield an empty slate. A small exact pool "
+            "keeps hard hits first and fills to 300 (browsing 500); a pool "
+            "of 150+ skips this node. Excluded ASINs from earlier slates "
+            "are dropped."
         ),
     },
     "cap_hits": {
@@ -422,8 +424,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "label": "Cap hits",
         "function": "Truncate the scored list to the routing limit. Merge of both recall paths.",
         "implementation": (
-            "hits[:routing.limit] on the exact path; search already applies the "
-            "same limit on hybrid. Ranking (Qwen or belief) reads only this head."
+            "hits[:routing.limit] when exact already has 150+; otherwise "
+            "exact hits plus hybrid fill to 300/500, hard segment first. "
+            "Official respond still uses planner/gate, not this full library."
         ),
     },
     "qwen_rerank": {
@@ -496,8 +499,8 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "implementation": (
             "ScoreAwarePlanner searches ask × k ∈ [0, top_k]. Immediate hit "
             "utility is 0.50 + 0.30/rank + 0.02×(11−turn), plus future_value "
-            "of reply partitions. Turn 10 is a full slate and no question. "
-            "Empty pools ask other (or nothing on turn 10)."
+            "of reply partitions. Turn 10 and empty disclosure are a full "
+            "slate and no question. Empty pools ask other (or nothing on turn 10)."
         ),
     },
     "sequential_gate": {
@@ -510,7 +513,8 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
             "apply_sequential_gate keeps slate[:1] when the gate is open, it is "
             "not turn 10, the planned slate is wider than one, and either an "
             "informative question remains or leftover candidates still fit "
-            "one-per-turn plus the final Top-10."
+            "one-per-turn plus the final Top-10. Empty disclosure keeps the "
+            "planned Top-K."
         ),
     },
     "gate_rank1": {
@@ -528,9 +532,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "label": "Keep slate",
         "function": "Keep the planner’s wider recommendation list.",
         "implementation": (
-            "Taken on turn 10, when the gate is closed, when there is no useful "
-            "question and too many leftovers to probe one-by-one, or when the "
-            "planned slate is already a singleton."
+            "Taken on turn 10, on empty disclosure, when the gate is closed, "
+            "when there is no useful question and too many leftovers to probe "
+            "one-by-one, or when the planned slate is already a singleton."
         ),
     },
     "persist_turn": {

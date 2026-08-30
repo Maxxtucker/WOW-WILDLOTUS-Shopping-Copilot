@@ -61,6 +61,12 @@ class ResponseBuilder:
             "build_response",
             "completed",
             {
+                "input": {
+                    "slate": list(slate),
+                    "ask_attribute": plan.ask_attribute,
+                    "reason": plan.reason,
+                    "candidates": len(candidate_asins),
+                },
                 "output": {
                     "ask_attribute": response.get("ask_attribute"),
                     "recommendations": len(response.get("recommendations") or []),

@@ -22,7 +22,7 @@ Ranker.apply(hits, state)
 
 Clarifier.apply(state, ranked, top_k)
     ├─ predict_reply partitions → ScoreAwarePlanner.plan → Plan
-    └─ apply_sequential_gate → usually keep rank-1 (full Top-K on turn 10)
+    └─ apply_sequential_gate → usually keep rank-1 (full Top-K on turn 10 or empty disclosure)
 
 ResponseBuilder.apply(state, retriever, candidate_asins, plan, slate)
     ├─ persist_turn: set_reply_options + record_action

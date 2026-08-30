@@ -102,6 +102,7 @@ class Clarifier:
                     "planned": len(plan.recommendations),
                     "gate_open": state.gate_open,
                     "turn": state.turn,
+                    "empty_disclosure_reveal": state.empty_disclosure_reveal,
                 },
                 "output": {"slate": len(slate), "gated": gated},
             },

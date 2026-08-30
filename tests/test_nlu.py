@@ -18,6 +18,7 @@ from agent.intent_router import apply_delta, replace_with_delta
 from agent.retrieve.candidates.routing import (
     BROWSING_LIMIT,
     BUYING_LIMIT,
+    LIBRARY_MIN,
     routing_for,
 )
 from agent.decide.clarification import NO_ADDITIONAL, eligible_questions
@@ -986,16 +987,68 @@ class IntentionRoutingTest(unittest.TestCase):
         self.assertGreater(browsing.weights.lexical, buying.weights.lexical)
         self.assertGreater(browsing.weights.missing_required, buying.weights.missing_required)
 
-    def test_retrieve_scores_passed_exact_without_catalog_search(self) -> None:
-        hit = SearchHit("A", 1.0, 0.0, 1.0, 0.0, 1.0)
+    def test_retrieve_fills_small_exact_keeps_hard_first(self) -> None:
+        exact_hits = [
+            SearchHit("E1", 2.0, 0.0, 1.0, 0.0, 1.0),
+            SearchHit("E2", 1.5, 0.0, 1.0, 0.0, 1.0),
+        ]
+        fill_hits = [
+            SearchHit("F1", 9.0, 0.0, 0.0, 0.0, 0.0),
+            SearchHit("F2", 8.0, 0.0, 0.0, 0.0, 0.0),
+        ]
+        state = SessionState("s", {})
+        state.intention = "buying"
+        state.excluded_asins = {"X"}
+        retriever = MagicMock()
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = exact_hits
+        retriever.search.return_value = fill_hits
+        hits = retrieve_candidates(retriever, state, {"E1", "E2"})
+        retriever.score_candidates.assert_called_once()
+        retriever.search.assert_called_once()
+        kwargs = retriever.search.call_args.kwargs
+        self.assertFalse(kwargs["hard_required"])
+        self.assertEqual(kwargs["limit"], LIBRARY_MIN - 2)
+        exclude = set(kwargs["exclude_asins"])
+        self.assertEqual(exclude, {"X", "E1", "E2"})
+        self.assertEqual(
+            [item.parent_asin for item in hits],
+            ["E1", "E2", "F1", "F2"],
+        )
+        self.assertEqual(len(hits), min(LIBRARY_MIN, 2 + len(fill_hits)))
+
+    def test_retrieve_skips_hybrid_when_exact_meets_floor(self) -> None:
+        asins = [f"E{index:03d}" for index in range(150)]
+        scored = [
+            SearchHit(asin, 1.0, 0.0, 1.0, 0.0, 1.0) for asin in asins
+        ]
+        state = SessionState("s", {})
+        state.intention = "buying"
+        retriever = MagicMock()
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = scored
+        hits = retrieve_candidates(retriever, state, set(asins))
+        retriever.search.assert_not_called()
+        retriever.score_candidates.assert_called_once()
+        self.assertEqual(len(hits), 150)
+        self.assertEqual(hits[0].parent_asin, "E000")
+
+    def test_retrieve_browsing_fill_uses_wide_cap(self) -> None:
+        exact_hits = [
+            SearchHit("E1", 2.0, 0.0, 1.0, 0.0, 1.0),
+            SearchHit("E2", 1.5, 0.0, 1.0, 0.0, 1.0),
+        ]
         state = SessionState("s", {})
         state.intention = "browsing"
         retriever = MagicMock()
-        retriever.score_candidates.return_value = [hit]
-        hits = retrieve_candidates(retriever, state, {"A", "B"})
-        retriever.search.assert_not_called()
-        retriever.score_candidates.assert_called_once()
-        self.assertEqual([item.parent_asin for item in hits], ["A"])
+        retriever.lexical_scores.return_value = {}
+        retriever.score_candidates.return_value = exact_hits
+        retriever.search.return_value = []
+        retrieve_candidates(retriever, state, {"E1", "E2"})
+        self.assertEqual(
+            retriever.search.call_args.kwargs["limit"],
+            BROWSING_LIMIT - 2,
+        )
 
     def test_retrieve_empty_exact_uses_lexical_recovery(self) -> None:
         state = SessionState("s", {})
@@ -1050,7 +1103,7 @@ class IntentionRoutingTest(unittest.TestCase):
             buying_state.active_constraints = ["leather"]
             buying_state.intention = "buying"
             buying_hits = retrieve_candidates(retriever, buying_state)
-            self.assertLessEqual(len(buying_hits), BUYING_LIMIT)
+            self.assertLessEqual(len(buying_hits), LIBRARY_MIN)
             self.assertTrue(buying_hits)
 
             browsing_state = SessionState("browse", {})

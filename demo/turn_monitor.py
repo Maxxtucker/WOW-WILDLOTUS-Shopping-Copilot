@@ -11,6 +11,7 @@ import json
 import sys
 from typing import Any, TextIO
 
+from agent.pipeline import leftover_page_stats
 from agent.understand.observation.schema import ObservationExtract
 from agent.understand.state import SessionState
 
@@ -85,6 +86,7 @@ def session_snapshot(state: SessionState | None) -> dict[str, Any]:
         "last_slate": list(state.last_slate),
         "excluded_count": len(state.excluded_asins),
         "turn_delta": _delta_brief(state.turn_delta),
+        **leftover_page_stats(state),
     }
 
 
@@ -96,6 +98,7 @@ def _understand_lines(detail: dict[str, Any]) -> list[str]:
                 "source": detail.get("source"),
                 "category": detail.get("category"),
                 "empty": detail.get("empty"),
+                "disclosure_empty": detail.get("disclosure_empty"),
                 "slots": _slot_rows(detail.get("slots") or []),
             }
         ),
@@ -149,6 +152,7 @@ def _decide_lines(detail: dict[str, Any], retriever: object | None) -> list[str]
                 "gated": detail.get("gated"),
                 "planned_slate": detail.get("planned_slate") or [],
                 "slate": detail.get("slate") or [],
+                "leftover": detail.get("leftover"),
             }
         ),
         "",

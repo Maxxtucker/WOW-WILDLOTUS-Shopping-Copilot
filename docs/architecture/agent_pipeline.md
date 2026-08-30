@@ -95,8 +95,9 @@ user_message
     ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ 5. CandidateOrganize  (retrieve/candidates/retrieve.py)       │
-│    exact set: score_candidates (soft preferred), cap 150/500  │
-│    exact is None: BM25 ∪ signatures                           │
+│    exact ≥150: score_candidates, cap 150/500                  │
+│    exact <150: hard hits first, hybrid fill to 300/500        │
+│    exact is None: BM25 ∪ signatures to 300/500                │
 └───────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -140,6 +141,8 @@ Orchestration code:
         ), TurnTrace(...)
 ```
 
+After observe, an empty-disclosure turn with at least one unshown `last_ranked` ASIN skips router and retrieve and pages the next `top_k` (usually 10). An empty leftover list takes the normal retrieve path. The official respond slate is still `top_k`, not the 300-wide library.
+
 Observe stores `turn_delta`. The intention router classifies override with a separate local model (no regex). L1 is kept only when this turn names a category that is far from the committed one (sandal vs backpack); attribute-only turns and close-family category swaps cannot be L1. L2 replaces only the fields present on this turn's delta, and only when the utterance clearly overturns a preference. Adding alternatives is not override. Catalog features may legally contain `instead` / `forget`; that is handled by the L2 prompt and by tests that mock accumulate. Both override levels open the conversion gate. The override LLMs are skipped when no committed prior intent exists.
 
 ---
@@ -150,7 +153,7 @@ Observe stores `turn_delta`. The intention router classifies override with a sep
 | --- | --- | --- |
 | Official entry | `starter/agent.py` | Evaluator import; re-exports `agent.Agent` |
 | Orchestrator | `agent/orchestrator.py` | Session dict, index path, hand `respond` to pipeline |
-| One-turn loop | `agent/pipeline.py` | Observe, route, retrieve, rank, plan, respond. `run_traced` also returns `TurnTrace` |
+| One-turn loop | `agent/pipeline.py` | Observe, route, retrieve, rank, plan, respond. Empty disclosure pages the next 10 from `last_ranked` when any remain. `run_traced` also returns `TurnTrace` |
 | Stage summaries | `agent/trace.py` | Compact per-stage dicts for the console chatbot |
 | Stage contracts | `agent/stages.py` | Swappable Protocols, including `ResponseStage` |
 | Dialogue memory | `agent/understand/state/` | `SessionState` dataclass; miss / fail-safe / begin_turn |
@@ -160,7 +163,7 @@ Observe stores `turn_delta`. The intention router classifies override with a sep
 | Observation | `agent/understand/observation/` | Hybrid extract into `turn_delta`. Typed slots: [`slots/README.md`](../../agent/understand/observation/slots/README.md). NLU vs regex: [`understand_nlu.md`](understand_nlu.md) |
 | Understand mode | `agent/understand/mode.py` | `nlu` (default) or `regex`; Agent keyword / env |
 | Hard filter | `agent/intent_router/exact_pool.py` | Exact signature intersection (router probe) |
-| Candidate fuse | `agent/retrieve/candidates/` | Score router pool; BM25 only if exact is None |
+| Candidate fuse | `agent/retrieve/candidates/` | Score router pool; hybrid-fill to 300 when exact is under 150 |
 | Ranking | `agent/decide/ranking/` | Temperature softmax and `RankedCandidate` |
 | Clarification | `agent/decide/clarification/` | Utility planning, question choice, slate gate |
 | Response | `agent/decide/response/` | Message templates and session writeback |
@@ -356,7 +359,7 @@ query terms
     sort by score, required_coverage, lexical, asin; truncate to limit
 ```
 
-The exact path (`intent_router/exact_pool.py`) intersects `signature_candidates`. Retrieve then `score_candidates` on that set. Typed NLU uses slot attribute + search value with catalog aliases; the regex path keeps `response_only=True`. When the router returns `None`, retrieve uses `search(..., hard_required=False)`.
+The exact path (`intent_router/exact_pool.py`) intersects `signature_candidates`. Retrieve then `score_candidates` on that set. If the scored exact pool is under 150, retrieve keeps those hard hits first and pads with `search(..., hard_required=False)`, excluding exact ASINs, until the library is at least 300 (browsing still 500). The official respond slate stays planner/gate (`top_k`, often 1 early). Typed NLU uses slot attribute + search value with catalog aliases; the regex path keeps `response_only=True`. When the router returns `None`, retrieve uses hybrid only, also to at least 300.
 
 `retrieve/catalog/protocol_copy.py` keeps an independent copy of `intent_card` / `classify_constraint` so index build does not import `domain` in a cycle.
 

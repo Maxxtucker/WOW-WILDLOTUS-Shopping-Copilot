@@ -112,6 +112,12 @@ class SessionState:
             )
         return tuple(self.active_constraints)
 
+    @property
+    def empty_disclosure_reveal(self) -> bool:
+        """Decide should show a full Top-K slate: shopper added nothing this turn."""
+
+        return self.disclosure_empty is True
+
     def begin_turn(self, message: str, turn: int) -> None:
         """Apply guaranteed previous-miss feedback, then parse this observation."""
 

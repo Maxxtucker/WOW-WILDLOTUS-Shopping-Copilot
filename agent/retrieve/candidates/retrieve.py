@@ -1,8 +1,9 @@
-"""Purpose: score the router's exact pool, or BM25 when that pool is unavailable.
+"""Purpose: score the router's exact pool, then fill with hybrid if under the floor.
 
 Input: CatalogRetriever, SessionState, optional exact ASIN set from the router.
-Output: truncated SearchHit values (150 Buying / 500 Browsing).
-Role: pipeline stage 5. Does not recompute the hard intersection.
+Output: SearchHit values (library at least 300 when exact is under 150; browsing 500).
+Role: pipeline stage 5. Does not recompute the hard intersection. Hard hits
+stay in front; hybrid fill (hard_required=False) pads a small exact pool.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from ..from_slots import (
     uses_typed_slots,
 )
 from .query import rewrite_query
-from .routing import routing_for
+from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
 
 if TYPE_CHECKING:
     from ..catalog.retriever import CatalogRetriever
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 
 
 class CandidateOrganizer:
-    """Stage 5: score the router pool, else lexical fallback."""
+    """Stage 5: score the router pool; hybrid-fill to 300 when under 150 exact."""
 
     def __init__(self, retriever: CatalogRetriever) -> None:
         self.retriever = retriever
@@ -103,6 +104,7 @@ def retrieve_candidates(
             "input": {"intention": state.intention},
             "output": {
                 "limit": routing.limit,
+                "library_limit": library_limit_for(state.intention),
                 "candidate_limit": routing.candidate_limit,
                 "exact_first": routing.exact_first,
             },
@@ -137,11 +139,6 @@ def retrieve_candidates(
         "profile_tags": state.preference_tags,
     }
     if exact:
-        skip_nodes(
-            "retrieve",
-            "hybrid_search",
-            why="exact pool is nonempty",
-        )
         emit("retrieve", "lexical_in_pool", "running")
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
         in_pool = {
@@ -159,7 +156,7 @@ def retrieve_candidates(
             },
         )
         emit("retrieve", "score_exact", "running")
-        hits = retriever.score_candidates(
+        exact_hits = retriever.score_candidates(
             exact,
             lexical_scores=in_pool,
             in_exact_pool=True,
@@ -169,20 +166,78 @@ def retrieve_candidates(
             "retrieve",
             "score_exact",
             "completed",
-            {"output": {"scored": len(hits)}},
+            {"output": {"scored": len(exact_hits)}},
         )
-        capped = hits[: routing.limit]
+        if len(exact_hits) >= CANDIDATE_FLOOR:
+            skip_nodes(
+                "retrieve",
+                "hybrid_search",
+                why="exact pool already meets candidate floor",
+            )
+            capped = exact_hits[: routing.limit]
+            emit(
+                "retrieve",
+                "cap_hits",
+                "completed",
+                {
+                    "input": {
+                        "scored": len(exact_hits),
+                        "limit": routing.limit,
+                    },
+                    "output": {
+                        "hit_count": len(capped),
+                        "path": "exact",
+                        "exact_n": len(capped),
+                        "fill_n": 0,
+                    },
+                    "hit_count": len(capped),
+                },
+            )
+            return capped
+        library_limit = library_limit_for(state.intention)
+        need = max(0, library_limit - len(exact_hits))
+        fill_exclude = set(state.excluded_asins) | set(exact)
+        emit("retrieve", "hybrid_search", "running")
+        fill = retriever.search(
+            query,
+            limit=need,
+            candidate_limit=routing.candidate_limit,
+            hard_required=False,
+            **{**score_kwargs, "exclude_asins": fill_exclude},
+        )
+        emit(
+            "retrieve",
+            "hybrid_search",
+            "completed",
+            {
+                "input": {
+                    "query": query[:120],
+                    "limit": need,
+                    "hard_required": False,
+                },
+                "output": {"hit_count": len(fill)},
+            },
+        )
+        combined = exact_hits + fill
         emit(
             "retrieve",
             "cap_hits",
             "completed",
             {
-                "input": {"scored": len(hits), "limit": routing.limit},
-                "output": {"hit_count": len(capped), "path": "exact"},
-                "hit_count": len(capped),
+                "input": {
+                    "scored": len(exact_hits),
+                    "limit": library_limit,
+                },
+                "output": {
+                    "hit_count": len(combined),
+                    "path": "exact+fill",
+                    "exact_n": len(exact_hits),
+                    "fill_n": len(fill),
+                },
+                "hit_count": len(combined),
             },
         )
-        return capped
+        return combined
 
     # None means no reliable exact signal; an empty set means the strict
     # intersection over-pruned. Both need lexical recovery rather than an
@@ -193,10 +248,11 @@ def retrieve_candidates(
         "score_exact",
         why="exact pool is empty or missing",
     )
+    library_limit = library_limit_for(state.intention)
     emit("retrieve", "hybrid_search", "running")
     hits = retriever.search(
         query,
-        limit=routing.limit,
+        limit=library_limit,
         candidate_limit=routing.candidate_limit,
         hard_required=False,
         **score_kwargs,
@@ -206,7 +262,7 @@ def retrieve_candidates(
         "hybrid_search",
         "completed",
         {
-            "input": {"query": query[:120], "limit": routing.limit},
+            "input": {"query": query[:120], "limit": library_limit},
             "output": {"hit_count": len(hits)},
         },
     )
@@ -215,7 +271,7 @@ def retrieve_candidates(
         "cap_hits",
         "completed",
         {
-            "input": {"limit": routing.limit},
+            "input": {"limit": library_limit},
             "output": {"hit_count": len(hits), "path": "hybrid"},
             "hit_count": len(hits),
         },

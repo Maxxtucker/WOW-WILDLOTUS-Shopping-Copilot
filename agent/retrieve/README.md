@@ -4,11 +4,13 @@
 
 `retrieve` runs after the intention router has committed `SessionState` and an
 optional exact ASIN set. Hard intersection already happened in the router. This
-layer scores a non-empty exact set, or recovers with BM25 plus catalog signature
-recall when strict intersection found nothing. It does not choose the question
-or how many products to show. Buying and override keep up to 150 hits; Browsing
-keeps up to 500 before the smaller semantic reranking head. Hard vs soft
-budget and object dimensions come from typed slots, not from intention.
+layer scores a non-empty exact set. When that set is under 150, it keeps those
+hard hits first and pads with hybrid BM25 plus catalog signature recall
+(`hard_required=False`) so the library is at least 300 (browsing still 500).
+When the exact set is already at least 150, hybrid is skipped. An empty or
+missing exact set uses hybrid only, also to at least 300. It does not choose
+the question or how many products to show. Hard vs soft budget and object
+dimensions come from typed slots, not from intention.
 
 The catalog index is process-wide. Candidates read the index and the session exclusion set each turn.
 
@@ -21,7 +23,7 @@ Each subdirectory has its own README. Each `.py` file starts with Purpose / Inpu
 | Package | Role | Docs |
 |---|---|---|
 | `catalog/` | SQLite FTS5 + response-signature index. `CatalogRetriever` is the only database facade. | [catalog/README.md](catalog/README.md) |
-| `candidates/` | Score the router exact set; if `None`, query rewrite + BM25. | [candidates/README.md](candidates/README.md) |
+| `candidates/` | Score the router exact set; fill with hybrid to 300 when under 150. | [candidates/README.md](candidates/README.md) |
 
 ## Collaboration
 
@@ -31,8 +33,9 @@ IntentRouter.apply(state, retriever)
     exact → CandidateOrganizer.apply(state, exact)
 
 CandidateOrganizer.apply(state, exact)
-    ├─ exact is non-empty: BM25 tie-break + structured score[:limit]
-    └─ exact is None/empty: hybrid search(..., hard_required=False)
+    ├─ exact is non-empty and ≥150: BM25 tie-break + structured score[:limit]
+    ├─ exact is non-empty and <150: hard hits first, then hybrid fill to 300/500
+    └─ exact is None/empty: hybrid search(..., hard_required=False) to 300/500
 
 Ranker.apply(hits, state)
     ├─ optional Qwen rerank of first 50

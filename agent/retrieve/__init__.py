@@ -1,4 +1,4 @@
-"""Retrieve layer: score the router exact pool, or BM25 when that pool is None.
+"""Retrieve layer: score the router exact pool; hybrid-fill to 300 when under 150.
 
 Input: SessionState (typed slots, excluded_asins, message) plus optional exact ASINs.
 Output: at most 500 SearchHit values.

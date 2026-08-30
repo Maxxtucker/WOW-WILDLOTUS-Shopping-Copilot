@@ -163,23 +163,48 @@ class DisclosureShortcutPipelineTest(unittest.TestCase):
         self.assertEqual(trace.decide["slate"], RANKED[1:11])
         self.assertEqual(state.last_ranked, RANKED)
 
-    def test_second_empty_pages_following_ten(self) -> None:
+    def test_short_leftover_still_shortcuts(self) -> None:
+        state = SessionState("disc-short", {})
+        state.last_ranked = [f"A{index:02d}" for index in range(9)]
+        self.assertEqual(len(next_ranked_page(state)), 9)
+        with (
+            patch(
+                "agent.understand.observation.coordinator.hybrid_extract",
+                self._empty_extract,
+            ),
+            patch.object(self.pipeline.intent_router, "apply") as router,
+            patch.object(self.pipeline.organizer, "apply") as organizer,
+        ):
+            response, trace = self.pipeline.run_traced(state, "ok", 2, 10)
+        router.assert_not_called()
+        organizer.assert_not_called()
+        recs = [item["parent_asin"] for item in response["recommendations"]]
+        self.assertEqual(recs, state.last_ranked)
+        self.assertEqual(trace.decide["reason"], "empty disclosure")
+
+    def test_second_empty_still_shortcuts(self) -> None:
         state = self._seeded()
-        with patch(
-            "agent.understand.observation.coordinator.hybrid_extract",
-            self._empty_extract,
+        with (
+            patch(
+                "agent.understand.observation.coordinator.hybrid_extract",
+                self._empty_extract,
+            ),
+            patch.object(self.pipeline.intent_router, "apply") as router,
+            patch.object(self.pipeline.organizer, "apply") as organizer,
         ):
             first, _trace = self.pipeline.run_traced(state, "ok", 2, 10)
-            second, _trace2 = self.pipeline.run_traced(state, "sure", 3, 10)
-        self.assertEqual(
-            [item["parent_asin"] for item in first["recommendations"]],
-            RANKED[1:11],
-        )
+            self.assertEqual(
+                [item["parent_asin"] for item in first["recommendations"]],
+                RANKED[1:11],
+            )
+            second, trace = self.pipeline.run_traced(state, "sure", 3, 10)
+        router.assert_not_called()
+        organizer.assert_not_called()
         self.assertEqual(
             [item["parent_asin"] for item in second["recommendations"]],
             RANKED[11:20],
         )
-        self.assertEqual(state.last_ranked, RANKED)
+        self.assertEqual(trace.decide["reason"], "empty disclosure")
 
     def test_disclosed_calls_router(self) -> None:
         state = self._seeded()
@@ -224,6 +249,25 @@ class DisclosureShortcutPipelineTest(unittest.TestCase):
             patch(
                 "agent.understand.observation.coordinator.hybrid_extract",
                 fail_open,
+            ),
+            patch.object(
+                self.pipeline.intent_router, "apply", return_value=None
+            ) as router,
+            patch.object(self.pipeline.organizer, "apply", return_value=[]),
+        ):
+            self.pipeline.run_traced(state, "ok", 2, 10)
+        router.assert_called()
+
+    def test_all_shown_last_ranked_does_not_shortcut(self) -> None:
+        state = SessionState("disc-shown", {})
+        state.last_ranked = ["ONLY"]
+        state.shown_asins = {"ONLY"}
+        state.excluded_asins = {"ONLY"}
+        self.assertEqual(next_ranked_page(state), [])
+        with (
+            patch(
+                "agent.understand.observation.coordinator.hybrid_extract",
+                self._empty_extract,
             ),
             patch.object(
                 self.pipeline.intent_router, "apply", return_value=None

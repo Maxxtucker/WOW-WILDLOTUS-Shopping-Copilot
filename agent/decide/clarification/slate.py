@@ -2,7 +2,7 @@
 
 Input: SessionState, Plan, ranked list.
 Output: parent_asin list, possibly truncated to rank-1.
-Role: when the gate is open, it is not turn 10, and an informative question remains (or remaining candidates can still be probed one per turn), expose only 1.
+Role: when the gate is open, it is not turn 10, and an informative question remains (or remaining candidates can still be probed one per turn), expose only 1. Empty disclosure skips this cut and keeps the planned Top-K.
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ def apply_sequential_gate(
     """
 
     slate = list(plan.recommendations)
+    if state.empty_disclosure_reveal:
+        return slate
     sequential_capacity = 10 + (10 - state.turn)
     if (
         state.gate_open

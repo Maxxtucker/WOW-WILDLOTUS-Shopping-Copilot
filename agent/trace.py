@@ -59,6 +59,7 @@ def build_understand_trace(state: SessionState) -> dict[str, Any]:
         "category": None if delta is None else delta.category,
         "slots": _slot_rows(None if delta is None else delta.slots),
         "empty": True if delta is None else delta.empty,
+        "disclosure_empty": state.disclosure_empty,
         "gate_open": state.gate_open,
         "session_category": state.category,
     }

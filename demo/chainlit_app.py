@@ -16,7 +16,6 @@ top-10 / decide+respond on this terminal.
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import threading
 from pathlib import Path
@@ -74,14 +73,51 @@ def get_agent() -> Agent:
         return _AGENT
 
 
-def _dump_props(props: dict) -> str:
-    return json.dumps(props, default=str)
-
-
 async def _update_element(element: cl.CustomElement, props: dict) -> None:
     element.props = props
-    element.content = _dump_props(props)
     await element.update()
+
+
+async def _deliver_assistant(
+    reply_msg: cl.Message,
+    content: str,
+    elements: list,
+    actions: list,
+    *,
+    fallback_msg: cl.Message | None = None,
+) -> None:
+    """Write the reply onto a message that was already sent this turn.
+
+    After a long NLU turn a fresh Message.send() can vanish on reconnect.
+    Updating the placeholder (same path as the live circuit) keeps the text.
+    """
+
+    text = (content or "").strip() or "I finished this turn but had nothing to say."
+    reply_msg.content = text
+    reply_msg.elements = list(elements or [])
+    reply_msg.actions = list(actions or [])
+    last_exc: Exception | None = None
+    for _ in range(3):
+        try:
+            await reply_msg.update()
+            return
+        except Exception as exc:
+            last_exc = exc
+            await asyncio.sleep(0.4)
+    try:
+        await cl.Message(content=text, elements=elements, actions=actions).send()
+        return
+    except Exception as exc:
+        last_exc = exc
+    if fallback_msg is not None:
+        fallback_msg.content = text
+        try:
+            await fallback_msg.update()
+            return
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
 
 
 def _inspector_props(turns: list[dict], turn: int | None) -> dict:
@@ -263,6 +299,8 @@ async def handle_user_text(
         display="inline",
     )
     await circuit_el.send(for_id=progress_msg.id)
+    reply_msg = cl.Message(content="Working on this turn…")
+    await reply_msg.send()
     store = _circuits_by_turn()
     store[turn] = {"state": circuit, "el": circuit_el}
     cl.user_session.set("circuits_by_turn", store)
@@ -295,7 +333,11 @@ async def handle_user_text(
                     "inspect_graph", circuit.get("activeGraph") or "understand"
                 )
             await _update_element(circuit_el, circuit)
-            if event.get("node") != "stage":
+            if event.get("node") == "stage" and event.get("status") in {
+                "completed",
+                "skipped",
+                "error",
+            }:
                 await _publish_sidebar(turns, turn)
 
     pump_task = asyncio.create_task(pump())
@@ -317,7 +359,13 @@ async def handle_user_text(
         await queue.put(None)
         await pump_task
         await _update_element(circuit_el, circuit)
-        await cl.Message(content=f"Turn failed: {exc}").send()
+        await _deliver_assistant(
+            reply_msg,
+            f"Turn failed: {exc}",
+            [],
+            [],
+            fallback_msg=progress_msg,
+        )
         return None
 
     await queue.put(None)
@@ -328,7 +376,16 @@ async def handle_user_text(
     cl.user_session.set("inspect_turns", turns)
     if cl.user_session.get("inspect_turn") == turn and not circuit.get("viewGraph"):
         cl.user_session.set("inspect_graph", "decide")
-    await _publish_sidebar(turns, turn)
+
+    official = str((result or {}).get("message") or "").strip()
+    if official:
+        await _deliver_assistant(
+            reply_msg,
+            official,
+            [],
+            [],
+            fallback_msg=progress_msg,
+        )
 
     state = agent.sessions.get(session_id)
     content, elements, actions = prepare_reply(
@@ -337,7 +394,14 @@ async def handle_user_text(
         state=state,
         show_n=8,
     )
-    await cl.Message(content=content, elements=elements, actions=actions).send()
+    await _deliver_assistant(
+        reply_msg,
+        content,
+        elements,
+        actions,
+        fallback_msg=progress_msg,
+    )
+    await _publish_sidebar(turns, turn)
     return result
 
 

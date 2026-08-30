@@ -28,7 +28,7 @@ Clarifier.apply
     ScoreAwarePlanner.plan(state, ranked, top_k, answer_signature)
         eligible_questions × k∈[0, top_k]
             immediate-hit utility + future_value(partitions)
-    apply_sequential_gate → usually rank-1; turn 10 is full slate and no question
+    apply_sequential_gate → usually rank-1; turn 10 or empty disclosure is full slate and no question
 ```
 
 The existing planner asks the catalog how an ASIN would answer through a callback. It does not touch SQLite directly.

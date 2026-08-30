@@ -13,6 +13,8 @@ from ..catalog.types import SearchWeights
 
 BUYING_LIMIT = 150
 BROWSING_LIMIT = 500
+CANDIDATE_FLOOR = BUYING_LIMIT
+LIBRARY_MIN = 300
 DEFAULT_LIMIT = 500
 DEFAULT_CANDIDATE_LIMIT = 1_500
 
@@ -41,6 +43,12 @@ class TrackRouting:
     exact_first: bool
     candidate_limit: int = DEFAULT_CANDIDATE_LIMIT
     hard_budget: bool = False
+
+
+def library_limit_for(intention: str | None) -> int:
+    """Fill or hybrid-only target: at least LIBRARY_MIN, else the track cap."""
+
+    return max(routing_for(intention).limit, LIBRARY_MIN)
 
 
 def routing_for(intention: str | None) -> TrackRouting:

@@ -238,11 +238,36 @@ class ProgressPipelineTest(unittest.TestCase):
         self.assertEqual(by_node["hybrid_search"], "completed")
         self.assertEqual(by_node["cap_hits"], "completed")
 
-    def test_exact_retrieve_skips_hybrid_branch(self) -> None:
+    def test_small_exact_retrieve_completes_hybrid_fill(self) -> None:
         state = SessionState(session_id="ex", user_profile={})
         events: list[dict] = []
         with progress_listener(events.append):
             retrieve_candidates(self.retriever, state, {"B0TESTASIN1"})
+        by_node = {
+            event["node"]: event["status"]
+            for event in events
+            if event["status"] in {"completed", "skipped"}
+        }
+        self.assertEqual(by_node["hybrid_search"], "completed")
+        self.assertEqual(by_node["lexical_in_pool"], "completed")
+        self.assertEqual(by_node["score_exact"], "completed")
+        self.assertEqual(by_node["cap_hits"], "completed")
+
+    def test_exact_retrieve_skips_hybrid_when_floor_met(self) -> None:
+        asins = [f"E{index:03d}" for index in range(150)]
+        scored = [
+            SearchHit(asin, 1.0, 0.0, 1.0, 0.0, 1.0) for asin in asins
+        ]
+        state = SessionState(session_id="ex150", user_profile={})
+        events: list[dict] = []
+        with (
+            patch.object(self.retriever, "score_candidates", return_value=scored),
+            patch.object(self.retriever, "search") as search,
+            progress_listener(events.append),
+        ):
+            hits = retrieve_candidates(self.retriever, state, set(asins))
+        search.assert_not_called()
+        self.assertEqual(len(hits), 150)
         by_node = {
             event["node"]: event["status"]
             for event in events

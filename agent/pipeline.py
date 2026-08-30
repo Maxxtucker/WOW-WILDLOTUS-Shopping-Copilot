@@ -3,8 +3,9 @@
 Input: SessionState, user_message, turn, top_k.
 Output: official respond dict. run_traced also returns a TurnTrace.
 Role: observe writes turn_delta; the router commits constraints and an exact pool.
-After understand, an empty-disclosure turn with a leftover ranking skips the
-router and retrieve and pages the next 10 unshown ASINs (no sequential gate).
+After understand, an empty-disclosure turn with at least one unshown
+last_ranked ASIN skips the router and retrieve and pages the next top_k
+(usually 10). An empty leftover list falls through to normal retrieve.
 """
 
 from __future__ import annotations
@@ -39,13 +40,13 @@ if TYPE_CHECKING:
     from .retrieve.catalog.retriever import CatalogRetriever
     from .understand.state.session import SessionState
 
-EMPTY_DISCLOSURE_PAGE = 10
+EMPTY_DISCLOSURE_SLATE = 10
 EMPTY_DISCLOSURE_WHY = "empty disclosure"
 
 
 def next_ranked_page(
     state: SessionState,
-    limit: int = EMPTY_DISCLOSURE_PAGE,
+    limit: int = EMPTY_DISCLOSURE_SLATE,
 ) -> list[str]:
     """Next leftover ASINs from last_ranked, skipping excluded and shown."""
 
@@ -60,16 +61,32 @@ def next_ranked_page(
     return leftover
 
 
-def pages_empty_disclosure(state: SessionState) -> bool:
-    """True when this turn disclosed nothing and a leftover ranking exists."""
+def leftover_page_stats(state: SessionState) -> dict[str, object]:
+    """Why next_ranked_page is empty or not. For terminal / circuit detail."""
 
-    if not state.last_ranked:
-        return False
+    blocked = set(state.excluded_asins) | set(state.shown_asins)
+    leftover = next_ranked_page(state)
+    leftover_n = len(leftover)
+    return {
+        "last_ranked_n": len(state.last_ranked),
+        "last_ranked_head": list(state.last_ranked[:5]),
+        "shown_n": len(state.shown_asins),
+        "excluded_n": len(state.excluded_asins),
+        "blocked_n": len(blocked),
+        "leftover_n": leftover_n,
+        "leftover_page": leftover,
+        "shortcut_ok": leftover_n >= 1,
+    }
+
+
+def pages_empty_disclosure(state: SessionState) -> bool:
+    """True when disclosure is empty and last_ranked still has an unshown ASIN."""
+
     if state.turn_delta is not None:
         return False
     if state.disclosure_empty is False:
         return False
-    return True
+    return bool(next_ranked_page(state, limit=1))
 
 
 def _compact_response(response: dict) -> dict:
@@ -124,7 +141,7 @@ class TurnPipeline:
         understand = build_understand_trace(state)
         emit("understand", "stage", "completed", understand)
         if pages_empty_disclosure(state):
-            return self._run_empty_disclosure(state, understand)
+            return self._run_empty_disclosure(state, understand, top_k)
         emit("router", "stage", "running")
         exact = self.intent_router.apply(state, self.retriever)
         router = build_router_trace(state, exact)
@@ -163,12 +180,14 @@ class TurnPipeline:
         self,
         state: SessionState,
         understand: dict,
+        top_k: int,
     ) -> tuple[dict, TurnTrace]:
         emit("router", "stage", "skipped", {"why": EMPTY_DISCLOSURE_WHY})
         skip_nodes("router", *ROUTER_NODES, why=EMPTY_DISCLOSURE_WHY)
         emit("retrieve", "stage", "skipped", {"why": EMPTY_DISCLOSURE_WHY})
         skip_nodes("retrieve", *RETRIEVE_NODES, why=EMPTY_DISCLOSURE_WHY)
-        asins = next_ranked_page(state)
+        leftovers = next_ranked_page(state, limit=max(0, min(EMPTY_DISCLOSURE_SLATE, int(top_k))))
+        asins = leftovers
         emit("decide", "stage", "running")
         skip_nodes("decide", *DECIDE_PLAN_NODES, why=EMPTY_DISCLOSURE_WHY)
         plan = Plan(tuple(asins), None, 0.0, EMPTY_DISCLOSURE_WHY)
@@ -203,7 +222,11 @@ class TurnPipeline:
             "decide",
             "stage",
             "completed",
-            {**decide, "response": _compact_response(response)},
+            {
+                **decide,
+                "response": _compact_response(response),
+                "leftover": leftover_page_stats(state),
+            },
         )
         return response, TurnTrace(
             understand=understand,

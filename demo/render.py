@@ -54,6 +54,24 @@ def build_elements(
     ]
 
 
+def visible_reply_content(
+    result: dict,
+    cards: list[dict[str, Any]],
+    *,
+    clarify_prompt: str | None = None,
+) -> str:
+    """Plain-text bubble body. Always non-empty when the agent returned a reply."""
+
+    text = format_assistant_text(result, cards).strip()
+    extra = cards_as_markdown(cards, clarify_prompt=clarify_prompt).strip()
+    if extra:
+        return f"{text}\n{extra}"
+    prompt = (clarify_prompt or "").strip()
+    if prompt:
+        return f"{text}\n\n{prompt}"
+    return text or "I finished this turn but had nothing to say."
+
+
 def cards_as_markdown(
     cards: list[dict[str, Any]],
     *,
@@ -109,35 +127,12 @@ def prepare_reply(
         cards,
         ask_attribute=ask,
     )
-    content = format_assistant_text(result, cards)
-
-    clarify_actions: list[dict[str, str]] | None = None
-    message_actions = actions
-    if clarify:
-        # Keep Q+A under the shelf in visual order; don't duplicate as Message.actions.
-        clarify_actions = [
-            {
-                "label": str(action.label or action.name),
-                "text": str((action.payload or {}).get("text") or ""),
-                "icon": str(getattr(action, "icon", None) or ""),
-            }
-            for action in actions
-        ]
-        message_actions = []
+    content = visible_reply_content(result, cards, clarify_prompt=clarify)
 
     if use_custom_elements:
-        elements = build_elements(
-            cards,
-            message=content,
-            clarify_prompt=clarify,
-            clarify_actions=clarify_actions,
-        )
-        if elements:
-            content = " "
+        # Cards only. Official text stays on the Message so a dropped
+        # CustomElement still leaves a readable bubble.
+        elements = build_elements(cards, message="", clarify_prompt="")
     else:
         elements = []
-        md = cards_as_markdown(cards, clarify_prompt=clarify)
-        if md:
-            content = f"{content}\n{md}"
-        message_actions = actions
-    return content, elements, message_actions
+    return content, elements, actions

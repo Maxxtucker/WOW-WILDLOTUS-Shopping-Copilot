@@ -52,6 +52,11 @@ const BUYER_MODES = [
   { id: "4", label: "4 — Poor English" },
 ];
 
+const LLM_MODES = [
+  { id: "remote", label: "Remote" },
+  { id: "local", label: "Local qwen3.5:4b" },
+];
+
 export default function EvalDock() {
   const root = typeof props !== "undefined" ? props : {};
   const evaluators = Array.isArray(root.evaluators) ? root.evaluators : [];
@@ -65,6 +70,7 @@ export default function EvalDock() {
   const [randomN, setRandomN] = useState(String(root.randomN || "5"));
   const [mode, setMode] = useState(root.mode || "auto");
   const [buyerMode, setBuyerMode] = useState(String(root.buyerMode || "1"));
+  const [llmMode, setLlmMode] = useState(String(root.llmMode || "remote"));
   const [expanded, setExpanded] = useState(true);
   const selectedBackend = String(evaluator || root.selectedEvaluator || "").trim();
   const canRun = selectedBackend === "local" || selectedBackend === "scenario";
@@ -88,6 +94,7 @@ export default function EvalDock() {
     randomN,
     mode,
     buyerMode: Number(buyerMode) || 1,
+    llmMode: llmMode === "local" ? "local" : "remote",
     ...overrides,
   });
 
@@ -189,23 +196,42 @@ export default function EvalDock() {
             </Field>
 
             {showBuyerMode ? (
-              <Field label="Buyer mode">
-                <select
-                  value={buyerMode}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setBuyerMode(next);
-                    persist({ buyerMode: Number(next) || 1 });
-                  }}
-                  style={inputStyle}
-                >
-                  {BUYER_MODES.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <>
+                <Field label="Buyer mode">
+                  <select
+                    value={buyerMode}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setBuyerMode(next);
+                      persist({ buyerMode: Number(next) || 1 });
+                    }}
+                    style={inputStyle}
+                  >
+                    {BUYER_MODES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="LLM mode">
+                  <select
+                    value={llmMode}
+                    onChange={(event) => {
+                      const next = event.target.value === "local" ? "local" : "remote";
+                      setLlmMode(next);
+                      persist({ llmMode: next });
+                    }}
+                    style={inputStyle}
+                  >
+                    {LLM_MODES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </>
             ) : null}
 
             {canRun ? (

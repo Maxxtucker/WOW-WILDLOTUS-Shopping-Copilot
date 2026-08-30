@@ -360,6 +360,101 @@ class OpenAICompatibleClient:
         return _parse_json_object(content), body.get("usage") or {}
 
 
+LOCAL_NLU_MODEL = "qwen3.5:4b"
+LOCAL_NLU_HOST = "http://127.0.0.1:11434"
+
+
+def parse_llm_mode(value: object = None) -> str:
+    """Return ``remote`` or ``local``. Empty values use CONVERGE_LLM_BACKEND."""
+
+    _load_dotenv()
+    raw = value if value not in (None, "") else os.environ.get("CONVERGE_LLM_BACKEND", "remote")
+    mode = str(raw).strip().casefold()
+    if mode not in {"remote", "local"}:
+        raise ValueError("llm_mode must be remote or local")
+    return mode
+
+
+def remote_llm_configured() -> bool:
+    """True only when both remote URL and model env vars are set."""
+
+    _load_dotenv()
+    return bool(_env_first("CONVERGE_LLM_BASE_URL") and _env_first("CONVERGE_LLM_MODEL"))
+
+
+def resolve_buyer_llm_backend(llm_mode: object = None) -> str:
+    """Pick the Buyer LLM backend after applying the remote-env fallback."""
+
+    if parse_llm_mode(llm_mode) == "local":
+        return "local"
+    return "remote" if remote_llm_configured() else "local"
+
+
+def _ollama_message_text(envelope: object) -> str:
+    if not isinstance(envelope, dict):
+        return ""
+    message = envelope.get("message")
+    if isinstance(message, dict) and isinstance(message.get("content"), str):
+        return message["content"]
+    if isinstance(envelope.get("response"), str):
+        return envelope["response"]
+    return ""
+
+
+class OllamaBuyerClient:
+    """Ollama /api/chat client for Buyer Modes 2-4. Same model pin as NLU."""
+
+    def __init__(self, host: str, model: str, timeout: float = 60.0) -> None:
+        self.host = host.rstrip("/")
+        self.model = model
+        self.timeout = timeout
+        self._ready = False
+
+    @classmethod
+    def from_environment(cls) -> OllamaBuyerClient:
+        from agent.understand.observation.llm_nlu import (
+            load_nlu_env,
+            nlu_host,
+            nlu_model,
+            nlu_timeout,
+        )
+
+        load_nlu_env()
+        return cls(nlu_host(), nlu_model(), nlu_timeout())
+
+    def complete(self, system_prompt: str, payload: dict) -> tuple[dict | None, dict]:
+        if not self._ready:
+            from agent.understand.observation.runtime import ensure_llm_runtime
+
+            ensure_llm_runtime()
+            self._ready = True
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            "stream": False,
+            "format": "json",
+            "think": False,
+            "options": {"temperature": 0.8, "num_predict": 300},
+        }
+        request = Request(
+            f"{self.host}/api/chat",
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                envelope = json.load(response)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError):
+            return None, {}
+        if isinstance(envelope, dict) and envelope.get("error"):
+            return None, {}
+        return _parse_json_object(_ollama_message_text(envelope)), {}
+
+
 def _dedupe(values: list[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -557,7 +652,12 @@ class _BuyerSession:
 class ScenarioEvaluator:
     """Generate Buyer messages for four controlled scenario modes."""
 
-    def __init__(self, mode: int | str | None = None, client: object | None = None) -> None:
+    def __init__(
+        self,
+        mode: int | str | None = None,
+        client: object | None = None,
+        llm_mode: str | None = None,
+    ) -> None:
         _load_dotenv()
         raw_mode = mode if mode is not None else os.environ.get("CONVERGE_USER_MODE", "1")
         try:
@@ -566,9 +666,18 @@ class ScenarioEvaluator:
             raise ValueError("CONVERGE_USER_MODE must be 1, 2, 3, or 4") from exc
         if self.mode not in {1, 2, 3, 4}:
             raise ValueError("mode must be 1, 2, 3, or 4")
-        self.client = client if client is not None else (
-            OpenAICompatibleClient.from_environment() if self.mode != 1 else None
-        )
+        self.llm_mode = parse_llm_mode(llm_mode)
+        self.llm_backend: str | None = None
+        if self.mode == 1:
+            self.client = None
+        else:
+            self.llm_backend = resolve_buyer_llm_backend(self.llm_mode)
+            if client is not None:
+                self.client = client
+            elif self.llm_backend == "local":
+                self.client = OllamaBuyerClient.from_environment()
+            else:
+                self.client = OpenAICompatibleClient.from_environment()
         self.sessions: dict[str, _BuyerSession] = {}
         self._lock = RLock()
 
@@ -908,4 +1017,13 @@ def customer_reply(
     return _mode1_customer_reply(sample, ask_attribute, disclosed, boundary_used)
 
 
-__all__ = ["OpenAICompatibleClient", "ScenarioEvaluator", "customer_reply", "initial_message"]
+__all__ = [
+    "OllamaBuyerClient",
+    "OpenAICompatibleClient",
+    "ScenarioEvaluator",
+    "customer_reply",
+    "initial_message",
+    "parse_llm_mode",
+    "remote_llm_configured",
+    "resolve_buyer_llm_backend",
+]

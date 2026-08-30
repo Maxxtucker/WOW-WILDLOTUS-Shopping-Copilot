@@ -13,9 +13,10 @@ from demo.eval_harness import (
     RUNNABLE_EVALUATORS,
     StepState,
     apply_step_response,
-    buyer_has_llm_client,
+    buyer_llm_status,
     group_metrics,
     parse_buyer_mode,
+    parse_llm_mode,
     run_evaluate_with_buyer,
     run_official_evaluate,
     sample_summaries,
@@ -57,6 +58,7 @@ def picker_props(**overrides: Any) -> dict:
         "randomN": "5",
         "mode": "auto",
         "buyerMode": 1,
+        "llmMode": "remote",
         "status": "idle",
         "statusDetail": "",
         "selectedCount": 0,
@@ -103,6 +105,10 @@ async def configure_picker(payload: dict) -> None:
         buyer_mode = _buyer_mode_from_payload(payload)
     except ValueError:
         buyer_mode = 1
+    try:
+        llm_mode = _llm_mode_from_payload(payload)
+    except ValueError:
+        llm_mode = "remote"
     await refresh_picker(
         selectedEvaluator=_evaluator_id(payload),
         selection=str(payload.get("selection") or "one"),
@@ -112,6 +118,7 @@ async def configure_picker(payload: dict) -> None:
         randomN=payload.get("randomN") or payload.get("n") or "5",
         mode=str(payload.get("mode") or "auto"),
         buyerMode=buyer_mode,
+        llmMode=llm_mode,
     )
 
 
@@ -153,13 +160,15 @@ def _buyer_mode_from_payload(payload: dict) -> int:
     return parse_buyer_mode(payload.get("buyerMode") or payload.get("buyer_mode"))
 
 
-def _scenario_run_detail(sample_count: int, buyer_mode: int) -> str:
+def _llm_mode_from_payload(payload: dict) -> str:
+    return parse_llm_mode(payload.get("llmMode") or payload.get("llm_mode"))
+
+
+def _scenario_run_detail(sample_count: int, buyer_mode: int, llm_mode: str = "remote") -> str:
     detail = f"Running {sample_count} session(s)…"
-    if buyer_mode >= 2 and not buyer_has_llm_client():
-        return (
-            f"{detail} Buyer mode {buyer_mode} has no API key; "
-            "using deterministic fallback."
-        )
+    extra = buyer_llm_status(buyer_mode, llm_mode)
+    if extra:
+        return f"{detail} {extra}"
     return detail
 
 
@@ -184,13 +193,14 @@ async def run_auto(payload: dict) -> None:
     try:
         samples = _samples_from_payload(payload)
         buyer_mode = _buyer_mode_from_payload(payload) if evaluator == "scenario" else 1
+        llm_mode = _llm_mode_from_payload(payload) if evaluator == "scenario" else "remote"
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     flag = {"cancelled": False}
     cl.user_session.set("eval_cancel", flag)
     status_detail = (
-        _scenario_run_detail(len(samples), buyer_mode)
+        _scenario_run_detail(len(samples), buyer_mode, llm_mode)
         if evaluator == "scenario"
         else f"Running {len(samples)} session(s)…"
     )
@@ -199,6 +209,7 @@ async def run_auto(payload: dict) -> None:
         canStep=False,
         selectedCount=len(samples),
         buyerMode=buyer_mode if evaluator == "scenario" else 1,
+        llmMode=llm_mode if evaluator == "scenario" else "remote",
         statusDetail=status_detail,
         warning=(
             f"All {len(samples)} sessions × up to 10 live NLU turns can take a long time."
@@ -224,11 +235,9 @@ async def run_auto(payload: dict) -> None:
             return
         sample_id = str(sample.get("sample_id") or "")
         progress = f"Running {sample_id} ({index}/{len(samples)})"
-        if evaluator == "scenario" and buyer_mode >= 2 and not buyer_has_llm_client():
-            progress = (
-                f"{progress}. Buyer mode {buyer_mode} has no API key; "
-                "using deterministic fallback."
-            )
+        extra = buyer_llm_status(buyer_mode, llm_mode) if evaluator == "scenario" else ""
+        if extra:
+            progress = f"{progress}. {extra}"
         await refresh_picker(
             status="running",
             statusDetail=progress,
@@ -237,7 +246,7 @@ async def run_auto(payload: dict) -> None:
         try:
             if evaluator == "scenario":
                 result = await asyncio.to_thread(
-                    run_evaluate_with_buyer, agent, [sample], buyer_mode
+                    run_evaluate_with_buyer, agent, [sample], buyer_mode, llm_mode
                 )
             else:
                 result = await asyncio.to_thread(run_official_evaluate, agent, [sample])
@@ -331,23 +340,25 @@ async def run_step(payload: dict) -> None:
     try:
         samples = _samples_from_payload(payload)
         buyer_mode = _buyer_mode_from_payload(payload) if evaluator == "scenario" else None
+        llm_mode = _llm_mode_from_payload(payload) if evaluator == "scenario" else "remote"
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     cl.user_session.set("eval_cancel", {"cancelled": False})
     try:
-        state = start_step_run(samples, buyer_mode=buyer_mode)
+        state = start_step_run(samples, buyer_mode=buyer_mode, llm_mode=llm_mode)
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return
     cl.user_session.set("eval_step", state)
     status_detail = ""
     if evaluator == "scenario" and buyer_mode is not None:
-        status_detail = _scenario_run_detail(len(samples), buyer_mode)
+        status_detail = _scenario_run_detail(len(samples), buyer_mode, llm_mode)
     await refresh_picker(
         status="step",
         selectedCount=len(samples),
         buyerMode=buyer_mode if buyer_mode is not None else 1,
+        llmMode=llm_mode,
         statusDetail=status_detail,
         warning=(
             f"All {len(samples)} sessions × up to 10 live NLU turns can take a long time."

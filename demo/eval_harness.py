@@ -28,7 +28,12 @@ from evaluator.local_evaluator import (
     metric_summary,
     normalize_recommendations,
 )
-from evaluator.scenario_evaluator import OpenAICompatibleClient, ScenarioEvaluator
+from evaluator.scenario_evaluator import (
+    OpenAICompatibleClient,
+    ScenarioEvaluator,
+    parse_llm_mode,
+    resolve_buyer_llm_backend,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_SET_PATH = _REPO_ROOT / "data" / "public_set.jsonl"
@@ -226,6 +231,25 @@ def buyer_has_llm_client() -> bool:
     return OpenAICompatibleClient.from_environment() is not None
 
 
+def buyer_llm_status(buyer_mode: int, llm_mode: object = None) -> str:
+    """Status line for Scenario Buyer LLM routing. Empty when nothing to warn."""
+
+    if buyer_mode < 2:
+        return ""
+    chosen = parse_llm_mode(llm_mode)
+    backend = resolve_buyer_llm_backend(chosen)
+    if chosen == "local":
+        return "Buyer LLM: local qwen3.5:4b"
+    if backend == "local":
+        return "Remote env missing; using local qwen3.5:4b"
+    if not buyer_has_llm_client():
+        return (
+            f"Buyer mode {buyer_mode} has no API key; "
+            "using deterministic fallback."
+        )
+    return ""
+
+
 def run_official_evaluate(agent: Any, samples: list[dict]) -> dict:
     """One official evaluate() call on the selected rows."""
 
@@ -237,6 +261,7 @@ def run_evaluate_with_buyer(
     agent: Any,
     samples: list[dict],
     mode: int = 1,
+    llm_mode: str | None = None,
     *,
     catalog_ids: set[str] | None = None,
     categories: dict[str, list[str]] | None = None,
@@ -248,7 +273,10 @@ def run_evaluate_with_buyer(
     official ``evaluate()``. Catalog defaults to the demo bundle.
     """
 
-    buyer = ScenarioEvaluator(mode=parse_buyer_mode(mode))
+    buyer = ScenarioEvaluator(
+        mode=parse_buyer_mode(mode),
+        llm_mode=parse_llm_mode(llm_mode),
+    )
     if catalog_ids is None or categories is None or products is None:
         catalog_ids, categories, products = get_catalog_bundle()
     sessions: list[dict] = []
@@ -376,16 +404,23 @@ class StepState:
 def start_step_run(
     samples: list[dict],
     buyer_mode: int | None = None,
+    llm_mode: str | None = None,
 ) -> StepState:
     if not samples:
         raise ValueError("no samples selected")
     catalog_ids, categories, products = get_catalog_bundle()
+    buyer = None
+    if buyer_mode is not None:
+        buyer = ScenarioEvaluator(
+            mode=parse_buyer_mode(buyer_mode),
+            llm_mode=parse_llm_mode(llm_mode),
+        )
     state = StepState(
         samples=list(samples),
         catalog_ids=catalog_ids,
         categories=categories,
         products=products,
-        buyer=ScenarioEvaluator(mode=parse_buyer_mode(buyer_mode)) if buyer_mode is not None else None,
+        buyer=buyer,
     )
     _begin_sample(state)
     return state

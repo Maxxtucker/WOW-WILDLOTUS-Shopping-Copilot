@@ -7,8 +7,10 @@ import unittest
 
 from demo.eval_harness import (
     EVALUATORS,
+    buyer_llm_status,
     group_metrics,
     parse_buyer_mode,
+    parse_llm_mode,
     run_evaluate_with_buyer,
     sample_summaries,
     select_samples,
@@ -191,6 +193,12 @@ class ScenarioBuyerHarnessTest(unittest.TestCase):
             "I'm looking for Men Shoes. A key requirement is: leather.",
         )
         self.assertEqual(len(agent.messages), 1)
+
+    def test_parse_llm_mode_and_status(self) -> None:
+        self.assertEqual(parse_llm_mode("remote"), "remote")
+        self.assertEqual(parse_llm_mode("local"), "local")
+        self.assertEqual(buyer_llm_status(1, "remote"), "")
+        self.assertEqual(buyer_llm_status(2, "local"), "Buyer LLM: local qwen3.5:4b")
 
 
 if __name__ == "__main__":

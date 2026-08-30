@@ -6,7 +6,13 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from evaluator.scenario_evaluator import OpenAICompatibleClient, ScenarioEvaluator
+from evaluator.scenario_evaluator import (
+    OpenAICompatibleClient,
+    ScenarioEvaluator,
+    parse_llm_mode,
+    remote_llm_configured,
+    resolve_buyer_llm_backend,
+)
 
 
 def sample(scenario: str = "buying") -> dict:
@@ -230,6 +236,72 @@ class ScenarioEvaluatorTest(unittest.TestCase):
                 self.assertIsNotNone(client)
                 assert client is not None
                 self.assertEqual(client.api_key, "dotenv-key")
+
+
+class BuyerLlmBackendTest(unittest.TestCase):
+    def test_mode_one_does_not_keep_a_client(self) -> None:
+        buyer = ScenarioEvaluator(mode=1, client=FakeClient([]), llm_mode="remote")
+        self.assertIsNone(buyer.client)
+        self.assertIsNone(buyer.llm_backend)
+
+    def test_remote_with_both_env_uses_injected_client(self) -> None:
+        no_dotenv = str(Path(__file__).with_name("__missing_test_dotenv__"))
+        client = FakeClient([
+            {"message": "I would like Men Shoes; the key requirement is: leather."},
+        ])
+        with patch.dict(
+            os.environ,
+            {
+                "CONVERGE_DOTENV_PATH": no_dotenv,
+                "CONVERGE_LLM_BASE_URL": "https://api.example.com/v1",
+                "CONVERGE_LLM_MODEL": "gpt-test",
+            },
+            clear=True,
+        ):
+            buyer = ScenarioEvaluator(mode=2, client=client, llm_mode="remote")
+            self.assertEqual(buyer.llm_mode, "remote")
+            self.assertEqual(buyer.llm_backend, "remote")
+            self.assertIs(buyer.client, client)
+            self.assertTrue(remote_llm_configured())
+            self.assertEqual(
+                buyer.initial_message(sample(), "Men Shoes", set()),
+                "I would like Men Shoes; the key requirement is: leather.",
+            )
+
+    def test_remote_missing_env_resolves_local(self) -> None:
+        no_dotenv = str(Path(__file__).with_name("__missing_test_dotenv__"))
+        client = FakeClient([])
+        with patch.dict(os.environ, {"CONVERGE_DOTENV_PATH": no_dotenv}, clear=True):
+            self.assertFalse(remote_llm_configured())
+            self.assertEqual(resolve_buyer_llm_backend("remote"), "local")
+            buyer = ScenarioEvaluator(mode=2, client=client, llm_mode="remote")
+            self.assertEqual(buyer.llm_backend, "local")
+            self.assertIs(buyer.client, client)
+
+    def test_local_mode_resolves_local_even_when_remote_env_set(self) -> None:
+        no_dotenv = str(Path(__file__).with_name("__missing_test_dotenv__"))
+        client = FakeClient([])
+        with patch.dict(
+            os.environ,
+            {
+                "CONVERGE_DOTENV_PATH": no_dotenv,
+                "CONVERGE_LLM_BASE_URL": "https://api.example.com/v1",
+                "CONVERGE_LLM_MODEL": "gpt-test",
+            },
+            clear=True,
+        ):
+            self.assertEqual(resolve_buyer_llm_backend("local"), "local")
+            buyer = ScenarioEvaluator(mode=3, client=client, llm_mode="local")
+            self.assertEqual(buyer.llm_backend, "local")
+            self.assertIs(buyer.client, client)
+
+    def test_parse_llm_mode_defaults_and_rejects(self) -> None:
+        no_dotenv = str(Path(__file__).with_name("__missing_test_dotenv__"))
+        with patch.dict(os.environ, {"CONVERGE_DOTENV_PATH": no_dotenv}, clear=True):
+            self.assertEqual(parse_llm_mode(None), "remote")
+            self.assertEqual(parse_llm_mode("LOCAL"), "local")
+            with self.assertRaises(ValueError):
+                parse_llm_mode("ollama")
 
 
 if __name__ == "__main__":

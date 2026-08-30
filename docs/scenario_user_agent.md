@@ -45,6 +45,26 @@ and then use the session ID in the two methods.
 The LLM only generates user messages. It cannot modify the shopping agent's
 recommendations or `ask_attribute` response field.
 
+## LLM mode
+
+Modes 2-4 need a chat model. The Eval dock **LLM mode** control (and the
+`llm_mode=` constructor argument) selects the backend:
+
+- **remote** (default): OpenAI-compatible HTTP, using `CONVERGE_LLM_BASE_URL`
+  and `CONVERGE_LLM_MODEL`. Both must be set. A matching API key is still
+  required. `CONVERGE_LLM_BACKEND=remote` is the env default.
+- **local**: the same Ollama pin as NLU (`AGENT_NLU_MODEL`, default
+  `qwen3.5:4b` at `AGENT_NLU_HOST`).
+
+If LLM mode is remote but either `CONVERGE_LLM_BASE_URL` or
+`CONVERGE_LLM_MODEL` is missing, the Buyer uses local `qwen3.5:4b` instead.
+If the chosen client is missing, the request fails, or the rewrite fails
+validation, that turn uses the deterministic Mode 2-4 fallback. Mode 1 never
+calls a model.
+
+Official `local_evaluator.evaluate()` is unchanged and stays on Mode 1
+templates.
+
 ## API key configuration
 
 The Buyer automatically reads `.env` from the repository root. Fill in the
@@ -53,7 +73,9 @@ provided `.env` file (it is ignored by Git), or copy `.env.example` to `.env`:
 ```dotenv
 DEEPSEEK_API_KEY=your-deepseek-api-key
 CONVERGE_LLM_PROVIDER=deepseek
+CONVERGE_LLM_BASE_URL=https://api.deepseek.com/v1
 CONVERGE_LLM_MODEL=deepseek-chat
+CONVERGE_LLM_BACKEND=remote
 CONVERGE_USER_MODE=1
 ```
 

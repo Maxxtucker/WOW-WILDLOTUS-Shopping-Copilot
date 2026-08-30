@@ -123,6 +123,23 @@ class HierarchyWritebackTest(unittest.TestCase):
         self.assertEqual(state.shown_asins, set())
         self.assertEqual(state.last_ranked, [])
 
+    def test_l1_preference_only_override_keeps_retrieval_category(self) -> None:
+        state = _seeded()
+        state.turn_delta = ObservationExtract(
+            slots=(_slot("feature", "rubber sole"),),
+            source="llm",
+        )
+
+        apply_override_decision(state, OverrideDecision(1))
+
+        by_attr = {
+            slot.attribute: slot.surface for slot in state.typed_constraints
+        }
+        self.assertEqual(by_attr["category"], "sandals")
+        self.assertEqual(by_attr["feature"], "rubber sole")
+        self.assertNotIn("material", by_attr)
+        self.assertNotIn("color", by_attr)
+
     def test_l2_color_only_keeps_category_and_material(self) -> None:
         state = _seeded()
         state.turn_delta = ObservationExtract(
@@ -216,7 +233,7 @@ class HierarchyRouterTest(unittest.TestCase):
         self.assertEqual(state.current_intent_messages, [state.latest_message])
         self.assertEqual(
             [(slot.attribute, slot.surface) for slot in state.typed_constraints],
-            [("feature", "water resistant")],
+            [("category", "sandals"), ("feature", "water resistant")],
         )
 
     def test_catalog_copy_words_do_not_trigger_strong_override(self) -> None:

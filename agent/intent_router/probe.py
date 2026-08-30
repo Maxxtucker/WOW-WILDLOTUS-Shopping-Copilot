@@ -1,7 +1,7 @@
 """Purpose: exact-pool probe used by the intention router.
 
 Input: CatalogRetriever and SessionState after (or before) delta commit.
-Output: set of parent_asin, or None when a signal is missing from the index.
+Output: ExactPools, or set of parent_asin from the strict half.
 Role: count candidates without ranking. None is not the same as an empty set.
 """
 
@@ -9,15 +9,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .exact_pool import exact_pool_for_state
+from .exact_pool import ExactPools, exact_pools_for_state
 
 if TYPE_CHECKING:
     from ..retrieve.catalog.retriever import CatalogRetriever
     from ..understand.state.session import SessionState
 
 
+def probe_exact_pools(retriever: CatalogRetriever, state: SessionState) -> ExactPools:
+    return exact_pools_for_state(retriever, state)
+
+
 def probe_exact_pool(retriever: CatalogRetriever, state: SessionState) -> set[str] | None:
-    return exact_pool_for_state(retriever, state)
+    return probe_exact_pools(retriever, state).strict
 
 
 def pool_size(exact: set[str] | None) -> int | None:

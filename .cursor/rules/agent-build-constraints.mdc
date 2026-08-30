@@ -1,0 +1,18 @@
+---
+description: Standing constraints for agents continuing this shopping-copilot codebase
+alwaysApply: true
+---
+
+# Agent build constraints
+
+Full brief: `AGENTS.md` at the repo root. Follow it on every change.
+
+1. **Natural-language users only.** Do not clone evaluator test generation (`intent_card`, customer templates, reply policies, public-set labels) into agent logic. Treat `user_message` as ordinary shopper language. Use the evaluator and `public_set.jsonl` to score, not to specify NLU or retrieval.
+
+2. **English only.** Docs, READMEs, docstrings, and code comments must be English.
+
+3. **Official specs win.** Align with `docs/problem_requirements/problem_statement.md`, `docs/competition_specification.md`, and `docs/submission_rules.md` before changing behavior.
+
+4. **Keep the kit skeleton.** Do not alter the layout in `docs/architecture/original_repo_code_architecture.md`. Do not modify `evaluator/`. Keep `starter.agent.Agent` as the entry. New work belongs in `agent/`.
+
+5. **Wirte all plan.md in CHINESE.** Wirte all plan.md in CHINESE.

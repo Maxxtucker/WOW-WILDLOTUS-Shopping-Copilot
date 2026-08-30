@@ -198,8 +198,12 @@ def router_payload(state: SessionState, exact: set[str] | None) -> dict[str, Any
     return build_router_trace(state, exact)
 
 
-def retrieve_payload(hits: list, exact: set[str] | None) -> dict[str, Any]:
-    return build_retrieve_trace(hits, exact)
+def retrieve_payload(
+    hits: list,
+    exact: set[str] | None,
+    exact_lenient: set[str] | None = None,
+) -> dict[str, Any]:
+    return build_retrieve_trace(hits, exact, exact_lenient=exact_lenient)
 
 
 def state_snapshot(state: SessionState) -> dict[str, Any]:

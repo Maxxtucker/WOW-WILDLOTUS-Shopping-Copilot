@@ -28,6 +28,29 @@ def format_assistant_text(result: dict, cards: list[dict[str, Any]]) -> str:
     return "Here are my strongest matches so far."
 
 
+def shelf_props(
+    cards: list[dict[str, Any]],
+    *,
+    message: str = "",
+    clarify_prompt: str | None = None,
+    clarify_actions: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Props for ProductShelf. Include hero/others so a cached JSX build still paints."""
+
+    head = cards[:10]
+    return {
+        "message": message,
+        "cards": head,
+        "hero": head[0] if head else None,
+        "others": head[1:],
+        "clarify_prompt": clarify_prompt or "",
+        "clarify_actions": clarify_actions or [],
+        "explore_label": MORE_LIKE_THIS["label"],
+        "explore_text": MORE_LIKE_THIS["text"],
+        "show_explore": True,
+    }
+
+
 def build_elements(
     cards: list[dict[str, Any]],
     *,
@@ -40,16 +63,13 @@ def build_elements(
     return [
         cl.CustomElement(
             name="ProductShelf",
-            props={
-                "message": message,
-                "hero": cards[0],
-                "others": cards[1:11],
-                "clarify_prompt": clarify_prompt or "",
-                "clarify_actions": clarify_actions or [],
-                "explore_label": MORE_LIKE_THIS["label"],
-                "explore_text": MORE_LIKE_THIS["text"],
-                "show_explore": True,
-            },
+            props=shelf_props(
+                cards,
+                message=message,
+                clarify_prompt=clarify_prompt,
+                clarify_actions=clarify_actions,
+            ),
+            display="inline",
         )
     ]
 
@@ -63,9 +83,6 @@ def visible_reply_content(
     """Plain-text bubble body. Always non-empty when the agent returned a reply."""
 
     text = format_assistant_text(result, cards).strip()
-    extra = cards_as_markdown(cards, clarify_prompt=clarify_prompt).strip()
-    if extra:
-        return f"{text}\n{extra}"
     prompt = (clarify_prompt or "").strip()
     if prompt:
         return f"{text}\n\n{prompt}"
@@ -103,11 +120,10 @@ def prepare_reply(
     result: dict,
     *,
     state: Any = None,
-    show_n: int = 8,
+    show_n: int = 10,
     use_custom_elements: bool = True,
 ) -> tuple[str, list[cl.CustomElement], list[cl.Action]]:
-    # UI may show a shelf of several; Agent.respond still used top_k=10 for scoring.
-    # Planner slates are often size-1 while asking — pad display-only from the pool.
+    # Shelf shows ranking head; Agent.respond recommendations stay the protocol slate.
     display_recs = expand_recommendations_for_ui(
         retriever,
         state,
@@ -127,12 +143,14 @@ def prepare_reply(
         cards,
         ask_attribute=ask,
     )
-    content = visible_reply_content(result, cards, clarify_prompt=clarify)
-
     if use_custom_elements:
-        # Cards only. Official text stays on the Message so a dropped
-        # CustomElement still leaves a readable bubble.
+        content = visible_reply_content(result, cards, clarify_prompt=clarify)
         elements = build_elements(cards, message="", clarify_prompt="")
     else:
+        text = format_assistant_text(result, cards).strip()
+        extra = cards_as_markdown(cards, clarify_prompt=clarify).strip()
+        content = f"{text}\n{extra}".strip() if extra else (
+            visible_reply_content(result, cards, clarify_prompt=clarify)
+        )
         elements = []
     return content, elements, actions

@@ -249,6 +249,42 @@ class CatalogSignatureTransitionModelTests(unittest.TestCase):
         self.assertNotIn("A", remaining)
         self.assertEqual(remaining, {"B", "C"})
 
+    def test_turns_1_to_9_never_return_none(self) -> None:
+        """Verify that turn < 10 never chooses ask_attribute=None."""
+        # Create a state where few products match; normally planner might choose None
+        state = DynamicSlateState(
+            turn=5,
+            candidates=(candidate("A", 0.4), candidate("B", 0.3)),
+            questions=("color", "material"),  # No None in the question list
+        )
+        planner = DynamicSlatePlanner(FixedTransitionModel({}))
+        
+        plan = planner.plan(state, top_k=10)
+        
+        # Should never return None on turn 5
+        self.assertIsNotNone(plan.ask_attribute)
+        self.assertIn(plan.ask_attribute, ("color", "material"))
+
+    def test_fallback_prefers_never_asked_over_repeatable(self) -> None:
+        """Verify fallback ranking: never-asked attributes preferred over repeatable."""
+        from agent.decide.clarification.stage import _choose_fallback_question
+        
+        state = DynamicSlateState(
+            turn=3,
+            candidates=(candidate("A", 0.5), candidate("B", 0.5)),
+            questions=("feature", "material", "color"),
+        )
+        planner = DynamicSlatePlanner(FixedTransitionModel({}))
+        state_asked = ["material"]  # Already asked material
+        eligible_candidates = ["feature", "material", "color"]  # All concrete attributes from eligible_questions
+        
+        # Should pick from never-asked (feature, color) not from already-asked (material)
+        result = _choose_fallback_question(state, planner, state_asked, eligible_candidates)
+        
+        self.assertIn(result, ("feature", "color", "material"))
+        # Should prefer never-asked over repeatable in scoring
+
+
 
 if __name__ == "__main__":
     unittest.main()

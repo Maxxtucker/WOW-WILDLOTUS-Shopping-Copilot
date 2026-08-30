@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Observe only stores `turn_delta`. This package decides whether the turn **replaces** prior needs (override) or **accumulates** them, probes the exact candidate pool, labels `buying` / `browsing` / `override`, and hands the pool to retrieve. Override is two levels: L1 discards every committed category and attribute then `apply_delta`; L2 drops only the fields present on this turn's delta then `apply_delta`. Adding alternatives is not override.
+Observe only stores `turn_delta`. This package decides whether the turn **replaces** prior needs (override) or **accumulates** them, probes the exact candidate pool, labels `buying` / `browsing` / `override`, and hands the pool to retrieve. Override is two levels: L1 discards every committed category and attribute only for an LLM-confirmed distant-category reset. A distant replacement category alone also qualifies as a new shopping object. L2 drops only the fields present on this turn's delta then `apply_delta`; it covers close-category changes and partial attribute replacement. Adding alternatives is not override.
 
 Classification is a local Qwen JSON client. There is no regex intention fallback.
 
@@ -21,7 +21,7 @@ Classification is a local Qwen JSON client. There is no regex intention fallback
 ```text
 observe → turn_delta
 route_intention
-    classify_override (L1, then keep only if this turn's category is distant;
+    classify_override (LLM accepts L1 only for a full distant-category reset;
                        else L2 replace-vs-add; skip both if no committed intent)
     if L1:
         clear_typed → apply_delta → open gate → probe once → intention=override

@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from agent.intent_router.exact_pool import ExactPools
 from agent.intent_router.llm import (
     OverrideDecision,
     classify_override,
@@ -18,7 +19,14 @@ from agent.understand.state import SessionState
 
 _OVERRIDE = "agent.intent_router.router.classify_override"
 _ROUTE = "agent.intent_router.router.classify_route"
-_PROBE = "agent.intent_router.router.probe_exact_pool"
+_PROBE = "agent.intent_router.router.probe_exact_pools"
+
+
+def _pools(strict: set[str] | None) -> ExactPools:
+    if strict is None:
+        return ExactPools(None, None)
+    values = set(strict)
+    return ExactPools(values, values)
 
 
 class IntentRouterTest(unittest.TestCase):
@@ -37,7 +45,7 @@ class IntentRouterTest(unittest.TestCase):
         retriever = MagicMock()
         with patch(_OVERRIDE, return_value=True) as override:
             with patch(_ROUTE) as route:
-                with patch(_PROBE, return_value={"A", "B"}) as probe:
+                with patch(_PROBE, return_value=_pools({"A", "B"})) as probe:
                     exact = route_intention(state, retriever)
         override.assert_called_once()
         route.assert_not_called()
@@ -66,7 +74,7 @@ class IntentRouterTest(unittest.TestCase):
         pools = [{"A", "B", "C"}, {"A"}]
 
         def fake_probe(_retriever, _state):
-            return pools.pop(0)
+            return _pools(pools.pop(0))
 
         with patch(_OVERRIDE, return_value=False):
             with patch(_ROUTE, return_value="buying") as route:
@@ -89,7 +97,7 @@ class IntentRouterTest(unittest.TestCase):
         state.turn_delta = ObservationExtract(category="sandals", source="regex")
         with patch(_OVERRIDE, return_value=False):
             with patch(_ROUTE, return_value="browsing") as route:
-                with patch(_PROBE, return_value=None):
+                with patch(_PROBE, return_value=_pools(None)):
                     exact = route_intention(state, MagicMock())
         self.assertIsNone(exact)
         self.assertIsNone(state.candidate_count)
@@ -113,7 +121,7 @@ class IntentRouterTest(unittest.TestCase):
         )
         with patch(_OVERRIDE, return_value=False):
             with patch(_ROUTE, return_value="buying") as route:
-                with patch(_PROBE, return_value={"A"}):
+                with patch(_PROBE, return_value=_pools({"A"})):
                     exact = route_intention(state, MagicMock())
         route.assert_called_once()
         self.assertEqual(exact, {"A"})
@@ -132,7 +140,7 @@ class IntentRouterTest(unittest.TestCase):
         state.latest_message = "Completely different requirements now."
         with patch(_OVERRIDE, return_value=False):
             with patch(_ROUTE, return_value="browsing"):
-                with patch(_PROBE, return_value=None):
+                with patch(_PROBE, return_value=_pools(None)):
                     route_intention(state, MagicMock())
         self.assertTrue(state.gate_open)
         self.assertFalse(state.override_seen)

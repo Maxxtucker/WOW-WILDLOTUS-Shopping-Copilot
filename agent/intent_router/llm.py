@@ -37,15 +37,17 @@ OVERRIDE_L1_SYSTEM = """\
 You judge whether this shopper utterance discards ALL committed typed constraints.
 Return JSON only: {"full": true} or {"full": false}
 
-full is true only when this turn names a new product type that is far from the prior category, or an explicit full start-over with a distant product type (sandals → backpack).
-full is false when this turn has no category, only changes attributes (material, color, …), only adds alternatives, or the new category is close to the old one (same family after folding: running shoes ↔ formal shoes; sandals ↔ women sandals).
-"ignore my earlier preference" and "what I need is: polyester" are not a full reset.
+full is true only when the shopper explicitly replaces the whole shopping need and names a new product category that is far from the prior category (sandals → backpack). Decide category distance yourself from the category meaning, not spelling overlap.
+full is also true when the turn only names a replacement category, provided that category is far from the prior category (clothing → shoes).
+full is false when this turn has no replacement category; only changes or replaces attributes (material, color, …); changes a category within the same family (running shoes ↔ formal shoes; sandals ↔ women sandals); or only adds alternatives. Those are partial replacements and will be handled by L2.
+"ignore my earlier preference" and "what I need is: polyester" are not a full reset without a distant replacement category.
 Do not invent constraints. Do not mention ASINs.
 
 Examples:
 - Prior: sandals + leather. Message: ignore my earlier preference. What I need is: polyester. → {"full": false}
 - Prior: sandals. Message: Forget sandals. I want a backpack now. → {"full": true}
 - Prior: running shoes. Message: I want formal shoes instead. → {"full": false}
+- Prior: running shoes + red. Message: I need black shoes instead. → {"full": false}
 """
 
 OVERRIDE_L2_SYSTEM = """\
@@ -215,11 +217,9 @@ def categories_distant(prior: str | None, incoming: str | None) -> bool:
 
 
 def should_keep_l1(state: SessionState) -> bool:
-    """Keep L1 only when this turn changes category and it is far from the prior."""
+    """Require an extracted replacement category; the LLM judges distance and reset intent."""
 
-    if not delta_has_category(state.turn_delta):
-        return False
-    return categories_distant(state.category, incoming_category(state.turn_delta))
+    return delta_has_category(state.turn_delta)
 
 
 def classify_override(state: SessionState) -> OverrideDecision:

@@ -9,9 +9,11 @@ stay in front; hybrid fill (hard_required=False) pads a small exact pool.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from ...progress import emit, skip_nodes
+from ..catalog.protocol_copy import tokenize
 from ..catalog.types import DimensionSpec, SearchWeights
 from ..from_slots import (
     exact_pool_groups,
@@ -87,6 +89,51 @@ RAW_RECALL_WEIGHTS = SearchWeights(
 )
 
 
+def _build_frequency_weighted_raw_text(messages: list[str]) -> str:
+    """Build frequency-weighted raw search text from all current intent messages.
+    
+    Uses all messages in the current intent (post-override), computes term
+    frequencies, and repeats high-frequency terms to boost their BM25 weights.
+    Tokenization handles lowercase, stopword filtering, and deduplication.
+    
+    Args:
+        messages: current_intent_messages from SessionState (already cleared of
+                  pre-override content by open_conversion_gate)
+    
+    Returns:
+        Frequency-weighted text string for BM25 query; empty string if no messages
+    """
+    if not messages:
+        return ""
+    
+    # Concatenate all messages
+    full_text = " ".join(msg.strip() for msg in messages if msg.strip())
+    if not full_text:
+        return ""
+    
+    # Tokenize (handles: lowercase, punctuation removal, stopword filtering)
+    tokens = tokenize(full_text, limit=None)
+    if not tokens:
+        return ""
+    
+    # Count term frequencies
+    term_freq = Counter(tokens)
+    
+    # Build frequency-weighted text by repeating high-frequency terms.
+    # Keep order of first appearance, cap repetitions at 3 for balance.
+    weighted_parts: list[str] = []
+    seen_terms: set[str] = set()
+    
+    for token in tokens:
+        if token not in seen_terms:
+            seen_terms.add(token)
+            freq = min(term_freq[token], 3)  # Cap at 3 repetitions
+            # Repeat the term based on frequency
+            weighted_parts.extend([token] * freq)
+    
+    return " ".join(weighted_parts)
+
+
 def _safe_route_fusion(
     retriever: CatalogRetriever,
     state: SessionState,
@@ -99,7 +146,7 @@ def _safe_route_fusion(
 ) -> list[SearchHit]:
     """Add relaxed and raw-text recall when live utterance evidence exists."""
 
-    raw_text = state.current_intent_text.strip()
+    raw_text = _build_frequency_weighted_raw_text(state.current_intent_messages).strip()
     if not raw_text:
         return base_hits
     limit = library_limit_for(state.intention)

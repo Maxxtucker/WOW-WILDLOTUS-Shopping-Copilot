@@ -14,7 +14,7 @@ from ..catalog.types import SearchHit
 RRF_CONSTANT = 60.0
 STRICT_WEIGHT = 1.40
 RELAXED_WEIGHT = 0.90
-RAW_TEXT_WEIGHT = 1.10
+RAW_TEXT_WEIGHT = 1.25
 
 
 def fuse_routes(

@@ -148,7 +148,11 @@ class DisclosureShortcutPipelineTest(unittest.TestCase):
         state.disclosure_empty = True
         state.turn_delta = None
 
-        self.assertFalse(pages_empty_disclosure(state))
+        # last_ask does not block paging shortcut; it only prevents re-asking
+        # the same attribute. When turn_delta=None, no new evidence exists,
+        # so paging from last_ranked is correct. Clarifier will avoid "color"
+        # because last_ask prevents it.
+        self.assertTrue(pages_empty_disclosure(state))
 
     def test_empty_pages_ranks_2_to_11(self) -> None:
         state = self._seeded()

@@ -419,5 +419,111 @@ class RetrievalAndAgentTest(unittest.TestCase):
         self.assertEqual(result["hit_rate_at_10"], 1.0)
 
 
+class TurnsBeforeTenNeverAskNothingTest(unittest.TestCase):
+    """Verify that turns 1-9 always ask a concrete attribute, never None."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.catalog_path = Path(self.temporary.name) / "catalog.jsonl"
+        self.rows = [
+            product("A", feature="leather", sole="Leather sole", rating_number=100),
+            product("B", feature="leather", sole="Rubber sole", rating_number=20),
+            product("C", feature="cotton", sole="Synthetic sole", rating_number=5),
+            product("D", feature="suede", sole="Leather sole", rating_number=15),
+            product("E", feature="cotton", sole="Rubber sole", rating_number=10),
+        ]
+        self.catalog_path.write_text(
+            "".join(json.dumps(row) + "\n" for row in self.rows),
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_turn_five_asks_concrete_question(self) -> None:
+        """On turn 5, even with limited candidates, should ask concrete attribute."""
+        agent = Agent(self.catalog_path, understand_mode="regex")
+        session_id = "test_session_1"
+        agent.reset(session_id, {"preference_tags": []})
+        
+        # Simulate turns 1-4
+        for turn in range(1, 5):
+            agent.respond(session_id, "I need a shirt", turn, 10)
+        
+        # Turn 5 response should have a concrete ask_attribute
+        response = agent.respond(session_id, "I prefer cotton", 5, 10)
+        self.assertIsNotNone(response["ask_attribute"])
+        self.assertIn(response["ask_attribute"], [
+            "material", "color", "size", "style", "budget", 
+            "feature", "use_case", "other"
+        ])
+
+    def test_turn_nine_asks_concrete_question(self) -> None:
+        """On turn 9, should ask concrete attribute, not None."""
+        agent = Agent(self.catalog_path, understand_mode="regex")
+        session_id = "test_session_2"
+        agent.reset(session_id, {"preference_tags": []})
+        
+        # Simulate turns 1-8
+        for turn in range(1, 9):
+            agent.respond(session_id, "different preference", turn, 10)
+        
+        response = agent.respond(session_id, "change my requirements", 9, 10)
+        self.assertIsNotNone(response["ask_attribute"])
+
+    def test_turn_ten_may_return_none(self) -> None:
+        """On turn 10, can return None and full recommendation list."""
+        agent = Agent(self.catalog_path, understand_mode="regex")
+        session_id = "test_session_3"
+        agent.reset(session_id, {"preference_tags": []})
+        
+        # Simulate turns 1-9
+        for turn in range(1, 10):
+            agent.respond(session_id, "I need a shirt", turn, 10)
+        
+        response = agent.respond(session_id, "any color", 10, 10)
+        # Turn 10 is allowed to return None for ask_attribute
+        # (may or may not, depends on data)
+
+
+def _minimal_catalog() -> CatalogRetriever:
+    """Minimal catalog fixture for testing."""
+    # Create a temporary catalog with a few products
+    catalog_data = [
+        {
+            "parent_asin": "P001",
+            "title": "Cotton T-shirt",
+            "material": "cotton",
+            "color": "blue",
+            "size": "M",
+            "category": "clothing",
+        },
+        {
+            "parent_asin": "P002",
+            "title": "Polyester Shirt",
+            "material": "polyester",
+            "color": "red",
+            "size": "L",
+            "category": "clothing",
+        },
+        {
+            "parent_asin": "P003",
+            "title": "Wool Sweater",
+            "material": "wool",
+            "color": "black",
+            "size": "M",
+            "category": "clothing",
+        },
+    ]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        catalog_path = Path(tmpdir) / "catalog.jsonl"
+        with open(catalog_path, "w") as f:
+            for item in catalog_data:
+                f.write(json.dumps(item) + "\n")
+        
+        with patch.dict(os.environ, {"AGENT_INDEX_PATH": ":memory:"}):
+            return CatalogRetriever(str(catalog_path))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ Input: session_id / user_profile at reset; later stages mutate fields in place.
 Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, recommendation scoring weights, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
+The intention router writes ``exact_strict`` / ``exact_lenient`` for retrieve.
 preference_tags is a reset-time copy of the aggregate profile; semantic ranking
 uses it only as weak evidence.
 Observe writes only turn_delta; the intention router commits constraints.
@@ -89,6 +90,8 @@ class SessionState:
     candidate_count: int | None = None
     previous_candidate_count: int | None = None
     candidate_count_before_delta: int | None = None
+    exact_strict: set[str] | None = None
+    exact_lenient: set[str] | None = None
     router_prompt_tokens: int = 0
     router_completion_tokens: int = 0
     scoring_weights: RecommendationScoreWeights = field(

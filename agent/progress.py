@@ -63,6 +63,7 @@ RETRIEVE_NODES = (
     "hybrid_search",
     "cap_hits",
     "raw_evidence",
+    "base_only",
     "relaxed_route",
     "raw_text_route",
     "weighted_rrf",

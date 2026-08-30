@@ -89,6 +89,16 @@ RAW_RECALL_WEIGHTS = SearchWeights(
 )
 
 
+def _without_excluded_hits(
+    hits: list[SearchHit], excluded_asins: set[str]
+) -> list[SearchHit]:
+    """Remove previously displayed ASINs before route fusion and ranking."""
+
+    if not excluded_asins:
+        return hits
+    return [hit for hit in hits if hit.parent_asin not in excluded_asins]
+
+
 def _build_frequency_weighted_raw_text(messages: list[str]) -> str:
     """Build frequency-weighted raw search text from all current intent messages.
     
@@ -146,25 +156,18 @@ def _safe_route_fusion(
 ) -> list[SearchHit]:
     """Add relaxed and raw-text recall when live utterance evidence exists."""
 
+    base_hits = _without_excluded_hits(base_hits, state.excluded_asins)
     raw_text = _build_frequency_weighted_raw_text(state.current_intent_messages).strip()
     if not raw_text:
         return base_hits
     limit = library_limit_for(state.intention)
-    # Before the latest possible override turn has passed, another Agent call
-    # does not prove that every displayed ASIN was a scored miss. Keep strict
-    # precision, but let independent safety routes recover such candidates.
-    safety_exclusions = (
-        state.excluded_asins
-        if state.override_seen or state.turn >= 5
-        else ()
-    )
     relaxed = retriever.search(
         query,
         required_groups=groups,
         preferred_groups=soft_groups,
         categories=(),
         budget=None,
-        exclude_asins=safety_exclusions,
+        exclude_asins=state.excluded_asins,
         limit=limit,
         candidate_limit=candidate_limit,
         weights=routing_for(state.intention).weights,
@@ -181,7 +184,7 @@ def _safe_route_fusion(
         preferred_groups=(),
         categories=(),
         budget=None,
-        exclude_asins=safety_exclusions,
+        exclude_asins=state.excluded_asins,
         limit=limit,
         candidate_limit=max(candidate_limit, 2_000),
         weights=RAW_RECALL_WEIGHTS,
@@ -192,7 +195,7 @@ def _safe_route_fusion(
         text_query="",
         profile_tags=(),
     )
-    return fuse_routes(
+    fused = fuse_routes(
         (
             ("strict", STRICT_WEIGHT, base_hits),
             ("relaxed", RELAXED_WEIGHT, relaxed),
@@ -200,6 +203,7 @@ def _safe_route_fusion(
         ),
         limit=limit,
     )
+    return _without_excluded_hits(fused, state.excluded_asins)
 
 
 def retrieve_candidates(

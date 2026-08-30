@@ -127,40 +127,20 @@ def expand_recommendations_for_ui(
     *,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """Take last_ranked head for display. Mark official protocol slate ASINs.
+    """Return only the official, unique recommendation ASINs for display."""
 
-    Do not call retrieve again. A second hybrid pass over the full catalog
-    blocked the Chainlit reply after Decide had already finished.
-    """
-
-    del retriever
-    slate: set[str] = set()
+    del retriever, state
     official: list[str] = []
+    seen: set[str] = set()
     for row in recommendations or []:
         asin = str((row or {}).get("parent_asin") or "").strip()
-        if not asin or asin in slate:
+        if not asin or asin in seen:
             continue
         official.append(asin)
-        slate.add(asin)
-
-    ranked: list[str] = []
-    if state is not None:
-        for asin in getattr(state, "last_ranked", None) or []:
-            asin = str(asin or "").strip()
-            if asin:
-                ranked.append(asin)
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    source = ranked if ranked else official
-    for asin in source:
-        if asin in seen:
-            continue
-        ordered.append(asin)
         seen.add(asin)
-        if len(ordered) >= limit:
+        if len(official) >= limit:
             break
     return [
-        {"parent_asin": asin, "on_slate": asin in slate}
-        for asin in ordered[:limit]
+        {"parent_asin": asin, "on_slate": True}
+        for asin in official
     ]

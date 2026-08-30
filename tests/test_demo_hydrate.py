@@ -10,23 +10,20 @@ from demo.hydrate import expand_recommendations_for_ui, hydrate_many
 
 
 class ExpandRecommendationsTest(unittest.TestCase):
-    def test_uses_last_ranked_order_and_marks_slate(self) -> None:
+    def test_uses_official_order_and_marks_every_card_on_slate(self) -> None:
         state = SessionState("hy", {})
         state.last_ranked = ["A", "B", "C", "D"]
         rows = expand_recommendations_for_ui(
             MagicMock(),
             state,
-            [{"parent_asin": "C"}],
+            [{"parent_asin": "C"}, {"parent_asin": "B"}],
             limit=3,
         )
         self.assertEqual(
             [row["parent_asin"] for row in rows],
-            ["A", "B", "C"],
+            ["C", "B"],
         )
-        self.assertEqual(
-            [row["on_slate"] for row in rows],
-            [False, False, True],
-        )
+        self.assertTrue(all(row["on_slate"] for row in rows))
 
     def test_falls_back_to_official_when_last_ranked_empty(self) -> None:
         state = SessionState("hy", {})

@@ -123,7 +123,7 @@ def prepare_reply(
     show_n: int = 10,
     use_custom_elements: bool = True,
 ) -> tuple[str, list[cl.CustomElement], list[cl.Action]]:
-    # Shelf shows ranking head; Agent.respond recommendations stay the protocol slate.
+    # Shelf mirrors the official Agent.respond recommendation list.
     display_recs = expand_recommendations_for_ui(
         retriever,
         state,

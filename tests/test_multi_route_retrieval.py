@@ -63,7 +63,7 @@ class MultiRouteFusionTest(unittest.TestCase):
         self.assertEqual(hits[0].parent_asin, "TARGET")
         self.assertIn("route:relaxed+raw", hits[0].reasons)
 
-    def test_early_safety_routes_do_not_treat_slate_as_certain_miss(self) -> None:
+    def test_safety_routes_exclude_previously_displayed_products(self) -> None:
         strict_asins = {f"S{index:03d}" for index in range(150)}
         retriever = MagicMock()
         retriever.lexical_scores.return_value = {}
@@ -79,9 +79,9 @@ class MultiRouteFusionTest(unittest.TestCase):
 
         hits = retrieve_candidates(retriever, state, strict_asins)
 
-        self.assertEqual(hits[0].parent_asin, "TARGET")
+        self.assertNotIn("TARGET", [hit.parent_asin for hit in hits])
         for call in retriever.search.call_args_list:
-            self.assertEqual(tuple(call.kwargs["exclude_asins"]), ())
+            self.assertEqual(set(call.kwargs["exclude_asins"]), {"TARGET"})
 
 
 if __name__ == "__main__":

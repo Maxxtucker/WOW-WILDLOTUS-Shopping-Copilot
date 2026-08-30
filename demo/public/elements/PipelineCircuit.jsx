@@ -1,6 +1,6 @@
 import React from "react";
 
-const NODE_W = 140;
+const NODE_W = 10;
 const NODE_H = 36;
 
 const GRAPHS = {

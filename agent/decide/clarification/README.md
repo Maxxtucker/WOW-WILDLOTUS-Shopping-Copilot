@@ -11,7 +11,7 @@ The simulator reads only structured `ask_attribute`. It does not infer the quest
 | File | Role |
 |---|---|
 | `types.py` | `Plan`, sentinel `NO_ADDITIONAL`. |
-| `utility.py` | `hit_utility(turn, rank) = 0.50 + 0.30/rank + 0.02*(11-turn)`. |
+| `utility.py` | Session-weighted HitRate/MRR utility; defaults to `0.50 + 0.30/rank + 0.02*(11-turn)`. |
 | `questions.py` | Still-informative attributes; `explain_question` templates. |
 | `replies.py` | Cache `predict_reply` for planner counterfactuals. |
 | `distinguish.py` | Partition by predicted reply; estimate next-turn Top-10 utility. |
@@ -72,7 +72,8 @@ with:
 If the target first appears at turn `t` and rank `r`, its score contribution is:
 
 ```math
-U(t,r)=0.50+\frac{0.30}{r}+0.02(11-t).
+U(t,r)=w_H+\frac{w_M}{r}+w_E\frac{11-t}{10},
+\qquad (w_H,w_M,w_E)=(0.50,0.30,0.20)\text{ by default}.
 ```
 
 The current expected hit value of showing the first `k_t` products is:

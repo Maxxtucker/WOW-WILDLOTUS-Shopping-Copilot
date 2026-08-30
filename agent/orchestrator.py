@@ -13,6 +13,7 @@ from threading import RLock
 from .retrieve.catalog.index_path import resolve_index_path
 from .retrieve.catalog.retriever import CatalogRetriever
 from .decide.clarification.planner import ScoreAwarePlanner
+from .decide.clarification.utility import RecommendationScoreWeights
 from .pipeline import TurnPipeline
 from .trace import TurnTrace
 from .understand.mode import (
@@ -92,6 +93,25 @@ class Agent:
         )
         return response
 
+    def set_recommendation_preference(
+        self,
+        session_id: str,
+        position: object,
+    ) -> None:
+        """Set runtime recommendation weights before the session's first turn."""
+
+        with self._lock:
+            state = self.sessions.get(session_id)
+            if state is None:
+                raise RuntimeError("reset must be called before setting preference")
+            if state.recommendation_preference_locked:
+                raise RuntimeError(
+                    "recommendation preference is locked after the first respond"
+                )
+            weights = RecommendationScoreWeights.from_slider_position(position)
+            state.scoring_weights = weights
+            state.recommendation_preference_position = float(position)
+
     def respond_traced(
         self,
         session_id: str,
@@ -101,14 +121,15 @@ class Agent:
     ) -> tuple[dict, TurnTrace]:
         """Same turn as ``respond``, plus the read-only stage trace."""
 
-        if session_id not in self.sessions:
-            raise RuntimeError("reset must be called before respond")
-        if not 1 <= int(turn) <= 10:
-            raise ValueError("turn must be between 1 and 10")
-        if int(top_k) <= 0:
-            raise ValueError("top_k must be positive")
-
-        state = self.sessions[session_id]
+        with self._lock:
+            state = self.sessions.get(session_id)
+            if state is None:
+                raise RuntimeError("reset must be called before respond")
+            if not 1 <= int(turn) <= 10:
+                raise ValueError("turn must be between 1 and 10")
+            if int(top_k) <= 0:
+                raise ValueError("top_k must be positive")
+            state.recommendation_preference_locked = True
         return self.pipeline.run_traced(
             state, str(user_message), int(turn), int(top_k)
         )

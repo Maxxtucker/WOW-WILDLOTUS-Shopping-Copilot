@@ -16,7 +16,11 @@ from .dynamic_slate import (
     DynamicSlateState,
 )
 from .types import NO_ADDITIONAL
-from .utility import hit_utility
+from .utility import (
+    DEFAULT_RECOMMENDATION_SCORE_WEIGHTS,
+    RecommendationScoreWeights,
+    hit_utility,
+)
 
 
 # Intent-card coverage measured over the released 50,000-product catalog.
@@ -80,6 +84,9 @@ class CatalogSignatureTransitionModel:
         candidates: Sequence[RankedCandidate],
         questions: Sequence[str | None],
         gate_open: bool,
+        scoring_weights: RecommendationScoreWeights = (
+            DEFAULT_RECOMMENDATION_SCORE_WEIGHTS
+        ),
     ) -> DynamicSlateState:
         raw_head = tuple(candidates[: self.max_candidates])
         raw_mass = sum(item.probability for item in raw_head)
@@ -101,6 +108,7 @@ class CatalogSignatureTransitionModel:
             gate_probability=1.0 if gate_open else 0.0,
             tail_probability=tail,
             cache_key=self._next_key("root"),
+            scoring_weights=scoring_weights,
         )
 
     def branches(
@@ -168,6 +176,7 @@ class CatalogSignatureTransitionModel:
                 questions=next_questions,
                 gate_probability=next_gate,
                 cache_key=self._next_key("branch"),
+                scoring_weights=state.scoring_weights,
             )
             branches.append(
                 DynamicSlateBranch(
@@ -213,9 +222,10 @@ class CatalogSignatureTransitionModel:
                         tail_probability=1.0,
                         tail_value=(
                             self.tail_retrieval_success
-                            * hit_utility(next_turn, 1)
+                            * hit_utility(next_turn, 1, state.scoring_weights)
                         ),
                         cache_key=self._next_key("tail-recovered"),
+                        scoring_weights=state.scoring_weights,
                     ),
                 )
             )
@@ -232,6 +242,7 @@ class CatalogSignatureTransitionModel:
                         tail_probability=1.0,
                         tail_value=0.0,
                         cache_key=self._next_key("tail-missed"),
+                        scoring_weights=state.scoring_weights,
                     ),
                 )
             )

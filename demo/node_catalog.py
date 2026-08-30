@@ -498,7 +498,8 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         ),
         "implementation": (
             "ScoreAwarePlanner searches ask × k ∈ [0, top_k]. Immediate hit "
-            "utility is 0.50 + 0.30/rank + 0.02×(11−turn), plus future_value "
+            "utility uses session HitRate/MRR weights (default 0.50 + 0.30/rank "
+            "+ 0.02×(11−turn)), plus future_value "
             "of reply partitions. Turn 10 and empty disclosure are a full "
             "slate and no question. Empty pools ask other (or nothing on turn 10)."
         ),

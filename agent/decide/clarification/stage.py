@@ -79,6 +79,7 @@ class Clarifier:
             candidates=ranked,
             questions=questions,
             gate_open=state.gate_open,
+            scoring_weights=state.scoring_weights,
         )
         dynamic_planner = DynamicSlatePlanner(
             transition_model,

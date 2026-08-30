@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from .distinguish import future_value, terminal_value
 from .questions import eligible_questions
 from .types import Plan
-from .utility import hit_utility
+from .utility import RecommendationScoreWeights, hit_utility
 
 if TYPE_CHECKING:
     from ..ranking.normalize import RankedCandidate
@@ -32,8 +32,13 @@ class ScoreAwarePlanner:
     def __init__(self, max_planning_candidates: int = 500) -> None:
         self.max_planning_candidates = max_planning_candidates
 
-    def _terminal_value(self, candidates: Sequence[RankedCandidate], turn: int) -> float:
-        return terminal_value(candidates, turn)
+    def _terminal_value(
+        self,
+        candidates: Sequence[RankedCandidate],
+        turn: int,
+        weights: RecommendationScoreWeights | None = None,
+    ) -> float:
+        return terminal_value(candidates, turn, weights)
 
     def _future_value(
         self,
@@ -41,6 +46,7 @@ class ScoreAwarePlanner:
         attribute: str | None,
         next_turn: int,
         answer_signature: Callable[[str, str], tuple[str, ...]],
+        weights: RecommendationScoreWeights | None = None,
     ) -> float:
         return future_value(
             residual,
@@ -48,6 +54,7 @@ class ScoreAwarePlanner:
             next_turn,
             answer_signature,
             self.max_planning_candidates,
+            weights,
         )
 
     def _eligible_questions(
@@ -74,14 +81,19 @@ class ScoreAwarePlanner:
 
         if state.turn >= 10:
             slate = tuple(item.parent_asin for item in candidates[:top_k])
-            return Plan(slate, None, self._terminal_value(candidates, state.turn), "final turn")
+            return Plan(
+                slate,
+                None,
+                self._terminal_value(candidates, state.turn, state.scoring_weights),
+                "final turn",
+            )
 
         if state.empty_disclosure_reveal:
             slate = tuple(item.parent_asin for item in candidates[:top_k])
             return Plan(
                 slate,
                 None,
-                self._terminal_value(candidates, state.turn),
+                self._terminal_value(candidates, state.turn, state.scoring_weights),
                 "empty disclosure",
             )
 
@@ -93,13 +105,23 @@ class ScoreAwarePlanner:
             best_question = max(
                 questions,
                 key=lambda attribute: self._future_value(
-                    candidates, attribute, state.turn + 1, answer_signature
+                    candidates,
+                    attribute,
+                    state.turn + 1,
+                    answer_signature,
+                    state.scoring_weights,
                 ),
             )
             return Plan(
                 (candidates[0].parent_asin,),
                 best_question,
-                self._future_value(candidates, best_question, state.turn + 1, answer_signature),
+                self._future_value(
+                    candidates,
+                    best_question,
+                    state.turn + 1,
+                    answer_signature,
+                    state.scoring_weights,
+                ),
                 "waiting for intent override gate",
             )
 
@@ -111,7 +133,8 @@ class ScoreAwarePlanner:
             for size in range(0, max_k + 1):
                 slate = candidates[:size]
                 immediate = sum(
-                    item.probability * hit_utility(state.turn, rank)
+                    item.probability
+                    * hit_utility(state.turn, rank, state.scoring_weights)
                     for rank, item in enumerate(slate, start=1)
                 )
                 residual = candidates[size:]
@@ -120,6 +143,7 @@ class ScoreAwarePlanner:
                     attribute,
                     state.turn + 1,
                     answer_signature,
+                    state.scoring_weights,
                 )
                 value = immediate + future
 

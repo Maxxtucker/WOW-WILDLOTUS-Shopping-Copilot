@@ -15,7 +15,11 @@ from typing import Protocol
 
 from ..ranking.normalize import RankedCandidate
 from .types import Plan
-from .utility import hit_utility
+from .utility import (
+    DEFAULT_RECOMMENDATION_SCORE_WEIGHTS,
+    RecommendationScoreWeights,
+    hit_utility,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +38,13 @@ class DynamicSlateState:
     tail_probability: float = 0.0
     tail_value: float = 0.0
     cache_key: str = ""
+    scoring_weights: RecommendationScoreWeights = DEFAULT_RECOMMENDATION_SCORE_WEIGHTS
 
     def __post_init__(self) -> None:
         if not 1 <= self.turn <= 10:
             raise ValueError("turn must be between 1 and 10")
+        if not isinstance(self.scoring_weights, RecommendationScoreWeights):
+            raise TypeError("scoring_weights must be RecommendationScoreWeights")
         if not 0.0 <= self.gate_probability <= 1.0:
             raise ValueError("gate_probability must be between zero and one")
         if not 0.0 <= self.tail_probability <= 1.0:
@@ -126,7 +133,8 @@ class DynamicSlatePlanner:
         if slate_size < 0 or slate_size > len(state.candidates):
             raise ValueError("slate_size is outside the candidate range")
         return state.gate_probability * sum(
-            candidate.probability * hit_utility(state.turn, rank)
+            candidate.probability
+            * hit_utility(state.turn, rank, state.scoring_weights)
             for rank, candidate in enumerate(
                 state.candidates[:slate_size], start=1
             )

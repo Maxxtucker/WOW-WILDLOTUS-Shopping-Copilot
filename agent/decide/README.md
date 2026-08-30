@@ -36,7 +36,8 @@ The planner asks catalog “how would this product answer?” via `answer_signat
 - `RankedCandidate`: `parent_asin`, raw weight, `probability`
 - `Plan`: `recommendations`, `ask_attribute`, `expected_value`, `reason`
 - `NO_ADDITIONAL`: partition sentinel when the simulator will not disclose more
-- `hit_utility(turn, rank) = 0.50 + 0.30/rank + 0.02*(11-turn)`
+- `hit_utility(turn, rank, weights)` uses the session's HitRate/MRR weights;
+  the default remains `0.50 + 0.30/rank + 0.02*(11-turn)`.
 
 ## Core code
 

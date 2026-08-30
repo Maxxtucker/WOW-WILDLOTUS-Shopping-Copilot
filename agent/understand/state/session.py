@@ -1,7 +1,7 @@
 """Purpose: mutable memory for one session (constraints, misses, conversion gate, intention).
 
 Input: session_id / user_profile at reset; later stages mutate fields in place.
-Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, and related fields.
+Output: typed_constraints (NLU), ranking_constraints (regex/kit), preference_tags, excluded_asins, gate_open, intention, recommendation scoring weights, and related fields.
 Role: all dialogue state for one session lives here; sessions do not share it.
 Retrieve builds search pairs from typed_constraints; they are not stored here.
 preference_tags is a reset-time copy of the aggregate profile; semantic ranking
@@ -18,7 +18,16 @@ from typing import TYPE_CHECKING
 from ..attributes.lookup import build_reply_lookup
 
 if TYPE_CHECKING:
+    from ...decide.clarification.utility import RecommendationScoreWeights
     from ..observation.schema import ObservationExtract
+
+
+def _default_scoring_weights() -> RecommendationScoreWeights:
+    from ...decide.clarification.utility import (
+        DEFAULT_RECOMMENDATION_SCORE_WEIGHTS,
+    )
+
+    return DEFAULT_RECOMMENDATION_SCORE_WEIGHTS
 
 
 def preference_tags_from_profile(profile: Mapping[str, object] | None) -> tuple[str, ...]:
@@ -82,6 +91,11 @@ class SessionState:
     candidate_count_before_delta: int | None = None
     router_prompt_tokens: int = 0
     router_completion_tokens: int = 0
+    scoring_weights: RecommendationScoreWeights = field(
+        default_factory=_default_scoring_weights
+    )
+    recommendation_preference_position: float = 34.375
+    recommendation_preference_locked: bool = False
 
     def __post_init__(self) -> None:
         self.preference_tags = preference_tags_from_profile(self.user_profile)

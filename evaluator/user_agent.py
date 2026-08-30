@@ -458,6 +458,8 @@ def _semantic_intent(kind: str, base: str, scenario_type: object) -> str:
     lowered = base.casefold()
     if kind == "initial":
         return "exploring" if str(scenario_type) in {"browsing", "boundary"} else "state_requirement"
+    if kind == "override":
+        return "override"
     if "no additional preference" in lowered:
         return "no_additional_preference"
     if "no preference for" in lowered:
@@ -494,6 +496,13 @@ def _intent_preserved(session: _BuyerSession, kind: str, base: str, message: str
         return (
             any(signal in text for signal in ("ask", "question", "tell you"))
             and any(signal in text for signal in ("specific", "one", "attribute", "detail"))
+        )
+    if intent == "override":
+        return (
+            any(signal in text for signal in (
+                "ignore", "disregard", "forget", "drop", "previous", "earlier", "prior",
+            ))
+            and any(signal in text for signal in ("need", "want", "looking for", "prefer"))
         )
     return True
 
@@ -621,6 +630,35 @@ class ScenarioUserAgent:
 
         self._record_exact_values_in_message(session.sample, str(message), target_disclosed)
         target_disclosed.update(shadow)
+        return str(message)
+
+    def override_message(self, session_id: str, base_message: str, new_value: object) -> str:
+        """Rewrite the evaluator's intent-override message when enabled."""
+
+        session = self._session(session_id)
+        base = str(base_message or "").strip()
+        if not base:
+            raise ValueError("base_message must be non-empty")
+        value = str(new_value or "").strip()
+        semantic_values = [value] if value else []
+        if self.mode == 1:
+            return base
+
+        protected = _dedupe(semantic_values)
+        shaped = self._shape(session, "override", base, None, semantic_values, protected)
+        message = shaped.get("message") if shaped else None
+        if self.mode == 2:
+            if (
+                not self._mode2_safe(session, "override", base, protected, message)
+                or _canonical(message) == _canonical(base)
+            ):
+                message = self._mode2_fallback_override(value)
+        elif self.mode == 3:
+            if not self._mode3_safe(session, "override", base, message, semantic_values, None):
+                message = self._mode3_fallback_override(value)
+        else:
+            if not self._mode4_safe(session, "override", base, message, semantic_values, None):
+                message = self._mode4_fallback_override(value)
         return str(message)
 
     def customer_reply(
@@ -827,6 +865,17 @@ class ScenarioUserAgent:
         return "I am still unsure; please ask me about one specific attribute."
 
     @staticmethod
+    def _mode2_fallback_override(new_value: str) -> str:
+        if new_value:
+            return f"Please disregard my earlier preference; I now need: {new_value}."
+        return "Please disregard my earlier preference; I now need something different."
+
+    @staticmethod
+    def _mode3_fallback_override(new_value: str) -> str:
+        value = _preferred_alias(new_value) if new_value else "a different requirement"
+        return f"Please disregard my earlier preference; I now need {value}."
+
+    @staticmethod
     def _mode3_fallback(session: _BuyerSession, kind: str, ask_attribute: str | None, semantic_values: list[str]) -> str:
         if kind == "initial":
             category = _preferred_alias(session.category)
@@ -879,6 +928,11 @@ class ScenarioUserAgent:
                 + ", but my English not very good."
             )
         return f"For {ask_attribute}, I don't have another special preference, maybe."
+
+    @staticmethod
+    def _mode4_fallback_override(new_value: str) -> str:
+        value = _descriptor(new_value) if new_value else "a different requirement"
+        return f"I am look to ignore earlier preference, now need the thing which {value}, okay."
 
     @staticmethod
     def _valid_message(message: object) -> bool:

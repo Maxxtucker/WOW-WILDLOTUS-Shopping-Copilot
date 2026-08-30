@@ -1,7 +1,10 @@
-"""Demo-only public_set selection and official local-evaluator wrap.
+"""Demo-only public_set selection and evaluator backends.
 
 Measures the process Agent. Does not live in agent/ and does not change
-evaluator/. Hidden intent cards stay inside official helper calls.
+evaluator/. Hidden intent cards stay inside evaluator helper calls. The
+``local_evaluator`` backend uses the frozen deterministic evaluator; the
+``agent_evaluator`` backend keeps the same scoring loop but generates customer
+messages with :class:`evaluator.user_agent.ScenarioUserAgent`.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any
 
 from evaluator.local_evaluator import (
     MAX_TURNS,
+    TOP_K,
     catalog_index,
     coarse_category,
     customer_reply,
@@ -27,6 +31,7 @@ from evaluator.local_evaluator import (
     metric_summary,
     normalize_recommendations,
 )
+from evaluator.user_agent import ScenarioUserAgent
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_SET_PATH = _REPO_ROOT / "data" / "public_set.jsonl"
@@ -34,18 +39,35 @@ CATALOG_PATH = _REPO_ROOT / "data" / "catalog.jsonl"
 
 EVALUATORS = (
     {
-        "id": "local",
-        "label": "Local evaluator",
+        "id": "local_evaluator",
+        "label": "local_evaluator",
         "path": "evaluator/local_evaluator.py",
         "enabled": True,
     },
     {
-        "id": "hosted",
-        "label": "Hosted evaluator",
-        "path": "",
-        "enabled": False,
+        "id": "agent_evaluator",
+        "label": "agent_evaluator",
+        "path": "evaluator/user_agent.py",
+        "enabled": True,
     },
 )
+
+# Keep accepting the short IDs used by older open browser tabs and scripts.
+_EVALUATOR_ALIASES = {
+    "local": "local_evaluator",
+    "agent": "agent_evaluator",
+}
+
+
+def normalize_evaluator(value: object) -> str:
+    """Return a supported evaluator ID, preserving a useful error value."""
+
+    raw = str(value or "").strip().casefold()
+    return _EVALUATOR_ALIASES.get(raw, raw)
+
+
+def evaluator_is_supported(value: object) -> bool:
+    return normalize_evaluator(value) in {"local_evaluator", "agent_evaluator"}
 
 _SAMPLE_ID_RE = re.compile(r"(?:public_)?(\d+)$", re.IGNORECASE)
 
@@ -197,10 +219,126 @@ def group_metrics(sessions: list[dict]) -> dict:
 
 
 def run_official_evaluate(agent: Any, samples: list[dict]) -> dict:
-    """One official evaluate() call on the selected rows."""
+    """Run one selected evaluator backend on the selected rows."""
 
+    return run_evaluate(agent, samples, "local_evaluator")
+
+
+def run_evaluate(agent: Any, samples: list[dict], evaluator: object = "local_evaluator") -> dict:
+    """Run either the frozen local loop or the ScenarioUserAgent loop."""
+
+    evaluator_id = normalize_evaluator(evaluator)
+    if evaluator_id not in {"local_evaluator", "agent_evaluator"}:
+        raise ValueError(f"unsupported evaluator backend: {evaluator!r}")
     catalog_ids, categories, products = get_catalog_bundle()
-    return evaluate(agent, samples, catalog_ids, categories, products)
+    if evaluator_id == "local_evaluator":
+        return evaluate(agent, samples, catalog_ids, categories, products)
+    if evaluator_id == "agent_evaluator":
+        return _evaluate_with_buyer(
+            agent, samples, catalog_ids, categories, products, ScenarioUserAgent()
+        )
+    # The supported set is validated above; this branch keeps static type
+    # checkers aware that every evaluator ID has an explicit dispatch.
+    raise AssertionError(f"unhandled evaluator backend: {evaluator_id}")
+
+
+def _evaluate_with_buyer(
+    agent: Any,
+    samples: list[dict],
+    catalog_ids: set[str],
+    categories: dict[str, list[str]],
+    products: dict[str, dict],
+    buyer: ScenarioUserAgent,
+) -> dict:
+    """Run the official scoring contract with a pluggable Buyer generator.
+
+    This is deliberately kept in the demo harness: the contest evaluator
+    remains the frozen deterministic reference implementation. The target,
+    normalization, turn limit, override timing, and metric formulas mirror
+    that reference; only the customer message source changes.
+    """
+
+    sessions: list[dict] = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for sample in samples:
+        session_id = f"public_{uuid.uuid4().hex}"
+        agent.reset(session_id, sample.get("user_profile") or {})
+        target = str(sample["ground_truth"]["parent_asin"])
+        card, behavior = materialize_hidden_fields(sample, products)
+        effective_sample = {**sample, "intent_card": card, "behavior": behavior}
+        disclosed: set[str] = set()
+        boundary_used = False
+        override_applied = sample["scenario_type"] != "intent_override"
+        category = coarse_category(categories.get(target, []))
+        buyer.reset(session_id, effective_sample, category)
+        user_message = buyer.initial_message(session_id, disclosed)
+        hit_turn: int | None = None
+        best_rank: int | None = None
+        for turn in range(1, MAX_TURNS + 1):
+            try:
+                response = agent.respond(session_id, user_message, turn, TOP_K)
+            except Exception:
+                response = {"message": "", "ask_attribute": None, "recommendations": []}
+            if not isinstance(response, dict) or not isinstance(response.get("message"), str):
+                response = {"message": "", "ask_attribute": None, "recommendations": []}
+            usage = response.get("usage")
+            if isinstance(usage, dict):
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
+                if isinstance(prompt_tokens, int) and prompt_tokens >= 0:
+                    total_prompt_tokens += prompt_tokens
+                if isinstance(completion_tokens, int) and completion_tokens >= 0:
+                    total_completion_tokens += completion_tokens
+            ranked = normalize_recommendations(response.get("recommendations"), catalog_ids)
+            if override_applied and target in ranked:
+                best_rank = ranked.index(target) + 1
+                hit_turn = turn
+                break
+            if turn == MAX_TURNS:
+                break
+            override = effective_sample.get("behavior", {}).get("override") or {}
+            if not override_applied and turn + 1 == int(override.get("turn", 3)):
+                override_applied = True
+                new_value = str(override.get("new_value", ""))
+                if new_value:
+                    disclosed.add(new_value)
+                override_message = str(
+                    override.get("message", "Actually, please ignore my earlier preference.")
+                )
+                user_message = buyer.override_message(
+                    session_id, override_message, new_value
+                )
+            else:
+                user_message, boundary_used = buyer.customer_reply(
+                    session_id,
+                    response.get("ask_attribute"),
+                    disclosed,
+                    boundary_used,
+                )
+        sessions.append(
+            {
+                "sample_id": sample["sample_id"],
+                "scenario_type": sample["scenario_type"],
+                "hit": hit_turn is not None,
+                "first_hit_turn": hit_turn,
+                "best_rank": best_rank,
+                "reciprocal_rank": 0.0 if best_rank is None else 1.0 / best_rank,
+            }
+        )
+
+    # Reuse the same summary helper as the step-through UI.  Besides keeping
+    # the formulas in one place, this handles an empty injected sample list
+    # without trying to convert ``mttc=None`` to float.
+    summary = group_metrics(sessions)
+    return {
+        **summary,
+        "reported_token_usage": {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+        },
+    }
 
 
 @dataclass
@@ -211,6 +349,8 @@ class StepState:
     catalog_ids: set[str]
     categories: dict[str, list[str]]
     products: dict[str, dict]
+    evaluator: str = "local_evaluator"
+    buyer: ScenarioUserAgent | None = None
     sample_index: int = 0
     session_id: str = ""
     effective: dict = field(default_factory=dict)
@@ -234,15 +374,20 @@ class StepState:
         return max(0, len(self.samples) - self.sample_index)
 
 
-def start_step_run(samples: list[dict]) -> StepState:
+def start_step_run(samples: list[dict], evaluator: object = "local_evaluator") -> StepState:
     if not samples:
         raise ValueError("no samples selected")
     catalog_ids, categories, products = get_catalog_bundle()
+    evaluator_id = normalize_evaluator(evaluator)
+    if evaluator_id not in {"local_evaluator", "agent_evaluator"}:
+        raise ValueError(f"unsupported evaluator backend: {evaluator!r}")
     state = StepState(
         samples=list(samples),
         catalog_ids=catalog_ids,
         categories=categories,
         products=products,
+        evaluator=evaluator_id,
+        buyer=ScenarioUserAgent() if evaluator_id == "agent_evaluator" else None,
     )
     _begin_sample(state)
     return state
@@ -257,11 +402,12 @@ def _begin_sample(state: StepState) -> None:
     state.disclosed = set()
     state.boundary_used = False
     state.override_applied = sample["scenario_type"] != "intent_override"
-    state.pending_message = initial_message(
-        state.effective,
-        coarse_category(state.categories.get(state.target, [])),
-        state.disclosed,
-    )
+    category = coarse_category(state.categories.get(state.target, []))
+    if state.buyer is None:
+        state.pending_message = initial_message(state.effective, category, state.disclosed)
+    else:
+        state.buyer.reset(state.session_id, state.effective, category)
+        state.pending_message = state.buyer.initial_message(state.session_id, state.disclosed)
     state.turn = 1
     state.hit_turn = None
     state.best_rank = None
@@ -300,16 +446,29 @@ def apply_step_response(state: StepState, response: dict | None) -> dict:
         new_value = str(override.get("new_value", ""))
         if new_value:
             state.disclosed.add(new_value)
-        state.pending_message = str(
+        override_message = str(
             override.get("message", "Actually, please ignore my earlier preference.")
         )
-    else:
-        state.pending_message, state.boundary_used = customer_reply(
-            state.effective,
-            payload.get("ask_attribute"),
-            state.disclosed,
-            state.boundary_used,
+        state.pending_message = (
+            state.buyer.override_message(state.session_id, override_message, new_value)
+            if state.buyer is not None
+            else override_message
         )
+    else:
+        if state.buyer is None:
+            state.pending_message, state.boundary_used = customer_reply(
+                state.effective,
+                payload.get("ask_attribute"),
+                state.disclosed,
+                state.boundary_used,
+            )
+        else:
+            state.pending_message, state.boundary_used = state.buyer.customer_reply(
+                state.session_id,
+                payload.get("ask_attribute"),
+                state.disclosed,
+                state.boundary_used,
+            )
     state.turn += 1
     return {
         "session_done": False,

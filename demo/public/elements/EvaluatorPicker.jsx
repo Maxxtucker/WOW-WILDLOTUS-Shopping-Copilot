@@ -7,6 +7,12 @@ function sendAction(name, payload) {
   callAction({ name, payload });
 }
 
+function isSupportedEvaluator(value) {
+  // Accept short IDs from an already-open browser tab as well as the
+  // canonical backend IDs sent by the current server.
+  return ["local_evaluator", "agent_evaluator", "local", "agent"].includes(value);
+}
+
 function Field({ label, children }) {
   return (
     <label style={{ display: "grid", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.62)" }}>
@@ -78,16 +84,17 @@ export default function EvaluatorPicker() {
     mode,
   });
 
+  const evaluatorReady = isSupportedEvaluator(evaluator);
   const actions = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {expanded ? (
         <button
           type="button"
-          disabled={busy || evaluator !== "local"}
+          disabled={busy || !evaluatorReady}
           onClick={() =>
             sendAction(mode === "step" ? "eval_step_start" : "eval_run", payload())
           }
-          style={{ ...btnStyle, opacity: busy || evaluator !== "local" ? 0.45 : 1 }}
+          style={{ ...btnStyle, opacity: busy || !evaluatorReady ? 0.45 : 1 }}
         >
           {mode === "step" ? "Start step-through" : "Run"}
         </button>
@@ -167,7 +174,7 @@ export default function EvaluatorPicker() {
               </select>
             </Field>
 
-            {evaluator === "local" ? (
+            {evaluatorReady ? (
               <div
                 style={{
                   display: "grid",
@@ -180,6 +187,9 @@ export default function EvaluatorPicker() {
               >
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
                   {root.total || catalog.length} public_set sessions. Pick one, a range, all, or a random sample.
+                  {evaluator === "agent_evaluator" || evaluator === "agent"
+                    ? " Customer messages come from evaluator/user_agent.py (mode from CONVERGE_USER_MODE)."
+                    : " Scoring and customer messages use evaluator/local_evaluator.py."}
                 </div>
                 <Field label="Selection">
                   <select

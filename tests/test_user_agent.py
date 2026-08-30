@@ -103,6 +103,30 @@ class ScenarioUserAgentTest(unittest.TestCase):
             ("The important points for me are: Rubber sole.", False),
         )
 
+    def test_override_rewrites_original_message_and_preserves_new_intent(self) -> None:
+        client = FakeClient([
+            {"message": "Please disregard my earlier preference; I now prefer genuine hide."},
+        ])
+        buyer = ScenarioUserAgent(mode=3, client=client)
+        buyer.reset("s", sample("intent_override"), "Men Shoes")
+
+        message = buyer.override_message(
+            "s",
+            "Actually, please ignore my earlier preference.",
+            "leather",
+        )
+
+        self.assertEqual(
+            message,
+            "Please disregard my earlier preference; I now prefer genuine hide.",
+        )
+        self.assertEqual(client.payloads[0]["turn_kind"], "override")
+        self.assertEqual(
+            client.payloads[0]["deterministic_message"],
+            "Actually, please ignore my earlier preference.",
+        )
+        self.assertEqual(client.payloads[0]["structured_answer_values"], ["leather"])
+
     def test_mode_three_accepts_synonyms_and_rewrites_whole_sentence(self) -> None:
         client = FakeClient([
             {"message": "I'm shopping for men's footwear, and genuine hide is what I need."},

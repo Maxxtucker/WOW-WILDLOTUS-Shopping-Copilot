@@ -2,8 +2,10 @@
 
 Uses the full ``data/catalog.jsonl`` catalog and default live NLU — the same
 ``TurnPipeline`` path as ``scripts/nlu_console.py``. The Eval composer button
-opens a local-evaluator dock over ``data/public_set.jsonl`` (demo-only; the
-agent package does not read those labels). Custom elements load from
+opens an evaluator dock over ``data/public_set.jsonl`` (demo-only; the agent
+package does not read those labels). It can run either the frozen
+``local_evaluator`` or ``evaluator/user_agent.py`` as ``agent_evaluator``.
+Custom elements load from
 ``public/elements`` relative to cwd, so run from the ``demo/`` directory:
 
     . ..\\scripts\\load_nlu_env.ps1
@@ -243,7 +245,7 @@ async def on_chat_start() -> None:
             "The full branch graph stays visible; only the path taken this turn lights up. "
             "Click any node to inspect its function, meaning, and this-turn input/output.\n\n"
             "Use **Eval** next to the composer to score public_set sessions "
-            "with the official local evaluator.\n\n"
+            "with local_evaluator or the paraphrasing agent_evaluator.\n\n"
             'Try: *"I\'d prefer something green and easy to wear."*'
         )
     ).send()

@@ -1,4 +1,4 @@
-"""Chainlit widgets for the demo local-evaluator dock."""
+"""Chainlit widgets for the demo evaluator dock."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ from demo.eval_harness import (
     StepState,
     apply_step_response,
     group_metrics,
-    run_official_evaluate,
+    evaluator_is_supported,
+    normalize_evaluator,
+    run_evaluate,
     sample_summaries,
     select_samples,
     start_step_run,
@@ -22,7 +24,7 @@ from demo.eval_harness import (
 EVAL_COMMAND = {
     "id": "Eval",
     "icon": "flask-conical",
-    "description": "Local evaluator",
+    "description": "Choose local_evaluator or agent_evaluator",
     "button": True,
 }
 
@@ -128,9 +130,9 @@ def _cancel_flag() -> dict:
 async def run_auto(payload: dict) -> None:
     from demo.chainlit_app import get_agent
 
-    evaluator = str(payload.get("evaluator") or payload.get("selectedEvaluator") or "")
-    if evaluator != "local":
-        await refresh_picker(status="error", statusDetail="Select Local evaluator first.")
+    evaluator = normalize_evaluator(payload.get("evaluator") or payload.get("selectedEvaluator"))
+    if not evaluator_is_supported(evaluator):
+        await refresh_picker(status="error", statusDetail="Select local_evaluator or agent_evaluator first.")
         return
     try:
         samples = _samples_from_payload(payload)
@@ -173,7 +175,7 @@ async def run_auto(payload: dict) -> None:
             selectedCount=len(samples),
         )
         try:
-            result = await asyncio.to_thread(run_official_evaluate, agent, [sample])
+            result = await asyncio.to_thread(run_evaluate, agent, [sample], evaluator)
         except Exception as exc:
             await refresh_picker(status="error", statusDetail=str(exc))
             return
@@ -224,7 +226,10 @@ async def play_pending_turn(state: StepState) -> None:
         selectedCount=len(state.samples),
     )
     result = await handle_user_text(text, session_id=state.session_id, turn=turn)
-    outcome = apply_step_response(state, result)
+    # ScenarioUserAgent may call a remote OpenAI-compatible endpoint while
+    # producing the next customer message.  Keep that synchronous call off
+    # Chainlit's event loop so the dock remains responsive in agent mode.
+    outcome = await asyncio.to_thread(apply_step_response, state, result)
     if outcome.get("session_done"):
         session_row = outcome.get("session")
         if isinstance(session_row, dict):
@@ -254,9 +259,9 @@ async def play_pending_turn(state: StepState) -> None:
 
 
 async def run_step(payload: dict) -> None:
-    evaluator = str(payload.get("evaluator") or payload.get("selectedEvaluator") or "")
-    if evaluator != "local":
-        await refresh_picker(status="error", statusDetail="Select Local evaluator first.")
+    evaluator = normalize_evaluator(payload.get("evaluator") or payload.get("selectedEvaluator"))
+    if not evaluator_is_supported(evaluator):
+        await refresh_picker(status="error", statusDetail="Select local_evaluator or agent_evaluator first.")
         return
     try:
         samples = _samples_from_payload(payload)
@@ -265,7 +270,9 @@ async def run_step(payload: dict) -> None:
         return
     cl.user_session.set("eval_cancel", {"cancelled": False})
     try:
-        state = start_step_run(samples)
+        # Starting a step run generates the first customer message.  In
+        # agent_evaluator mode that can involve a synchronous LLM request.
+        state = await asyncio.to_thread(start_step_run, samples, evaluator)
     except ValueError as exc:
         await refresh_picker(status="error", statusDetail=str(exc))
         return

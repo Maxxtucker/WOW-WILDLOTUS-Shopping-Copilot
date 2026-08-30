@@ -1,9 +1,11 @@
 # Scenario Buyer agent
 
-`evaluator.user_agent.ScenarioUserAgent` is a standalone Buyer module for the
-four-mode design. It does not replace `starter.agent.Agent`, and this revision
-does not wire it into `evaluator.local_evaluator`; that original evaluation
-flow remains unchanged until integration is explicitly requested.
+`evaluator.user_agent.ScenarioUserAgent` is a Buyer module for the four-mode
+design. It does not replace `starter.agent.Agent`. The frozen
+`evaluator.local_evaluator` remains unchanged; the demo harness exposes a
+separate `agent_evaluator` backend that uses this Buyer while preserving the
+official scoring and recommendation validation rules. Select
+`local_evaluator` or `agent_evaluator` in the Chainlit Eval dock.
 
 The compatibility calls are:
 
@@ -43,6 +45,20 @@ and then use the session ID in the two methods.
 
 The LLM only generates user messages. It cannot modify the shopping agent's
 recommendations or `ask_attribute` response field.
+
+## Chainlit integration
+
+Run the demo from the `demo/` directory. The Eval dock's Backend selector has
+two enabled choices:
+
+- `local_evaluator` calls the frozen deterministic public-set evaluator.
+- `agent_evaluator` runs the same scoring loop but obtains the initial and
+  follow-up customer messages from `ScenarioUserAgent`. Its mode and optional
+  provider are read from `CONVERGE_USER_MODE` and the other `.env` settings.
+
+The step-through and auto-run actions use the selected backend consistently.
+The evaluator is demo-only; the production `starter.agent.Agent` path does not
+read public-set labels or invoke the Buyer module.
 
 ## API key configuration
 

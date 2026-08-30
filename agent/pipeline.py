@@ -80,18 +80,21 @@ def leftover_page_stats(state: SessionState) -> dict[str, object]:
 
 
 def pages_empty_disclosure(state: SessionState) -> bool:
-    """True when disclosure is empty and last_ranked still has an unshown ASIN."""
+    """True when disclosure is empty and last_ranked still has an unshown ASIN.
+    
+    Paging shortcut skips router and retrieve when no new evidence (turn_delta=None).
+    last_ask does NOT block paging; it only prevents re-asking the same attribute.
+    """
 
-    # A no-preference answer to one structured question only exhausts that
-    # attribute. It must return through retrieval and Dynamic Slate so another
-    # question can be chosen. Preserve paging only for generic/no-question
-    # turns that add no new evidence at all.
-    if state.last_ask is not None:
-        return False
+    # New evidence provided? Must re-route and re-retrieve
     if state.turn_delta is not None:
         return False
+    
+    # No new evidence (including "no preference" answers to structured questions)
     if state.disclosure_empty is False:
         return False
+    
+    # Can page from previous ranking?
     return bool(next_ranked_page(state, limit=1))
 
 

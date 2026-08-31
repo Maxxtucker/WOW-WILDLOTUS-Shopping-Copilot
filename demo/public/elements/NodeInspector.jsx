@@ -3,8 +3,8 @@ import React from "react";
 const CARD = {
   padding: "12px 14px",
   borderRadius: 14,
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.07)",
+  background: "linear-gradient(180deg, rgba(254,44,85,0.08), rgba(37,244,238,0.04))",
+  border: "1px solid rgba(196,181,253,0.16)",
 };
 
 const LABEL = {
@@ -43,10 +43,10 @@ function statusLabel(status) {
 
 function Chip({ children, tone = "muted" }) {
   const palettes = {
-    success: { bg: "rgba(32,201,151,0.14)", border: "rgba(32,201,151,0.32)", text: "#d6fff3" },
-    danger: { bg: "rgba(255,107,107,0.12)", border: "rgba(255,107,107,0.28)", text: "#ffd8d8" },
-    accent: { bg: "rgba(255,43,122,0.14)", border: "rgba(255,43,122,0.28)", text: "#ffe1ec" },
-    muted: { bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.1)", text: "rgba(255,255,255,0.7)" },
+    success: { bg: "rgba(37,244,238,0.16)", border: "rgba(37,244,238,0.38)", text: "#d9fbff" },
+    danger: { bg: "rgba(255,107,138,0.14)", border: "rgba(255,107,138,0.32)", text: "#ffd8e0" },
+    accent: { bg: "rgba(254,44,85,0.16)", border: "rgba(37,244,238,0.32)", text: "#ffe4ec" },
+    muted: { bg: "rgba(196,181,253,0.08)", border: "rgba(196,181,253,0.18)", text: "rgba(247,243,255,0.78)" },
   };
   const palette = palettes[tone] || palettes.muted;
   return (
@@ -211,8 +211,10 @@ function Section({ title, children, accent = false }) {
     <div
       style={{
         ...CARD,
-        border: accent ? "1px solid rgba(255,43,122,0.18)" : CARD.border,
-        background: accent ? "rgba(255,43,122,0.035)" : CARD.background,
+        border: accent ? "1px solid rgba(37,244,238,0.22)" : CARD.border,
+        background: accent
+          ? "linear-gradient(180deg, rgba(254,44,85,0.1), rgba(37,244,238,0.05))"
+          : CARD.background,
       }}
     >
       <div style={LABEL}>{title}</div>
@@ -265,7 +267,14 @@ function ThisTurn({ node, detail }) {
   const why = detail?.why;
 
   if (status === "pending") {
-    return <span style={{ color: "rgba(255,255,255,0.45)" }}>This turn has not reached this node yet.</span>;
+    return (
+      <div style={{ display: "grid", gap: 9 }}>
+        <Chip tone="muted">Pending</Chip>
+        <span style={{ color: "rgba(255,255,255,0.45)" }}>
+          This turn has not reached this node yet.
+        </span>
+      </div>
+    );
   }
   if (status === "skipped" && !hasInput && !hasOutput && !hasExtra) {
     return (
@@ -278,6 +287,10 @@ function ThisTurn({ node, detail }) {
 
   return (
     <div style={{ display: "grid", gap: 13 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <Chip tone={statusTone(status)}>{statusLabel(status)}</Chip>
+        {node?.summary ? <Chip>{node.summary}</Chip> : null}
+      </div>
       {why ? (
         <Field name={status === "skipped" ? "Skip reason" : "Runtime note"}>
           <ValueView value={why} />
@@ -336,13 +349,18 @@ export default function NodeInspector() {
       <div
         data-inspector-collapsed="true"
         style={{
+          width: "100%",
+          height: "100%",
+          minHeight: "100%",
+          boxSizing: "border-box",
           padding: 8,
-          background: "linear-gradient(180deg,#151515,#101010)",
+          background:
+            "radial-gradient(ellipse 80% 60% at 0% 0%, rgba(254,44,85,0.22), transparent 55%), linear-gradient(180deg,#1c122c,#0c0816)",
           borderRadius: 16,
-          border: "1px solid rgba(255,255,255,0.08)",
-          minHeight: 72,
+          border: "1px solid rgba(196,181,253,0.2)",
           display: "flex",
           justifyContent: "center",
+          alignItems: "flex-start",
         }}
       >
         <button
@@ -351,9 +369,9 @@ export default function NodeInspector() {
           style={{
             writingMode: "vertical-rl",
             transform: "rotate(180deg)",
-            background: "rgba(255,43,122,0.14)",
-            border: "1px solid rgba(255,43,122,0.32)",
-            color: "#ffe1ec",
+            background: "linear-gradient(180deg, rgba(254,44,85,0.22), rgba(37,244,238,0.12))",
+            border: "1px solid rgba(37,244,238,0.35)",
+            color: "#ffe4ec",
             borderRadius: 999,
             padding: "12px 8px",
             fontSize: 11,
@@ -370,22 +388,37 @@ export default function NodeInspector() {
   }
 
   const detail = node && node.detail && typeof node.detail === "object" ? node.detail : {};
-  const purpose = meta.purpose || node?.function || "No purpose note is registered for this node.";
-  const why = meta.why || "No rationale note is registered for this node.";
-  const contract = meta.function || "";
-  const how = meta.how_it_works || meta.implementation || node?.implementation || "No implementation note is registered for this node.";
+  const task =
+    meta.task ||
+    meta.purpose ||
+    node?.task ||
+    "No task note is registered for this node.";
+  const rationale =
+    meta.rationale ||
+    meta.why ||
+    node?.rationale ||
+    "No rationale note is registered for this node.";
+  const implementation =
+    meta.implementation ||
+    meta.how_it_works ||
+    node?.implementation ||
+    "No implementation note is registered for this node.";
 
   return (
     <div
       data-inspector-collapsed="false"
       style={{
-        padding: 14,
-        color: "#f5f7fb",
+        width: "100%",
+        height: "100%",
+        minHeight: "100%",
+        boxSizing: "border-box",
+        overflow: "auto",
+        padding: "10px 11px",
+        color: "#f7f3ff",
         background:
-          "radial-gradient(circle at top left, rgba(255,43,122,0.11), transparent 34%), linear-gradient(180deg,#151515,#101010)",
+          "radial-gradient(ellipse 80% 50% at 0% 0%, rgba(254,44,85,0.18), transparent 50%), radial-gradient(ellipse 70% 40% at 100% 0%, rgba(37,244,238,0.12), transparent 46%), linear-gradient(180deg,#1c122c,#0c0816)",
         borderRadius: 18,
-        border: "1px solid rgba(255,255,255,0.08)",
-        minHeight: 80,
+        border: "1px solid rgba(196,181,253,0.2)",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 13 }}>
@@ -417,12 +450,13 @@ export default function NodeInspector() {
             onChange={(event) => setViewTurn(Number(event.target.value))}
             style={{
               flex: 1,
-              background: "#121212",
-              color: "#f5f7fb",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: "linear-gradient(180deg,#241634,#12081c)",
+              color: "#f7f3ff",
+              border: "1px solid rgba(196,181,253,0.28)",
               borderRadius: 9,
               padding: "6px 9px",
               fontSize: 12.5,
+              colorScheme: "dark",
             }}
           >
             {turns.map((item) => (
@@ -434,16 +468,47 @@ export default function NodeInspector() {
 
       {!selectedNode ? (
         <div style={{ display: "grid", gap: 11 }}>
-          <Section title={String(stage).replace(/_/g, " ")} accent>
-            {blurbs[stage] || "Click a circuit node to inspect its production contract and current-turn I/O."}
-          </Section>
-          {row?.original ? (
-            <Section title="Current turn utterance">
-              <ValueView value={row.original} />
-            </Section>
-          ) : null}
-          <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", lineHeight: 1.5 }}>
-            The graph keeps unused branches visible. Clicking a skipped node explains why it did not execute this turn.
+          <div
+            style={{
+              ...CARD,
+              border: "1px solid rgba(37,244,238,0.22)",
+              background: "linear-gradient(180deg, rgba(254,44,85,0.1), rgba(37,244,238,0.05))",
+            }}
+          >
+            <div style={LABEL}>{String(stage).replace(/_/g, " ")}</div>
+            <div
+              style={{
+                fontSize: 13.2,
+                color: "rgba(255,255,255,0.84)",
+                lineHeight: 1.58,
+              }}
+            >
+              {blurbs[stage] ||
+                "Click a circuit node to inspect its design and current-turn I/O."}
+            </div>
+            {row?.original ? (
+              <div
+                style={{
+                  marginTop: 12,
+                  paddingTop: 11,
+                  borderTop: "1px solid rgba(255,255,255,0.07)",
+                }}
+              >
+                <Field name="Current turn utterance">
+                  <ValueView value={row.original} />
+                </Field>
+              </div>
+            ) : null}
+          </div>
+          <div
+            style={{
+              fontSize: 11.5,
+              color: "rgba(255,255,255,0.4)",
+              lineHeight: 1.5,
+            }}
+          >
+            The graph keeps unused branches visible. Clicking a skipped node
+            shows the real reason it did not execute this turn.
           </div>
         </div>
       ) : (
@@ -459,15 +524,12 @@ export default function NodeInspector() {
             </div>
           </div>
 
-          <Section title="Node task">{purpose}</Section>
-          <Section title="Why this node exists">{why}</Section>
-          {contract && contract !== purpose ? (
-            <Section title="Contract">{contract}</Section>
-          ) : null}
+          <Section title="Node Task">{task}</Section>
+          <Section title="Design Rationale">{rationale}</Section>
+          <Section title="Implementation">{implementation}</Section>
           <Section title="This turn · real trace" accent>
             <ThisTurn node={node} detail={detail} />
           </Section>
-          <Section title="Implementation">{how}</Section>
         </div>
       )}
     </div>

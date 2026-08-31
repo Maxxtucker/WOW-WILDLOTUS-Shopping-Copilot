@@ -11,7 +11,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...domain import classify_constraint
-from ...progress import emit
+from ...progress import emit, skip_nodes
 from .classify import colon_fallback
 from .hybrid import hybrid_extract
 from .slots.types import ConstraintSlot
@@ -31,11 +31,24 @@ class ObservationCoordinator:
 def observe(state: SessionState, message: str) -> None:
     value = message.strip()
     extract = hybrid_extract(state, value)
-    if (
+    colon_eligible = (
         not extract.empty
         and extract.source != "llm"
         and not extract.constraints
-    ):
+    )
+    if colon_eligible:
+        emit(
+            "understand",
+            "colon_restore",
+            "running",
+            {
+                "input": {
+                    "message": value,
+                    "last_ask": state.last_ask,
+                    "existing_constraints": list(extract.constraints),
+                }
+            },
+        )
         pieces = colon_fallback(state, value)
         if pieces:
             extra = tuple(
@@ -51,6 +64,35 @@ def observe(state: SessionState, message: str) -> None:
                 constraints=tuple(pieces),
                 slots=extract.slots + extra,
             )
+        emit(
+            "understand",
+            "colon_restore",
+            "completed",
+            {
+                "input": {
+                    "message": value,
+                    "last_ask": state.last_ask,
+                },
+                "output": {
+                    "applied": bool(pieces),
+                    "restored_constraints": list(pieces),
+                },
+                "why": (
+                    None
+                    if pieces
+                    else "the message did not satisfy the bounded last-question colon fallback"
+                ),
+            },
+        )
+    else:
+        reason = (
+            "NLU output already owns grounded fields"
+            if extract.source == "llm"
+            else "the extract is empty"
+            if extract.empty
+            else "regex extraction already found constraints"
+        )
+        skip_nodes("understand", "colon_restore", why=reason)
     state.disclosure_empty = extract.disclosure_empty
     state.turn_delta = None if extract.empty else extract
     slots = []

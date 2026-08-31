@@ -1,8 +1,8 @@
-"""Retrieve layer: score the router exact pool; hybrid-fill to 300 when under 150.
+"""Retrieve layer: exact/hybrid recall, safety-route fusion, and ranking input.
 
 Input: SessionState (typed slots, excluded_asins, message) plus optional exact ASINs.
-Output: at most 500 SearchHit values.
-Role: from_slots maps typed_constraints at score time. Hard intersection is the router.
+Output: at most 500 SearchHit values after optional weighted RRF.
+Role: from_slots maps typed constraints; Intent Router owns the hard intersection.
 """
 
 from .catalog import CatalogRetriever, SearchHit, build_response_signature

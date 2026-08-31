@@ -88,7 +88,14 @@ def apply_disclosure(
             "understand",
             "disclosure",
             "running",
-            {"attempt": attempt},
+            {
+                "attempt": attempt,
+                "input": {
+                    "message": message,
+                    "category": extract.category,
+                    "slot_count": len(extract.slots),
+                },
+            },
         )
         try:
             payload = complete(
@@ -104,7 +111,19 @@ def apply_disclosure(
                 "understand",
                 "disclosure",
                 "completed",
-                {"empty": flag, "attempt": attempt},
+                {
+                    "empty": flag,
+                    "attempt": attempt,
+                    "input": {
+                        "message": message,
+                        "category": extract.category,
+                        "slot_count": len(extract.slots),
+                    },
+                    "output": {
+                        "empty": flag,
+                        "attempts_used": attempt,
+                    },
+                },
             )
             if flag:
                 return ObservationExtract(
@@ -124,7 +143,20 @@ def apply_disclosure(
         "understand",
         "disclosure",
         "completed",
-        {"empty": False, "why": "fail-open after 3 invalid replies"},
+        {
+            "empty": False,
+            "input": {
+                "message": message,
+                "category": extract.category,
+                "slot_count": len(extract.slots),
+            },
+            "output": {
+                "empty": False,
+                "attempts_used": DISCLOSURE_ATTEMPTS,
+                "fail_open": True,
+            },
+            "why": "fail-open after 3 invalid replies",
+        },
     )
     return replace(extract, disclosure_empty=False)
 

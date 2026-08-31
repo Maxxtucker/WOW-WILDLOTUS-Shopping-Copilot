@@ -1,526 +1,483 @@
-# Agent Pipeline
+# Agent pipeline
 
-This document describes the runtime path of the shopping agent: how the evaluator calls Agent, how data flows inside one turn, what each module does, and the core code that implements it.
+This document is the code-level runtime map for the production shopping agent.
+The implementation under `agent/` is authoritative. The agent treats
+`user_message` as ordinary shopper language and does not route on evaluator
+templates, public labels, session IDs, or known targets.
 
-The implementation report is `[docs/IMPLEMENTATION.md](../IMPLEMENTATION.md)`. This page is about **structure and call paths**, not public-set scores or submission strategy.
+The official entry remains `starter.agent.Agent`, a thin re-export of
+`agent.orchestrator.Agent`.
 
-The original contest repo tree is `[docs/architecture/original_repo_code_architecture.md](original_repo_code_architecture.md)`. This page covers only the split inside `agent/`. Each layer and subpackage has a README (purpose, collaboration, core variables, core code). Each `.py` file starts with Purpose / Input / Output.
+## Process and session lifetime
 
-Understand NLU (mode, Ollama startup, retries, regex fallback): `[understand_nlu.md](understand_nlu.md)`.
+`Agent.__init__()` resolves or builds one shared `CatalogRetriever`, attaches a
+current catalog-slot sidecar when available, configures Understand mode, and
+constructs one `TurnPipeline`. NLU mode warms the observation and Intent Router
+clients. Regex mode skips Ollama startup.
 
----
+`reset(session_id, user_profile)` replaces that session's `SessionState`.
+`respond()` and `respond_traced()` require an existing session, a turn in
+`1..10`, and positive `top_k`. The recommendation-preference setting locks when
+the first response starts.
 
-## 1. In one sentence
-
-This agent is a multi-turn shopping retrieval system. Understand defaults to local NLU (`understand_mode="nlu"`): category and constraints come from the model, with three extract retries then regex fallback. Pass `understand_mode="regex"` for an LLM-free **extract** path (kit tests do this). Intention routing is a separate local JSON client with **no regex fallback**; kit tests mock it. Each turn, `TurnPipeline` observes into `turn_delta`, routes intention, retrieves, ranks, picks `ask_attribute`, writes back and responds. A hit is required within 10 turns.
-
-The official entry is `starter.agent.Agent`. All logic lives in the `agent/` package.
-
----
-
-## 2. End-to-end call chain
-
-The evaluator does not know about the `agent` package. It imports only `starter.agent.Agent`:
-
-```text
-evaluator.local_evaluator
-        │  from starter.agent import Agent
-        ▼
-starter/agent.py          # thin wrap: from agent import Agent
-        ▼
-agent/orchestrator.py     # thin: reset / respond → TurnPipeline
-        ▼
-agent/pipeline.py         # one-turn orchestration
-        │
-        ├── understand/    message → turn_delta
-        │     state / attributes / observation
-        ├── intent_router/ turn_delta → intention + exact pool
-        ├── retrieve/      score router pool → SearchHit
-        │     catalog / candidates
-        └── decide/        SearchHit → official response
-              ranking / clarification / response
-```
-
-External protocol for one public-set session:
+Every normal turn follows:
 
 ```text
-Agent.reset(session_id, user_profile)
-
-for turn in 1..10:
-    Agent.respond(session_id, user_message, turn, top_k=10)
-        → { message, ask_attribute, recommendations, usage }
-
-    if the target is among the first 10 valid parent_asin values and the
-    conversion gate is open → hit, stop
-    else customer_reply(...) or an Intent Override message → next turn
+Understand → Intent Router → Retrieve and Rank → Decide and Respond
 ```
 
-The interface contract is `[docs/agent_api_contract.json](../agent_api_contract.json)`. `ask_attribute` is a structured field; the simulator **does not infer the question from natural language**.
+Understand stages evidence only in `turn_delta`. Intent Router is the normal
+owner of committed constraint writeback.
 
----
+## Turn-level shortcut
 
-## 3. One-turn internal pipeline
-
-`Agent.respond()` only validates and calls `TurnPipeline.run()`. Data flow for one turn:
+After Understand, `empty_disclosure_gate` pages the previous ranking when:
 
 ```text
-user_message
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 1. StateDetect  (understand/state/lifecycle.py)               │
-│    • if last gate was open and we are called again → last     │
-│      slate missed                                             │
-│    • write turn / latest_message / history                    │
-│    • then ObservationCoordinator                              │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 2. Observe  (understand/observation/)                         │
-│    hybrid extract (nlu: up to 3 attempts, then regex)         │
-│    write turn_delta only                                      │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 3. IntentRouter  (intent_router/)                             │
-│    LLM L1? keep only if this turn's category is distant            │
-│    else L2 replace-vs-add (skip both if no prior intent)          │
-│    L1/L2 → clear or drop-delta-fields, apply_delta, open gate      │
-│    else  → probe old → apply_delta → probe new → LLM buying/browsing │
-│    fail-safe: gate closed at turn≥4 → open gate only          │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 5. CandidateOrganize  (retrieve/candidates/retrieve.py)       │
-│    exact ≥150: score_candidates, cap 150/500                  │
-│    exact <150: hard hits first, hybrid fill to 300/500        │
-│    exact is None: BM25 ∪ signatures to 300/500                │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 6. Ranking  (decide/ranking/belief.py + normalize.py)         │
-│    score → exp((s - max)/0.12) → normalized RankedCandidate   │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 7. AskAttribute  (decide/clarification/)                      │
-│    each legal ask_attribute × slate prefix k∈[0, top_k]       │
-│    Q = immediate-hit utility + next-turn partitioned Top-10   │
-│    then sequential slate risk gate (usually expose rank-1)    │
-└───────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌───────────────────────────────────────────────────────────────┐
-│ 8. WritebackAndReply  (decide/response/)                      │
-│    set_reply_options: inverse map for next-turn semicolons    │
-│    record_action: record slate / asked attribute              │
-│    return message + ask_attribute + recommendations + usage    │
-└───────────────────────────────────────────────────────────────┘
+turn_delta is None
+and disclosure_empty is not False
+and at least one last_ranked ASIN is not shown/excluded
 ```
 
-Orchestration code:
+The `not False` check intentionally includes `None`, which is possible on the
+deterministic regex path. The shortcut skips all Router and Retrieve nodes and
+all Decide planning nodes, returns up to `min(top_k, 10)` unshown leftovers,
+asks a recovery question before turn 10, then still runs `persist_turn` and
+`build_response`. If no reusable ASIN remains, the normal pipeline runs.
 
-```41:53:agent/pipeline.py
-    def run(...) -> dict:
-        response, _trace = self.run_traced(...)
-        return response
+## Understand: exact node chain
 
-    def run_traced(...) -> tuple[dict, TurnTrace]:
-        self.state_detector.apply(state, user_message, turn)
-        exact = self.intent_router.apply(state, self.retriever)
-        hits = self.organizer.apply(state, exact)
-        ranked = self.ranker.apply(hits, state)
-        plan, slate = self.clarifier.apply(state, ranked, top_k)
-        return self.responder.apply(
-            state, self.retriever, [hit.parent_asin for hit in hits], plan, slate
-        ), TurnTrace(...)
+<!-- workflow-schema:understand -->
+```mermaid
+flowchart TD
+    prior_miss["Apply prior-turn miss feedback"]
+    turn_reset["Reset turn-scoped state"]
+    understand_mode["Choose NLU or regex extraction"]
+    nlu_attempt["Run bounded full NLU attempts"]
+    casefold["Create case-insensitive working text"]
+    color_map["Map color aliases to catalog colors"]
+    material_map["Map material aliases to catalog materials"]
+    color_verify["Verify ambiguous color words"]
+    material_verify["Verify ambiguous material words"]
+    merge_rewrite["Build the normalized NLU sentence"]
+    category_l1["Select broad catalog roots"]
+    category_l2["Refine within selected L1 branches"]
+    category_l3["Refine within selected L2 branches"]
+    category_cap["Cap grounded category ambiguity"]
+    attribute_llm["Extract typed current-turn constraints"]
+    slot_grounding["Ground extracted fields in the message"]
+    repair_1["Repair failed fields · round 1"]
+    repair_2["Repair remaining fields · round 2"]
+    repair_3["Repair remaining fields · round 3"]
+    disclosure["Validate usable shopping disclosure"]
+    regex_extract["Run deterministic fallback extraction"]
+    colon_restore["Restore a bounded last-question answer"]
+    turn_delta["Stage the turn-only observation delta"]
+    active_intent_evidence["Append current-intent raw evidence"]
+    empty_disclosure_gate["Choose paging or full pipeline"]
+    prior_miss --> turn_reset
+    turn_reset --> understand_mode
+    understand_mode -- "nlu" --> nlu_attempt
+    understand_mode -- "regex" --> regex_extract
+    nlu_attempt --> casefold
+    nlu_attempt -- "all three complete attempts fail" --> regex_extract
+    casefold --> color_map
+    casefold --> material_map
+    color_map --> color_verify
+    material_map --> material_verify
+    color_verify --> merge_rewrite
+    material_verify --> merge_rewrite
+    merge_rewrite --> category_l1
+    category_l1 -- "continue" --> category_l2
+    category_l1 -- "stop, empty, error, or no children" --> category_cap
+    category_l2 -- "continue" --> category_l3
+    category_l2 -- "stop, empty, error, or no children" --> category_cap
+    category_l3 --> category_cap
+    category_cap --> attribute_llm
+    attribute_llm --> slot_grounding
+    slot_grounding -- "failed fields" --> repair_1
+    slot_grounding -- "all grounded" --> disclosure
+    repair_1 -- "failures remain" --> repair_2
+    repair_1 -- "grounded or repair call fails" --> disclosure
+    repair_2 -- "failures remain" --> repair_3
+    repair_2 -- "grounded or repair call fails" --> disclosure
+    repair_3 --> disclosure
+    disclosure --> turn_delta
+    regex_extract -- "non-empty regex extract with no constraints" --> colon_restore
+    regex_extract -- "colon restore not eligible" --> turn_delta
+    colon_restore --> turn_delta
+    turn_delta --> active_intent_evidence
+    active_intent_evidence --> empty_disclosure_gate
 ```
+<!-- /workflow-schema -->
 
-After observe, an empty-disclosure turn with at least one unshown `last_ranked` ASIN skips router and retrieve and pages the next `top_k` (usually 10). An empty leftover list takes the normal retrieve path. The official respond slate is still `top_k`, not the 300-wide library.
+One complete NLU attempt includes casefold/alias rewriting, the bounded
+three-layer category walk, optional category cap, one attribute extraction,
+field grounding, up to three field-local repairs, and disclosure judgment.
+Repair calls do not count as extra full attempts. Already-grounded fields stay
+unchanged when a failed field is repaired. After three failed complete
+attempts, `regex_extract` runs.
 
-Observe stores `turn_delta`. The intention router classifies override with a separate local model (no regex). L1 is kept only when this turn names a category that is far from the committed one (sandal vs backpack); attribute-only turns and close-family category swaps cannot be L1. L2 replaces only the fields present on this turn's delta, and only when the utterance clearly overturns a preference. Adding alternatives is not override. Catalog features may legally contain `instead` / `forget`; that is handled by the L2 prompt and by tests that mock accumulate. Both override levels open the conversion gate. The override LLMs are skipped when no committed prior intent exists.
+`turn_delta` is either the immutable `ObservationExtract` or `None` when the
+extract is empty. Understand does not write committed `typed_constraints`,
+`active_constraints`, or category state.
 
----
+## Intent Router: exact node chain
 
-## 4. Module map
-
-| Module | Path | Responsibility |
-| --- | --- | --- |
-| Official entry | `starter/agent.py` | Evaluator import; re-exports `agent.Agent` |
-| Orchestrator | `agent/orchestrator.py` | Session dict, index path, hand `respond` to pipeline |
-| One-turn loop | `agent/pipeline.py` | Observe, route, retrieve, rank, plan, respond. Empty disclosure pages the next 10 from `last_ranked` when any remain. `run_traced` also returns `TurnTrace` |
-| Stage summaries | `agent/trace.py` | Compact per-stage dicts for the console chatbot |
-| Stage contracts | `agent/stages.py` | Swappable Protocols, including `ResponseStage` |
-| Dialogue memory | `agent/understand/state/` | `SessionState` dataclass; miss / fail-safe / begin_turn |
-| Intention router | `agent/intent_router/` | Override LLM, delta commit, exact-pool probes, buying/browsing |
-| Conversion gate | `agent/understand/state/gate.py` | Open gate and clear leftover / exclusions |
-| Attributes | `agent/understand/attributes/` | Constraint writes, semicolon restore |
-| Observation | `agent/understand/observation/` | Hybrid extract into `turn_delta`. Typed slots: [`slots/README.md`](../../agent/understand/observation/slots/README.md). NLU vs regex: [`understand_nlu.md`](understand_nlu.md) |
-| Understand mode | `agent/understand/mode.py` | `nlu` (default) or `regex`; Agent keyword / env |
-| Hard filter | `agent/intent_router/exact_pool.py` | Exact signature intersection (router probe) |
-| Candidate fuse | `agent/retrieve/candidates/` | Score router pool; hybrid-fill to 300 when exact is under 150 |
-| Ranking | `agent/decide/ranking/` | Temperature softmax and `RankedCandidate` |
-| Clarification | `agent/decide/clarification/` | Utility planning, question choice, slate gate |
-| Response | `agent/decide/response/` | Message templates and session writeback |
-| Catalog index | `agent/retrieve/catalog/` | SQLite FTS5 + response signature |
-| Understand layer | [`agent/understand/README.md`](../../agent/understand/README.md) | message → SessionState |
-| Retrieve layer | [`agent/retrieve/README.md`](../../agent/retrieve/README.md) | Router pool → SearchHit |
-| Decide layer | [`agent/decide/README.md`](../../agent/decide/README.md) | SearchHit → official response |
-| Domain protocol | `agent/domain.py` | Evaluator-aligned `intent_card` / `classify_constraint` |
-| Evaluator (read-only) | `evaluator/local_evaluator.py` | Simulated customer and scoring; Agent **must not** read `public_set.jsonl` labels |
-
-Package export:
-
-```1:10:agent/__init__.py
-"""Purpose: export Agent.
-
-Input: evaluator constructs Agent(catalog_path) via starter.agent.
-Output: Agent class with reset / respond.
-Role: `from agent import Agent`. Implementation is orchestrator.py.
-"""
-
-from .orchestrator import Agent
+<!-- workflow-schema:router -->
+```mermaid
+flowchart TD
+    committed_intent["Check for committed prior intent"]
+    override_l1["Detect a full intent replacement"]
+    override_l2["Detect a partial field replacement"]
+    strong_override_fallback["Recover explicit start-over language"]
+    replace_delta["Replace the committed intent"]
+    drop_slots["Drop only replaced fields"]
+    override_gate_cleanup["Reset override-era memory"]
+    probe_override["Build replacement exact pools"]
+    intention_override["Route the replacement as override"]
+    probe_before["Measure the pre-delta exact pool"]
+    apply_delta["Accumulate the staged delta"]
+    probe_after["Measure post-delta strict and lenient pools"]
+    pool_ratio["Compute candidate-pool narrowing"]
+    route_llm["Classify focused Buying or exploratory Browsing"]
+    buying["Select focused Buying retrieval"]
+    browsing["Select exploratory Browsing retrieval"]
+    failsafe["Apply the turn-four gate failsafe"]
+    committed_intent -- "prior intent exists" --> override_l1
+    committed_intent -- "no committed intent" --> probe_before
+    override_l1 -- "level 1" --> replace_delta
+    override_l1 -- "not accepted" --> override_l2
+    override_l2 -- "level 2" --> drop_slots
+    override_l2 -- "LLM level 0" --> strong_override_fallback
+    strong_override_fallback -- "match maps only to level 2" --> drop_slots
+    strong_override_fallback -- "no match" --> probe_before
+    replace_delta --> override_gate_cleanup
+    drop_slots --> override_gate_cleanup
+    override_gate_cleanup --> probe_override
+    probe_override --> intention_override
+    intention_override --> failsafe
+    probe_before --> apply_delta
+    apply_delta --> probe_after
+    probe_after --> pool_ratio
+    pool_ratio --> route_llm
+    route_llm -- "buying" --> buying
+    route_llm -- "browsing or failed attempts" --> browsing
+    buying --> failsafe
+    browsing --> failsafe
 ```
+<!-- /workflow-schema -->
 
-```1:9:starter/agent.py
-"""Competition entry point.
+The L1 model is accepted only when it returns full replacement and the current
+delta contains category evidence. The model prompt judges semantic distance;
+the code-level acceptance guard checks delta category presence. A rejected L1
+continues to L2.
 
-The official evaluator imports ``starter.agent.Agent``.  The implementation is
-kept in the ``agent`` package so its components can be tested independently.
-"""
+Only after the L1/L2 calls finish at level `0` does
+`strong_override_fallback` inspect anchored explicit start-over language. A
+match maps only to L2. L1 clears committed typed state before applying the
+delta. L2 drops only attributes named by the delta, then applies it. Both clear
+old-intent misses, shown products, questions, prior ranking, and raw intent
+messages before probing the replacement intent.
 
-from agent import Agent
+The accumulate branch probes strict/lenient pools before and after
+`apply_delta`, computes `after/before` only when both strict counts are
+representable and the prior count is nonzero, then asks the route model for
+`buying` or `browsing`. Three invalid route replies fall back to `browsing`.
+There is no fixed pool-ratio threshold.
 
-__all__ = ["Agent"]
+Router token counters include every L1, L2, and route-model attempt made on the
+turn.
+
+## Strict and lenient pool meaning
+
+For each hard attribute, alternative values are unioned. Different attributes
+are intersected. Soft slots never enter either exact pool.
+
+Strict requires a known match for every represented hard group. Lenient uses
+`match OR attribute unknown` for each group; a known mismatch still fails.
+Hard budget and structured dimensions use numeric filters with missing values
+rejected in strict and retained in lenient. Previously excluded ASINs are
+subtracted from both pools.
+
+`None` means the exact route cannot represent the active hard evidence.
+`set()` means the evidence was represented but no candidate survived.
+
+Retrieve selects lenient only when strict is not `None`, strict has fewer than
+150 members, and lenient is non-empty. Otherwise strict remains selected.
+
+## Retrieve and Rank: exact node chain
+
+<!-- workflow-schema:retrieve -->
+```mermaid
+flowchart TD
+    select_pool["Select strict or lenient seed pool"]
+    slot_groups["Build hard and soft scoring groups"]
+    rewrite_query["Build the active-intent lexical query"]
+    routing["Load route weights and limits"]
+    lexical_in_pool["Restrict BM25 scores to the seed pool"]
+    score_exact["Score selected-pool candidates"]
+    hybrid_search["Recover or fill candidates permissively"]
+    bm25_score["Measure BM25 lexical relevance"]
+    required_score["Score required-constraint coverage"]
+    preferred_score["Score soft preferences"]
+    category_score["Score category agreement"]
+    budget_score["Score and enforce budget fit"]
+    dimension_score["Score and enforce dimension fit"]
+    exclusion_score["Apply negative preference evidence"]
+    structured_subtotal["Combine structured evidence"]
+    rating_prior["Compute the rating-quality prior"]
+    popularity_prior["Compute the popularity prior"]
+    catalog_prior["Combine catalog quality priors"]
+    title_text_fit["Measure soft-text title coverage"]
+    details_text_fit["Measure soft-text details coverage"]
+    description_text_fit["Measure soft-text description coverage"]
+    soft_text_fit["Select the strongest soft-text fit"]
+    profile_diagnostic["Compute disabled profile diagnostics"]
+    weighted_score["Assemble the deterministic retrieval score"]
+    cap_hits["Assemble the bounded base library"]
+    raw_evidence["Check active-intent raw-text evidence"]
+    base_only["Use the base route without fusion"]
+    relaxed_route["Run relaxed structured safety recall"]
+    raw_text_route["Run raw-text safety recall"]
+    weighted_rrf["Fuse three recall routes with weighted RRF"]
+    qwen_rerank["Try the optional Qwen semantic head"]
+    semantic_logits["Convert semantic logits to fit scores"]
+    semantic_blend["Blend semantic fit with base rank"]
+    semantic_weights["Temperature-scale semantic head weights"]
+    semantic_tail["Keep the unscored retrieval tail"]
+    belief_temperature["Choose deterministic belief temperature"]
+    belief_hits["Convert deterministic scores to weights"]
+    normalize["Normalize ranking probability mass"]
+    select_pool --> slot_groups
+    slot_groups --> rewrite_query
+    rewrite_query --> routing
+    routing -- "selected pool non-empty" --> lexical_in_pool
+    routing -- "selected pool missing or empty" --> hybrid_search
+    lexical_in_pool --> score_exact
+    score_exact -- "fewer than 150 scored hits" --> hybrid_search
+    score_exact --> bm25_score
+    score_exact --> required_score
+    score_exact --> rating_prior
+    score_exact --> title_text_fit
+    score_exact --> profile_diagnostic
+    hybrid_search --> bm25_score
+    hybrid_search --> required_score
+    hybrid_search --> rating_prior
+    hybrid_search --> title_text_fit
+    hybrid_search --> profile_diagnostic
+    required_score --> preferred_score
+    preferred_score --> category_score
+    required_score --> budget_score
+    preferred_score --> dimension_score
+    category_score --> exclusion_score
+    budget_score --> structured_subtotal
+    dimension_score --> structured_subtotal
+    exclusion_score --> structured_subtotal
+    rating_prior --> popularity_prior
+    popularity_prior --> catalog_prior
+    title_text_fit --> details_text_fit
+    details_text_fit --> description_text_fit
+    description_text_fit --> soft_text_fit
+    bm25_score --> weighted_score
+    structured_subtotal --> weighted_score
+    catalog_prior --> weighted_score
+    soft_text_fit --> weighted_score
+    profile_diagnostic --> weighted_score
+    weighted_score --> cap_hits
+    cap_hits --> raw_evidence
+    raw_evidence -- "no raw evidence" --> base_only
+    raw_evidence -- "raw evidence present" --> relaxed_route
+    raw_evidence -- "raw evidence present" --> raw_text_route
+    cap_hits -- "base route" --> weighted_rrf
+    relaxed_route --> weighted_rrf
+    raw_text_route --> weighted_rrf
+    base_only --> qwen_rerank
+    weighted_rrf --> qwen_rerank
+    qwen_rerank -- "valid semantic head" --> semantic_logits
+    qwen_rerank -- "unavailable or invalid" --> belief_temperature
+    semantic_logits --> semantic_blend
+    semantic_blend --> semantic_weights
+    semantic_weights --> semantic_tail
+    semantic_tail --> normalize
+    belief_temperature --> belief_hits
+    belief_hits --> normalize
 ```
+<!-- /workflow-schema -->
 
-Tests and scripts import nested packages directly:
+The base path is one of:
 
-```python
-from agent.understand.state import SessionState
-from agent.decide.clarification import ScoreAwarePlanner, hit_utility
-from agent.decide.ranking import normalize_probabilities
-from agent.retrieve.catalog import CatalogRetriever, build_response_signature, _coerce_constraints
-```
+- score a non-empty selected exact pool;
+- keep exact hits first and hybrid-fill to the library target when fewer than
+  150 survive; or
+- run hybrid-only recall when no selected exact pool is non-empty.
 
----
+Buying/Override use a direct exact cap of 150 and a library target of 300.
+Browsing uses 500. Hybrid fill disables hard required, budget, and dimension
+pruning.
 
-## 5. Module details
-
-### 5.1 `agent.Agent` — thin entry
-
-**File:** `agent/orchestrator.py`
-
-**Owns:**
-
-- Resolve the index path (`retrieve/catalog/index_path.py`).
-- Construct the shared `CatalogRetriever`, `ScoreAwarePlanner`, and `TurnPipeline`.
-- Isolate `SessionState` by `session_id`.
-- Pin `understand_mode`, and when it is `nlu` load `scripts/nlu.env`, start Ollama, and construct the observation and intention-router chat clients. Details: [`understand_nlu.md`](understand_nlu.md).
-- Validate `reset` / `turn` / `top_k`, then hand one turn to the pipeline.
-
-```46:67:agent/orchestrator.py
-    def __init__(
-        self,
-        catalog_path: str | Path = "data/catalog.jsonl",
-        *,
-        understand_mode: str | None = None,
-    ) -> None:
-        persistent_index = resolve_index_path(catalog_path)
-        self.retriever = CatalogRetriever(catalog_path, index_path=persistent_index)
-        self.planner = ScoreAwarePlanner(max_planning_candidates=500)
-        self.pipeline = TurnPipeline(self.retriever, self.planner)
-        self.sessions: dict[str, SessionState] = {}
-        self._lock = RLock()
-        if understand_mode != MODE_REGEX:
-            load_nlu_env()
-        self.understand_mode = configure_understand(
-            resolve_understand_mode(understand_mode)
-        )
-        if self.understand_mode == MODE_NLU:
-            ensure_llm_runtime()
-            warmup_nlu()
-            warmup_intent_router()
-```
-
-The index defaults to the OS temp directory (`AGENT_CACHE_DIR` / `tempfile`) and is invalidated by catalog fingerprint. `AGENT_INDEX_PATH=:memory:` forces an in-process rebuild.
-
----
-
-### 5.2 Observe: turn_delta only
-
-**Memory:** `SessionState` in `agent/understand/state/session.py`. Public `begin_turn` / `observe` / `record_action` still exist; internals delegate to submodules.
-
-Key fields:
-
-| Field | Meaning |
-| --- | --- |
-| `category` | Coarse category phrase (committed by the router) |
-| `intention` | `buying` / `browsing` / `override` from the intention router |
-| `turn_delta` | This turn's extract; observe writes it |
-| `gate_open` | Conversion gate. When closed, showing the target **does not** end the session and cannot count as a miss |
-| `active_constraints` | Current locked constraints |
-| `typed_constraints` | Slot rows including optional category. Each row has `is_hard`. Hard slots prune; soft slots only score |
-| `preference_tags` | Reset-time copy of aggregate `user_profile` tags. Soft long-term preferences; retrieve uses them only as a weak surface cosine tie-break, never as BM25 or exact-pool terms |
-| `legacy_hints` | Pre-override leftover preference; dropped after override |
-| `disclosed` | Values the simulator already revealed; not treated as new evidence in planning |
-| `excluded_asins` | ASINs proven missed after the gate opened |
-| `reply_value_lookup` | Surface form of last predicted reply → atomic constraints, so semicolons are not split wrongly |
-| `candidate_count` | Exact-pool size after this turn's commit (`None` if the exact path is unavailable) |
-
-**Turn start:**
-
-```27:37:agent/understand/state/lifecycle.py
-def begin_turn(state: SessionState, message: str, turn: int) -> None:
-    apply_miss_feedback(state, turn)
-    state.turn = turn
-    state.latest_message = str(message)
-    state.message_history.append(state.latest_message)
-    state.last_reply_informative = False
-    state.turn_delta = None
-    state.candidate_count_before_delta = None
-    state.router_prompt_tokens = 0
-    state.router_completion_tokens = 0
-    observe(state, message)
-```
-
-The evaluator **has no explicit negative click**. Another `respond(turn+1)` proves the previous open-gate slate missed. Displays while the gate was closed (before Override) are not negatives. If the gate is still closed at `turn >= 4`, fail-safe opens it **without** labeling `intention=override`.
-
-**NLU vs regex.** Default `understand_mode` is `nlu`: `hybrid_extract` calls the local model (including on protocol-looking phrasing), retries a failed extract three times, then uses regex. `understand_mode="regex"` skips the model. `observe` only stores the extract. Full note: [`understand_nlu.md`](understand_nlu.md).
-
-Regex templates (kit tests and NLU fallback) still live in `understand/observation/classify.py` and fill `turn_delta`:
-
-| Shape | Extract |
-| --- | --- |
-| `I'm looking for X. A key requirement is: Y.` | hard category X, hard locked constraint Y |
-| `I'm looking for X, but I'm still exploring.` | hard category X only |
-| `I'm looking for X. {rest}` | hard category X; leftover rest is a soft slot |
-| `For that, what matters is: A; B.` | locked constraints (semicolon restore via `reply_value_lookup`) |
-| Override phrasing | new-need text as a hard constraint slot (router LLM still decides) |
-| Empty replies (simulator judgment / no additional) | empty extract |
-
-`ranking_constraints` still concatenates leftover hints for display and regex query fallback. Exact-pool probes and required scoring use **hard** typed slots only; leftover is a soft slot and does not prune.
-
-### 5.2b Intention router
-
-**Package:** `agent/intent_router/`. Independent Ollama JSON client (same host/model/timeout as observation, separate conversation state).
-
-1. If there is no committed prior intent (category / typed_constraints / active_constraints / leftover), skip both override LLMs and accumulate.
-2. Otherwise call L1 (`{"full": true|false}`). Keep L1 only when this turn names a category that is far from the committed one. Attribute-only turns and close-family category swaps discard L1 and call L2 (`{"override": true|false}`). L2 is also called when L1 is false. No catalog.
-3. L1 clears all typed constraints then `apply_delta`. L2 drops only delta field names then `apply_delta`. Both open the conversion gate, probe the exact pool once, set `intention=override`, skip buying/browsing.
-4. If not: probe the **old** state, `apply_delta`, probe again, then call the route LLM with counts and ratio → `buying` | `browsing`. Pass the after-delta exact set to retrieve.
-5. Fail-safe after writeback. Three failed router extracts: not-override and `browsing`. No regex routing.
-
-Tests patch `agent.intent_router.router.classify_override` and `classify_route`.
-
----
-
-### 5.3 `agent.retrieve.catalog.CatalogRetriever` — index and recall
-
-**Implementation:** `agent/retrieve/catalog/` (`types` / `signatures` / `index` / `scoring` / `search` / `retriever`).
-
-The public API deliberately does not depend on session state or the planner, so it can be tested alone.
-
-**Two indexes in one SQLite database (`INDEX_VERSION = agent-retrieval-v3`):**
-
-| Table | Role |
-| --- | --- |
-| `products` | ASIN, price, rating, compressed raw JSON and signature JSON |
-| `product_fts` | FTS5: title / categories / features / details / store / description |
-| `signature_values` | Exact inverted index `(attribute, kind, value_norm, parent_asin)` |
-| `index_meta` | Version + catalog fingerprint; decides rebuild |
-
-`kind` is one of:
-
-- `response`: values the simulator **will actually disclose** (intent-card constraints).
-- `search`: extra aliases (category path, store/brand, material/color/price extracted from text). The planner uses response; BM25 fallback uses search.
-
-**Each product's `ResponseSignature`:** precomputed at startup for the 50k catalog, mirroring official `intent_card`. `expected_reply(attribute, disclosed)` predicts the simulator's next sentence. If there is no value, the planner puts the product in the `NO_ADDITIONAL` partition.
-
-**`search()` fusion:**
+The detailed pre-fusion candidate score is:
 
 ```text
-query terms
-    ├─ FTS5 BM25 (field weights: title 6, categories 4, features 2.5,
-    │              details 2.5, store 1.5, description 1.0)
-    └─ signature_candidates exact hits
-         ↓
-    candidate union (intersect required only when hard_required and the
-    index has an exact hit)
-         ↓
-    score_candidates: Path A hard required unweighted; Path B hard hit/miss × rarity;
-    both paths soft preferred × rarity; BM25 + soft-only text_fit + profile cosine + prior
-         ↓
-    sort by score, required_coverage, lexical, asin; truncate to limit
+1.15 * w_lex * lexical
++ 0.003 * structured
++ rating_prior + popularity_prior
++ w_text * soft_text
 ```
 
-The exact path (`intent_router/exact_pool.py`) intersects `signature_candidates`. Retrieve then `score_candidates` on that set. If the scored exact pool is under 150, retrieve keeps those hard hits first and pads with `search(..., hard_required=False)`, excluding exact ASINs, until the library is at least 300 (browsing still 500). The official respond slate stays planner/gate (`top_k`, often 1 early). Typed NLU uses slot attribute + search value with catalog aliases; the regex path keeps `response_only=True`. When the router returns `None`, retrieve uses hybrid only, also to at least 300.
+`structured` contains required, missing-required, preferred, category, budget,
+dimension, and exclusion terms. Soft text is the maximum of title coverage,
+`0.7 * details coverage`, and `0.5 * description coverage`. Profile similarity
+is computed for diagnostics, but its weighted final-score contribution is
+disabled. The optional Qwen query can still include profile tags as explicitly
+weak context.
 
-`retrieve/catalog/protocol_copy.py` keeps an independent copy of `intent_card` / `classify_constraint` so index build does not import `domain` in a cycle.
-
----
-
-### 5.4 Router pool / Candidates / Ranking
-
-**Exact filter** (router) requires category and every retrieve-facing **hard** constraint to hit in `signature_values`. Groups come from `retrieve/from_slots.py`. Any miss drops the intersection so the pool is not pruned empty. On the regex path, `response_only=True` keeps exact matching on strings the simulator can actually disclose (for example `"Leather sole"` must not collapse to `"leather"`). Typed slots look up `canonical` / amount with search aliases instead. Retrieve does not re-run this intersection.
-
-**Belief transform:** temperature-`0.12` shifted softmax (`decide/ranking/belief.py`). Structured scores inside an exact-signature bucket are often identical; this temperature only spreads popularity/quality priors for ranking and does not claim calibrated probabilities.
-
----
-
-### 5.5 `agent.decide.clarification.ScoreAwarePlanner` — joint planning
-
-**Implementation:** `decide/clarification/planner.py`, `distinguish.py`, `questions.py`, `slate.py`.
-
-One-step finite-horizon search over “how many products to show now” and “which attribute to ask next”. The objective is expected TechnicalScore utility, not raw entropy.
-
-```1:12:agent/decide/clarification/utility.py
-"""Purpose: contribution of one hit to official TechnicalScore.
-
-Input: turn in [1, 10], rank >= 1.
-Output: 0.50 + 0.30/rank + 0.02*(11-turn).
-Role: planner utility unit; misses do not go through here (utility 0).
-"""
-
-
-def hit_utility(turn: int, rank: int) -> float:
-    """Exact per-session contribution to the official technical composite."""
-
-    return 0.50 + 0.30 / rank + 0.02 * (11 - turn)
-```
-
-Turn 1 / Rank 10 = `0.73`; Turn 2 / Rank 1 = `0.98`. Dumping an uncertain Top-10 too early loses score.
-
-**Action space:**
-
-- Question: `None` (ask nothing) or an still-informative attribute in `QUESTION_ATTRIBUTES`.
-- Slate size: `k = 0 .. min(top_k, |candidates|)`.
-- Turn 10 forces `ask_attribute=None` and slate = posterior Top-K.
-
-Question filters: do not re-ask attributes already in `state.asked` or in `typed_constraints`; skip attributes with no non-`NO_ADDITIONAL` partition. `other` may repeat because each ask can reveal the next pair of constraints.
-
-**Objective:**
+When usable `current_intent_messages` exist, the base list is the strict RRF
+route and Retrieve also runs relaxed structured and raw-text routes. Weighted
+RRF is:
 
 ```text
-Q(S, a) = Σ_{d ∈ S} p(d) · U(t, rank(d))
-         + Σ_{reply partition z}  Top10_utility(residual of z not in S, t+1)
+1.40/(60 + strict_rank)
++ 0.90/(60 + relaxed_rank)
++ 1.25/(60 + raw_rank)
 ```
 
-Residuals are grouped by `answer_signature(asin, a)`. Only the first 500 candidates are expanded.
+Without raw evidence, `base_only` bypasses the extra routes.
 
-**Closed-gate special case:** while the Override conversion gate is closed, showing the target cannot score. The planner always exposes one placeholder product but uses the full candidate pool to pick the most informative question.
+The optional Qwen cross-encoder reranks the first 50 candidates, blends sigmoid
+logits with `1/log2(rank+1)`, applies temperature `0.20`, and retains the
+unscored tail behind the head. If that path is unavailable, deterministic
+belief uses `T=0.12` for ordinary search scores or
+`clip((max-min)/4, 0.0025, 0.02)` for weighted-RRF scores. `normalize` turns
+positive weights into the posterior consumed by Decide.
 
-**Sequential slate gate** (`decide/clarification/slate.py`): gate open, not turn 10, and an informative question remains (or remaining candidates can still be probed one per turn) → expose only rank-1. Turn 10 is always a full Top-K.
+## Decide: exact node chain
 
-Tie-break: at equal expected utility, prefer asking a question, then prefer a smaller slate. Natural-language questions are filled by `explain_question()`; the simulator **only reads `ask_attribute`**.
+<!-- workflow-schema:decide -->
+```mermaid
+flowchart TD
+    answer_signature["Cache catalog-predicted answers"]
+    eligible_questions["Generate informative unasked questions"]
+    viability_filter["Filter questions by effective coverage"]
+    planning_head["Build the planning head and tail mass"]
+    action_space["Enumerate question and slate-size actions"]
+    hit_component["Compute expected Hit@10 value"]
+    mrr_component["Compute expected reciprocal-rank value"]
+    efficiency_component["Compute expected turn-efficiency value"]
+    immediate_value["Sum immediate action utility"]
+    answer_branches["Expand no-hit answer branches"]
+    tail_branches["Model planning-tail recovery branches"]
+    future_value["Evaluate two future observations"]
+    planner["Choose the best Dynamic Slate action"]
+    epsilon_roll["Choose exploit or attribute exploration"]
+    technical_exploit["Keep the planner's technical choice"]
+    uniform_explore["Uniformly explore an eligible attribute"]
+    selected_attribute["Finalize the clarification attribute"]
+    fallback_question["Guarantee a pre-final question"]
+    sequential_gate["Pass through the planned slate"]
+    gate_rank1["Handle a compatibility gate change"]
+    keep_planned["Keep the Dynamic Slate recommendations"]
+    persist_turn["Persist action memory"]
+    build_response["Build the official agent response"]
+    answer_signature --> eligible_questions
+    eligible_questions --> viability_filter
+    viability_filter --> planning_head
+    planning_head --> action_space
+    action_space --> hit_component
+    action_space --> mrr_component
+    action_space --> efficiency_component
+    hit_component --> immediate_value
+    mrr_component --> immediate_value
+    efficiency_component --> immediate_value
+    action_space --> answer_branches
+    action_space --> tail_branches
+    answer_branches --> future_value
+    tail_branches --> future_value
+    immediate_value --> planner
+    future_value --> planner
+    planner --> epsilon_roll
+    eligible_questions -- "pre-viability exploration pool" --> epsilon_roll
+    epsilon_roll -- "roll >= 0.20" --> technical_exploit
+    epsilon_roll -- "roll < 0.20" --> uniform_explore
+    technical_exploit --> selected_attribute
+    uniform_explore --> selected_attribute
+    selected_attribute --> fallback_question
+    fallback_question --> sequential_gate
+    sequential_gate -- "compatibility change" --> gate_rank1
+    sequential_gate -- "current no-op" --> keep_planned
+    gate_rank1 --> persist_turn
+    keep_planned --> persist_turn
+    persist_turn --> build_response
+```
+<!-- /workflow-schema -->
 
----
+Production planning is `DynamicSlatePlanner`. `ScoreAwarePlanner.plan()` is not
+called; the compatibility object contributes only its
+`max_planning_candidates` setting. Dynamic Slate plans over at most 80
+candidates, reserves at least 0.20 tail mass, permits `k=0`, and evaluates two
+future answer observations.
 
-### 5.6 `agent.domain` — protocol mirror
-
-**File:** `agent/domain.py`
-
-- `intent_card(product)` — aligned with `evaluator.local_evaluator.intent_card`
-- `coarse_category(values)` — category phrase in the initial message
-- `classify_constraint(value)` — constraint → `budget/material/color/size/style/use_case/feature`
-- `canonical(value)` — normalization for constraint equality
-- `QUESTION_ATTRIBUTES` — planner question order (no `category`/`brand`)
-
-`retrieve/catalog/protocol_copy.py` has independent copies of the same functions. `scripts/check_parity.py` and `tests/test_agent.py` keep both sides aligned with the official evaluator.
-
----
-
-### 5.7 Evaluator side (outside Agent)
-
-**File:** `evaluator/local_evaluator.py` (official code, do not change)
-
-| Function | Behavior |
-| --- | --- |
-| `initial_message` | Buying gets a hard constraint; Override gets the old preference; others Exploring |
-| `customer_reply` | Boundary: first answer is no preference; otherwise disclose up to 2 undisclosed constraints for `ask_attribute`; else `no additional preference` |
-| `evaluate` | `reset` → at most 10 `respond` calls; hits before Override conversion do not count; only the first 10 unique legal ASINs |
-
-Agent **must not** read `ground_truth` from `data/public_set.jsonl`.
-
----
-
-## 6. How the evaluator scenarios look on this path
-
-The public set still has four simulator scripts. The agent does not route on those labels. The intention router labels `buying` / `browsing` / `override` from language, dialogue, and pool sizes.
-
-| Simulator script | First message (evaluator) | What the agent stores |
-| --- | --- | --- |
-| Buying | category + first hard constraint | same; gate open |
-| Browsing | category only | same; gate open |
-| Intent Override | category + leftover old preference | leftover in `legacy_hints`, gate closed until override |
-| Boundary | same first line as Browsing | first asked attribute is an empty reply; agent writes nothing |
-
-If the gate is still closed on turn 4, `apply_override_failsafe` opens it so a paraphrase cannot stall conversion. It does not set `intention=override`.
-
----
-
-## 7. Runtime object lifetime
+Immediate value decomposes into:
 
 ```text
-Process start
-    Agent.__init__
-        CatalogRetriever opens or rebuilds SQLite (~50k products)
-        ScoreAwarePlanner(max_planning_candidates=500)
-        TurnPipeline(...)
-        sessions = {}
-
-Each session
-    reset(session_id, user_profile)
-        sessions[session_id] = SessionState(...)
-
-    respond × N
-        TurnPipeline.run reads/writes that SessionState
-        shared Retriever / Planner are read-only
-
-Process end
-    persistent index may remain in temp; rebuilds when catalog fingerprint changes
+Hit        = gate * Σ selected_probability * w_H
+MRR        = gate * Σ selected_probability * w_M / rank
+Efficiency = gate * Σ selected_probability * w_E * (11-turn)/10
 ```
 
-`Agent` protects the `sessions` dict with `RLock`. `CatalogRetriever` has a connection-level lock because the SQLite connection uses `check_same_thread=False`.
+Default weights are `0.50`, `0.30`, and `0.20`. The pre-chat preference control
+may redistribute the first `0.80` between Hit and MRR; Efficiency stays `0.20`.
 
-Environment variables:
+`eligible_questions` removes already asked attributes and requires at least one
+informative answer signature. It does not directly filter an attribute merely
+because that attribute is already present in `typed_constraints`.
+`viability_filter` is separate and retains questions whose configured
+coverage × parser reliability is at least `0.10`.
 
-| Variable | Role |
-| --- | --- |
-| `AGENT_INDEX_PATH` | Explicit SQLite path; `:memory:` disables disk |
-| `AGENT_CACHE_DIR` | Default cache root (else OS temp) |
+After Dynamic Slate chooses question and `k`, a deterministic random generator
+seeded by `(session_id, intent_version, turn)` keeps the technical plan 80% of
+the time. With probability `0.20`, it uniformly selects from the pre-viability
+eligible list: concrete, informative, unasked attributes from before static
+viability filtering. Exploration changes only `ask_attribute`; the planner's
+slate and size remain unchanged.
 
----
+Before turn 10, a null selected question is replaced by the highest-value
+eligible fallback or a recovery question. On turn 10, Dynamic Slate skips
+future interaction, returns the full allowed prefix, and sets
+`ask_attribute=None`.
 
-## 8. Core types
+`apply_sequential_gate()` currently returns `plan.recommendations` unchanged.
+`gate_rank1` remains only as a skipped compatibility/progress node;
+`keep_planned` is the production branch.
+
+## Response and writeback
+
+`persist_turn` builds the next-turn reply lookup, stores the slate and
+structured question, and immediately adds displayed ASINs to both
+`shown_asins` and `excluded_asins`. The next turn's conditional miss union is
+therefore idempotent in the current implementation.
+
+`build_response` returns:
 
 ```text
-SearchHit            one recall row: asin, score, lexical/structured/prior, coverage
-ResponseSignature    product protocol fingerprint + retrieval aliases
-RankedCandidate      asin, raw weight, normalized probability
-Plan                 recommendations, ask_attribute, expected_value, reason
-SessionState         all mutable dialogue memory for one session
+message
+ask_attribute
+recommendations: ordered parent_asin objects
+usage.prompt_tokens
+usage.completion_tokens
 ```
 
-Data flows one way: **message → State → Hits → Belief → Plan → truncated slate → response → write back State**. `catalog` does not read `SessionState` (index API only); the router probe and `candidates` read session constraints and exclusions. The planner does not touch SQLite; it asks “how would this ASIN answer?” through the `answer_signature` callback.
+Usage contains this turn's Intent Router tokens, including override and route
+attempts. Understand NLU token counts are not currently reported.
 
----
+## Main implementation files
 
-## 9. Suggested reading order
+- `agent/orchestrator.py`: process resources, sessions, API validation.
+- `agent/pipeline.py`: normal and no-information paging paths.
+- `agent/understand/`: turn-local observation and session lifecycle.
+- `agent/intent_router/`: override, writeback, exact pools, route label.
+- `agent/retrieve/`: base recall, score decomposition, safety fusion.
+- `agent/decide/ranking/`: Qwen or deterministic belief normalization.
+- `agent/decide/clarification/`: production Dynamic Slate policy.
+- `agent/decide/response/`: session action writeback and response shape.
 
-1. `starter/agent.py` — entry
-2. `agent/README.md` plus `understand/` `retrieve/` `decide/` and each subpackage README — tree and collaboration
-3. [`understand_nlu.md`](understand_nlu.md) — nlu vs regex observe path
-4. `agent/orchestrator.py` + `agent/pipeline.py` — thin orchestration and one-turn loop
-5. `agent/understand/observation/hybrid.py` + `coordinator.py` — extract into turn_delta
-6. `agent/intent_router/` — override vs accumulate, pool probes
-7. `agent/understand/state/session.py` + `lifecycle.py` — session memory
-8. `agent/retrieve/catalog/retriever.py` — recall facade
-9. `agent/decide/clarification/planner.py` + `distinguish.py` — question choice
-10. `evaluator/local_evaluator.py` `evaluate` / `customer_reply` — external loop
-11. `tests/test_agent.py` + `tests/test_intent_router.py` — state machine, mocked router, signature alignment

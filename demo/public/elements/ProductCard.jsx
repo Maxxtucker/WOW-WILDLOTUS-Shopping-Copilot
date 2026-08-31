@@ -8,7 +8,7 @@ export default function ProductCard() {
     rating = null,
     blurb = "",
     tags = [],
-    accent = "#4A7C59",
+    accent = "#fe2c55",
     image_url = null,
   } = props;
 
@@ -35,11 +35,12 @@ export default function ProductCard() {
         marginTop: 10,
         maxWidth: 520,
         padding: 14,
-        borderRadius: 14,
-        background: "#2A2A2A",
-        border: "1px solid #3F3F3F",
-        color: "#F3F3F3",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
+        borderRadius: 16,
+        background:
+          "radial-gradient(ellipse 80% 70% at 0% 0%, rgba(254,44,85,0.16), transparent 50%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)",
+        border: "1px solid rgba(196,181,253,0.22)",
+        color: "#f7f3ff",
+        boxShadow: "0 14px 32px rgba(254,44,85,0.1)",
       }}
     >
       <div
@@ -50,12 +51,12 @@ export default function ProductCard() {
           borderRadius: 12,
           overflow: "hidden",
           background: showImage
-            ? "#1A1A1A"
-            : `linear-gradient(145deg, ${accent} 0%, #1F1F1F 100%)`,
+            ? "#0c0816"
+            : `linear-gradient(145deg, ${accent} 0%, #0c0816 100%)`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          border: "1px solid #404040",
+          border: "1px solid rgba(196,181,253,0.2)",
         }}
         aria-hidden="true"
       >
@@ -145,9 +146,9 @@ export default function ProductCard() {
                 key={tag}
                 style={{
                   fontSize: 12,
-                  color: "#E5E5E5",
-                  background: "#3A3A3A",
-                  border: "1px solid #525252",
+                  color: "#f7f3ff",
+                  background: "linear-gradient(135deg, rgba(254,44,85,0.2), rgba(37,244,238,0.12))",
+                  border: "1px solid rgba(37,244,238,0.22)",
                   borderRadius: 999,
                   padding: "3px 10px",
                 }}

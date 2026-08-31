@@ -64,6 +64,23 @@ NUM_CTX = 8192
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
+def _grounding_summary(failures: GroundingFailures) -> dict[str, Any]:
+    fields: list[str] = []
+    if failures.category:
+        fields.append("category")
+    if failures.provisional_hint:
+        fields.append("provisional_hint")
+    if failures.override_value:
+        fields.append("override_value")
+    if failures.constraints:
+        fields.append("constraints")
+    return {
+        "has_failures": bool(failures),
+        "failed_fields": fields,
+        "failed_constraint_count": len(failures.constraints),
+    }
+
+
 def _attribute_system_prompt() -> str:
     colors = ", ".join(CLOSED_COLORS)
     materials = ", ".join(MATERIALS)
@@ -251,22 +268,81 @@ class OllamaNluClient:
         )
         if payload is None:
             emit("understand", "attribute_llm", "error")
-            skip_nodes("understand", "repair_1", "repair_2", "repair_3", "disclosure")
+            skip_nodes(
+                "understand",
+                "slot_grounding",
+                "repair_1",
+                "repair_2",
+                "repair_3",
+                "disclosure",
+                why="attribute extraction returned no valid JSON payload",
+            )
             return None, None
-        emit("understand", "attribute_llm", "completed")
+        emit(
+            "understand",
+            "attribute_llm",
+            "completed",
+            {
+                "input": {
+                    "rewritten_message": rewritten,
+                    "locked_constraint_count": len(constraints),
+                    "last_ask": last_ask,
+                },
+                "output": {
+                    "payload_keys": sorted(str(key) for key in payload),
+                    "raw_constraint_count": len(
+                        payload.get("constraints")
+                        if isinstance(payload.get("constraints"), list)
+                        else []
+                    ),
+                    "category_rows_injected": len(category_rows),
+                },
+            },
+        )
         working = copy.deepcopy(payload)
         _drop_category_constraints(working)
         if category_rows:
             working["category"] = category_rows
             working["empty"] = False
+        emit(
+            "understand",
+            "slot_grounding",
+            "running",
+            {
+                "input": {
+                    "rewritten_message": rewritten,
+                    "category_grounding_message": message,
+                }
+            },
+        )
+        failures = collect_failures(working, rewritten)
+        emit(
+            "understand",
+            "slot_grounding",
+            "completed",
+            {
+                "input": {
+                    "constraint_count": len(
+                        working.get("constraints")
+                        if isinstance(working.get("constraints"), list)
+                        else []
+                    ),
+                    "category_row_count": len(category_rows),
+                },
+                "output": _grounding_summary(failures),
+            },
+        )
         repair_rounds = 0
-        while repair_rounds < MAX_REPAIR_ROUNDS:
-            failures = collect_failures(working, rewritten)
-            if not failures:
-                break
+        while repair_rounds < MAX_REPAIR_ROUNDS and failures:
             repair_rounds += 1
             node = f"repair_{repair_rounds}"
-            emit("understand", node, "running")
+            before_repair = _grounding_summary(failures)
+            emit(
+                "understand",
+                node,
+                "running",
+                {"input": before_repair},
+            )
             repair = self._complete(
                 _repair_prompt(rewritten, failures),
                 system=_ATTRIBUTE_SYSTEM_PROMPT,
@@ -278,13 +354,23 @@ class OllamaNluClient:
             _drop_category_constraints(working)
             if category_rows:
                 working["category"] = category_rows
-            emit("understand", node, "completed")
+            failures = collect_failures(working, rewritten)
+            emit(
+                "understand",
+                node,
+                "completed",
+                {
+                    "input": before_repair,
+                    "output": _grounding_summary(failures),
+                },
+            )
         skip_nodes(
             "understand",
             *[
                 f"repair_{index}"
                 for index in range(repair_rounds + 1, MAX_REPAIR_ROUNDS + 1)
             ],
+            why="no grounding failures remained",
         )
         extract = parse_observation_payload(
             working, rewritten, category_message=message

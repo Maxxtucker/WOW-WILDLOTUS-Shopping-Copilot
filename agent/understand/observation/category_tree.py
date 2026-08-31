@@ -106,21 +106,38 @@ def walk_category_tree(
     dropped. Fan-out is capped per layer.
     """
 
-    def _skip_from(layer: int) -> None:
+    def _skip_from(layer: int, why: str) -> None:
         skip_nodes(
             "understand",
             *[f"category_l{index}" for index in range(layer, max_depth + 1)],
+            why=why,
         )
 
     level = tuple(roots) if roots is not None else load_category_tree()
     if not level:
-        _skip_from(1)
+        _skip_from(1, "the committed category tree has no roots")
         return ()
-    emit("understand", "category_l1", "running")
+    emit(
+        "understand",
+        "category_l1",
+        "running",
+        {
+            "input": {
+                "message": message,
+                "allowed_count": len(level),
+                "max_fanout": max_fanout,
+            }
+        },
+    )
     first = classify(message, None, level)
     if first is None:
-        emit("understand", "category_l1", "error")
-        _skip_from(2)
+        emit(
+            "understand",
+            "category_l1",
+            "error",
+            {"why": "category classifier returned no valid L1 decision"},
+        )
+        _skip_from(2, "L1 classification failed")
         return ()
     selected = _drop_unknown(_resolve_choice(first.ids, level, max_fanout))
     emit(
@@ -130,14 +147,24 @@ def walk_category_tree(
         {
             "labels": [node.label for node in selected],
             "ids": [node.id for node in selected],
+            "input": {
+                "message": message,
+                "allowed_count": len(level),
+                "max_fanout": max_fanout,
+            },
+            "output": {
+                "labels": [node.label for node in selected],
+                "ids": [node.id for node in selected],
+                "stop": first.stop,
+            },
         },
     )
     if not selected:
-        _skip_from(2)
+        _skip_from(2, "L1 selected no supported category")
         return ()
     collected: list[CategoryNode] = list(selected)
     if first.stop or max_depth <= 1:
-        _skip_from(2)
+        _skip_from(2, "the category walk stopped after L1")
         return _unique_nodes(collected)
 
     current = selected
@@ -146,13 +173,30 @@ def walk_category_tree(
         node_id = f"category_l{depth + 1}"
         pool = _concat_children(current)
         if not pool:
-            _skip_from(depth + 1)
+            _skip_from(depth + 1, "selected categories have no deeper children")
             break
-        emit("understand", node_id, "running")
+        emit(
+            "understand",
+            node_id,
+            "running",
+            {
+                "input": {
+                    "message": message,
+                    "parent_ids": [node.id for node in current],
+                    "allowed_count": len(pool),
+                    "max_fanout": max_fanout,
+                }
+            },
+        )
         decision = classify(message, None, pool)
         if decision is None:
-            emit("understand", node_id, "error")
-            _skip_from(depth + 2)
+            emit(
+                "understand",
+                node_id,
+                "error",
+                {"why": f"category classifier returned no valid L{depth + 1} decision"},
+            )
+            _skip_from(depth + 2, f"L{depth + 1} classification failed")
             break
         nxt = _drop_unknown(_resolve_choice(decision.ids, pool, max_fanout))
         emit(
@@ -162,14 +206,25 @@ def walk_category_tree(
             {
                 "labels": [node.label for node in nxt],
                 "ids": [node.id for node in nxt],
+                "input": {
+                    "message": message,
+                    "parent_ids": [node.id for node in current],
+                    "allowed_count": len(pool),
+                    "max_fanout": max_fanout,
+                },
+                "output": {
+                    "labels": [node.label for node in nxt],
+                    "ids": [node.id for node in nxt],
+                    "stop": decision.stop,
+                },
             },
         )
         if not nxt:
-            _skip_from(depth + 2)
+            _skip_from(depth + 2, f"L{depth + 1} selected no supported child")
             break
         collected.extend(nxt)
         if decision.stop:
-            _skip_from(depth + 2)
+            _skip_from(depth + 2, f"the category walk stopped after L{depth + 1}")
             break
         current = nxt
         depth += 1

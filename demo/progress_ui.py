@@ -11,89 +11,25 @@ import time
 from typing import Any
 
 from agent.trace import TurnTrace
-# Importing the extension mutates the legacy catalog dictionaries in place, so
-# chainlit_app's already-imported NODE_CATALOG/STAGE_BLURBS references also see
-# the README-aligned descriptions.
-from demo.node_catalog_ext import NODE_CATALOG
-
-NODE_SPECS: tuple[tuple[str, str, str], ...] = (
-    # Understand
-    ("casefold", "understand", "Normalize text"),
-    ("color_map", "understand", "Map color aliases"),
-    ("material_map", "understand", "Map material aliases"),
-    ("color_verify", "understand", "Verify color words"),
-    ("material_verify", "understand", "Verify material words"),
-    ("merge_rewrite", "understand", "Build normalized query"),
-    ("category_l1", "understand", "Category · L1 roots"),
-    ("category_l2", "understand", "Category · L2 children"),
-    ("category_l3", "understand", "Category · L3 children"),
-    ("category_cap", "understand", "Cap category ambiguity"),
-    ("attribute_llm", "understand", "Extract typed constraints"),
-    ("repair_1", "understand", "Grounding repair · 1"),
-    ("repair_2", "understand", "Grounding repair · 2"),
-    ("repair_3", "understand", "Grounding repair · 3"),
-    ("disclosure", "understand", "Validate disclosure"),
-    ("turn_delta", "understand", "Stage turn delta"),
-    # Intent router
-    ("override_l1", "router", "L1 full override?"),
-    ("override_l2", "router", "L2 field override?"),
-    ("replace_delta", "router", "Replace committed intent"),
-    ("drop_slots", "router", "Drop replaced fields"),
-    ("probe_override", "router", "Probe replacement pool"),
-    ("intention_override", "router", "Route as override"),
-    ("probe_before", "router", "Probe exact pool · before"),
-    ("apply_delta", "router", "Commit turn delta"),
-    ("probe_after", "router", "Probe exact pool · after"),
-    ("route_llm", "router", "Classify Buying / Browsing"),
-    ("buying", "router", "Buying route"),
-    ("browsing", "router", "Browsing route"),
-    ("failsafe", "router", "Turn-4 gate failsafe"),
-    # Retrieve + rank
-    ("select_pool", "retrieve", "Select strict / lenient pool"),
-    ("slot_groups", "retrieve", "Build scoring groups"),
-    ("rewrite_query", "retrieve", "Build lexical query"),
-    ("routing", "retrieve", "Load route weights / limits"),
-    ("lexical_in_pool", "retrieve", "BM25 inside selected pool"),
-    ("score_exact", "retrieve", "Score selected pool"),
-    ("hybrid_search", "retrieve", "Hybrid base recall / fill"),
-    ("cap_hits", "retrieve", "Assemble base library"),
-    ("raw_evidence", "retrieve", "Check active-intent raw evidence"),
-    ("base_only", "retrieve", "Use base route only"),
-    ("relaxed_route", "retrieve", "Safety recall · relaxed"),
-    ("raw_text_route", "retrieve", "Safety recall · raw text"),
-    ("weighted_rrf", "retrieve", "Fuse routes · weighted RRF"),
-    ("qwen_rerank", "retrieve", "Semantic head rerank"),
-    ("belief_hits", "retrieve", "Deterministic score belief"),
-    ("normalize", "retrieve", "Normalize ranking mass"),
-    # Decide
-    ("answer_signature", "decide", "Cache predicted answers"),
-    ("eligible_questions", "decide", "Generate eligible questions"),
-    ("viability_filter", "decide", "Filter question viability"),
-    ("planning_head", "decide", "Build planning head + tail"),
-    ("action_space", "decide", "Enumerate question × slate size"),
-    ("planner", "decide", "Dynamic slate planner"),
-    ("fallback_question", "decide", "Pre-final question guard"),
-    ("sequential_gate", "decide", "Compatibility slate gate"),
-    ("gate_rank1", "decide", "Legacy gate-change branch"),
-    ("keep_planned", "decide", "Keep dynamic slate"),
-    ("persist_turn", "decide", "Persist action memory"),
-    ("build_response", "decide", "Build official response"),
+from demo.workflow_schema import (
+    STAGE_ORDER,
+    WORKFLOW_SCHEMA,
+    workflow_graph_props,
 )
 
-STAGE_ORDER = ("understand", "router", "retrieve", "decide")
+NODE_SPECS: tuple[tuple[str, str, str], ...] = tuple(
+    (node_id, stage, metadata["label"])
+    for stage in STAGE_ORDER
+    for node_id, metadata in WORKFLOW_SCHEMA[stage]["nodes"].items()
+)
+
 DONE = frozenset({"completed", "skipped", "error"})
 
-GRAPH_FOR_STAGE = {
-    "understand": "understand",
-    "router": "router",
-    "retrieve": "retrieve",
-    "decide": "decide",
-}
+GRAPH_FOR_STAGE = {stage: stage for stage in STAGE_ORDER}
 
 NEXT_GRAPH = {
-    "understand": "router",
-    "router": "retrieve",
-    "retrieve": "decide",
+    stage: STAGE_ORDER[index + 1]
+    for index, stage in enumerate(STAGE_ORDER[:-1])
 }
 
 
@@ -102,24 +38,20 @@ def empty_circuit_state() -> dict[str, Any]:
 
     nodes: dict[str, Any] = {}
     for node_id, stage, label in NODE_SPECS:
-        extra = NODE_CATALOG.get(node_id) or {}
+        metadata = WORKFLOW_SCHEMA[stage]["nodes"][node_id]
         nodes[node_id] = {
             "id": node_id,
             "stage": stage,
             "label": label,
             "status": "pending",
-            "function": extra.get("function") or "",
-            "implementation": (
-                extra.get("implementation")
-                or extra.get("how_it_works")
-                or extra.get("meaning")
-                or ""
-            ),
+            "task": metadata["task"],
+            "rationale": metadata["rationale"],
+            "implementation": metadata["implementation"],
         }
     return {
         "title": "Agent pipeline",
         "status": "running",
-        "current": "casefold",
+        "current": "prior_miss",
         "activeGraph": "understand",
         "viewGraph": "",
         "selectedNode": "",
@@ -128,6 +60,8 @@ def empty_circuit_state() -> dict[str, Any]:
         "error": "",
         "startedAt": time.time(),
         "nodes": nodes,
+        "graphs": workflow_graph_props(),
+        "graphOrder": list(STAGE_ORDER),
         "stages": {
             name: {"status": "pending", "summary": ""}
             for name in STAGE_ORDER
@@ -258,7 +192,9 @@ def finalize_circuit(
             current = state["stages"][name]["status"]
             if current in {"pending", "running"}:
                 state["stages"][name]["status"] = "completed"
-    if state["status"] != "error":
+        state["status"] = "completed"
+        state["error"] = ""
+    elif state["status"] != "error":
         state["status"] = "completed"
     state["progressPercent"] = 100
     state["current"] = "build_response"
@@ -436,6 +372,51 @@ def _node_caption(node_id: str, detail: dict[str, Any]) -> str:
     if node_id == "turn_delta":
         source = detail.get("source") or out.get("source")
         return "" if source is None else f"source={source}"
+    if node_id == "understand_mode":
+        return _from_io(detail, "selected_path")
+    if node_id == "nlu_attempt":
+        used = out.get("attempts_used")
+        source = out.get("source") or out.get("fallback")
+        if used is None:
+            return ""
+        return f"attempts={used}" + (f" · {source}" if source else "")
+    if node_id == "regex_extract":
+        return _from_io(detail, "source") or "regex"
+    if node_id == "colon_restore":
+        applied = out.get("applied")
+        if applied is True:
+            return "restored"
+        if applied is False:
+            return "not applied"
+    if node_id == "empty_disclosure_gate":
+        return _from_io(detail, "path")
+    if node_id == "committed_intent":
+        flag = out.get("has_committed_intent")
+        if flag is True:
+            return "prior intent"
+        if flag is False:
+            return "no prior intent"
+    if node_id == "strong_override_fallback":
+        matched = out.get("matched")
+        if matched is True:
+            return "explicit start-over"
+        if matched is False:
+            return "no match"
+    if node_id == "pool_ratio":
+        ratio = out.get("ratio")
+        if ratio is None and out.get("defined") is False:
+            return "undefined"
+        if ratio is not None:
+            return f"ratio={ratio}"
+    if node_id == "profile_diagnostic":
+        return "computed · weight 0"
+    if node_id == "weighted_score":
+        formula = detail.get("input", {}).get("formula") if isinstance(detail.get("input"), dict) else None
+        return str(formula)[:72] if formula else ""
+    if node_id == "epsilon_roll":
+        return _from_io(detail, "selection_mode") or _from_io(detail, "branch")
+    if node_id in {"technical_exploit", "uniform_explore", "selected_attribute"}:
+        return _from_io(detail, "ask_attribute")
     why = detail.get("why")
     if why:
         return str(why)[:72]

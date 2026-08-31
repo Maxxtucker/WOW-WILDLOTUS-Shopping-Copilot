@@ -29,10 +29,11 @@ export default function RecommendationPreference() {
         maxWidth: 680,
         borderRadius: 20,
         padding: "18px 20px 16px",
-        color: "#f5f7fb",
-        background: "linear-gradient(180deg, #171717 0%, #101010 100%)",
-        border: "1px solid rgba(255,255,255,0.09)",
-        boxShadow: "0 18px 36px rgba(0,0,0,0.24)",
+        color: "#f7f3ff",
+        background:
+          "radial-gradient(ellipse 80% 60% at 0% 0%, rgba(254,44,85,0.2), transparent 52%), radial-gradient(ellipse 70% 50% at 100% 0%, rgba(37,244,238,0.12), transparent 48%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)",
+        border: "1px solid rgba(196,181,253,0.22)",
+        boxShadow: "0 18px 36px rgba(254,44,85,0.12)",
         opacity: locked ? 0.62 : 1,
       }}
     >
@@ -52,9 +53,9 @@ export default function RecommendationPreference() {
             fontWeight: 700,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
-            color: "#ffd7e7",
-            background: "rgba(255,43,122,0.14)",
-            border: "1px solid rgba(255,43,122,0.24)",
+            color: "#ffe4ec",
+            background: "linear-gradient(135deg, rgba(254,44,85,0.22), rgba(37,244,238,0.12))",
+            border: "1px solid rgba(37,244,238,0.28)",
           }}
         >
           Default
@@ -76,7 +77,7 @@ export default function RecommendationPreference() {
           }}
           style={{
             width: "100%",
-            accentColor: "#ff2b7a",
+            accentColor: "#fe2c55",
             cursor: locked ? "not-allowed" : "pointer",
           }}
         />

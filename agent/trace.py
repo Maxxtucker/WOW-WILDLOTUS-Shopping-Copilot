@@ -59,6 +59,7 @@ def build_understand_trace(state: SessionState) -> dict[str, Any]:
         "category": None if delta is None else delta.category,
         "slots": _slot_rows(None if delta is None else delta.slots),
         "empty": True if delta is None else delta.empty,
+        "repair_rounds": 0 if delta is None else delta.repair_rounds,
         "disclosure_empty": state.disclosure_empty,
         "gate_open": state.gate_open,
         "session_category": state.category,
@@ -108,6 +109,10 @@ def build_retrieve_trace(
                 "score": round(float(hit.score), 4),
                 "matched_constraints": list(hit.matched_constraints),
                 "routes": routes[0] if routes else [],
+                "score_breakdown": {
+                    key: round(float(value), 6)
+                    for key, value in hit.score_breakdown.items()
+                },
             }
         )
     return {
@@ -124,6 +129,7 @@ def build_ranking_trace(ranked: list[RankedCandidate]) -> dict[str, Any]:
         "top": [
             {
                 "parent_asin": item.parent_asin,
+                "weight": round(float(item.score), 6),
                 "probability": round(float(item.probability), 4),
             }
             for item in ranked[:TRACE_TOP]
@@ -136,6 +142,7 @@ def build_decide_trace(plan: Plan, slate: list[str]) -> dict[str, Any]:
     return {
         "ask_attribute": plan.ask_attribute,
         "reason": plan.reason,
+        "expected_value": round(float(plan.expected_value), 6),
         "planned_slate": planned,
         "slate": list(slate),
         "gated": planned != list(slate),

@@ -149,8 +149,42 @@ class TurnPipeline:
         emit("understand", "stage", "running")
         self.state_detector.apply(state, user_message, turn)
         understand = build_understand_trace(state)
+        emit(
+            "understand",
+            "empty_disclosure_gate",
+            "running",
+            {
+                "input": {
+                    "turn_delta_is_none": state.turn_delta is None,
+                    "disclosure_empty": state.disclosure_empty,
+                }
+            },
+        )
+        use_leftovers = pages_empty_disclosure(state)
+        leftover = leftover_page_stats(state)
+        emit(
+            "understand",
+            "empty_disclosure_gate",
+            "completed",
+            {
+                "input": {
+                    "turn_delta_is_none": state.turn_delta is None,
+                    "disclosure_empty": state.disclosure_empty,
+                    "leftover_ranked": leftover["leftover_n"],
+                },
+                "output": {
+                    "path": "page previous ranking" if use_leftovers else "continue to router",
+                    "shortcut": use_leftovers,
+                },
+                "why": (
+                    "no new evidence and at least one unshown ranked product remains"
+                    if use_leftovers
+                    else "new evidence exists or no reusable ranked product remains"
+                ),
+            },
+        )
         emit("understand", "stage", "completed", understand)
-        if pages_empty_disclosure(state):
+        if use_leftovers:
             return self._run_empty_disclosure(state, understand, top_k)
         emit("router", "stage", "running")
         exact = self.intent_router.apply(state, self.retriever)

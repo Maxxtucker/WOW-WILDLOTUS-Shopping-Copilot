@@ -1,8 +1,9 @@
-"""Decide layer: posterior rank, pick the most distinguishing question, assemble the official response.
+"""Decide layer: jointly plan a ranked prefix and next clarification.
 
 Input: SearchHit list, SessionState, top_k; response writeback uses candidate ASINs.
 Output: {message, ask_attribute, recommendations, usage}, and session writeback.
-Role: hit at rank-1 as early as possible within 10 turns. See README.md.
+Role: Dynamic Slate balances Hit, reciprocal rank, efficiency, and future
+answer value, then writes the official response. See README.md.
 """
 
 from .clarification import (

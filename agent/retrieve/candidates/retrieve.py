@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from ...progress import emit, skip_nodes
+from ...progress import emit, progress_enabled, skip_nodes
 from ..catalog.protocol_copy import tokenize
 from ..catalog.types import DimensionSpec, SearchWeights
 from ..from_slots import (
@@ -29,6 +29,7 @@ from .multi_route import (
     RELAXED_WEIGHT,
     STRICT_WEIGHT,
     fuse_routes,
+    route_membership,
 )
 from .query import rewrite_query
 from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
@@ -79,6 +80,119 @@ def _pool_size(pool: set[str] | None) -> int | None:
 
 def _head_asins(hits: list[SearchHit], limit: int = 5) -> list[str]:
     return [hit.parent_asin for hit in hits[:limit]]
+
+
+def _component_rows(
+    hits: list[SearchHit], *keys: str, limit: int = 5
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for hit in hits[:limit]:
+        row: dict[str, object] = {"parent_asin": hit.parent_asin}
+        for key in keys:
+            row[key] = round(float(hit.score_breakdown.get(key, 0.0)), 8)
+        rows.append(row)
+    return rows
+
+
+def _emit_score_breakdown(
+    hits: list[SearchHit],
+    weights: SearchWeights,
+    *,
+    path: str,
+) -> None:
+    """Publish the real score fan-out without changing candidate ordering."""
+
+    if not progress_enabled():
+        return
+    specs = (
+        (
+            "bm25_score",
+            {"fielded_bm25": True, "route_weight": weights.lexical, "outer_scale": 1.15},
+            ("bm25_raw", "bm25_weighted"),
+        ),
+        (
+            "required_score",
+            {
+                "match_weight": weights.required,
+                "missing_weight": weights.missing_required,
+            },
+            ("required", "missing_required"),
+        ),
+        ("preferred_score", {"weight": weights.preferred}, ("preferred",)),
+        ("category_score", {"weight": weights.category}, ("category",)),
+        ("budget_score", {"weight": weights.budget}, ("budget",)),
+        ("dimension_score", {"weight": weights.dimension}, ("dimension",)),
+        (
+            "exclusion_score",
+            {"weight": weights.excluded, "hard_drop_similarity": 0.9},
+            ("exclusion",),
+        ),
+        (
+            "structured_subtotal",
+            {"outer_scale": 0.003},
+            ("structured_raw", "structured_weighted"),
+        ),
+        ("rating_prior", {"weight": weights.rating}, ("rating_prior",)),
+        (
+            "popularity_prior",
+            {"weight": weights.popularity},
+            ("popularity_prior",),
+        ),
+        (
+            "catalog_prior",
+            {"formula": "rating prior + popularity prior"},
+            ("catalog_prior",),
+        ),
+        (
+            "title_text_fit",
+            {"field_scale": 1.0},
+            ("title_text_fit",),
+        ),
+        (
+            "details_text_fit",
+            {"field_scale": 0.7},
+            ("details_text_fit",),
+        ),
+        (
+            "description_text_fit",
+            {"field_scale": 0.5},
+            ("description_text_fit",),
+        ),
+        (
+            "soft_text_fit",
+            {"route_weight": weights.text, "combiner": "maximum field coverage"},
+            ("soft_text_fit", "soft_text_weighted"),
+        ),
+        (
+            "profile_diagnostic",
+            {"configured_weight": weights.profile, "final_score_weight": 0.0},
+            ("profile_fit", "profile_weighted"),
+        ),
+        (
+            "weighted_score",
+            {
+                "formula": (
+                    "1.15*w_lex*lexical + 0.003*structured "
+                    "+ catalog_prior + w_text*soft_text"
+                )
+            },
+            ("final_score",),
+        ),
+    )
+    for node, config, keys in specs:
+        emit(
+            "retrieve",
+            node,
+            "completed",
+            {
+                "input": {
+                    "path": path,
+                    "candidate_count": len(hits),
+                    **config,
+                },
+                "output": {"top": _component_rows(hits, *keys)},
+            },
+        )
 
 
 RAW_RECALL_WEIGHTS = SearchWeights(
@@ -314,6 +428,14 @@ def _safe_route_fusion(
             "output": {
                 "hit_count": len(fused),
                 "top": _head_asins(fused),
+                "route_membership": route_membership(fused),
+                "top_contributions": _component_rows(
+                    fused,
+                    "rrf_strict",
+                    "rrf_relaxed",
+                    "rrf_raw",
+                    "rrf_total",
+                ),
             },
         },
     )
@@ -511,6 +633,11 @@ def retrieve_candidates(
                 "hybrid_search",
                 why="scored exact pool already meets candidate floor",
             )
+            _emit_score_breakdown(
+                exact_hits,
+                routing.weights,
+                path=f"{pool_source} exact",
+            )
             capped = exact_hits[: routing.limit]
             emit(
                 "retrieve",
@@ -580,6 +707,11 @@ def retrieve_candidates(
             },
         )
         combined = exact_hits + fill
+        _emit_score_breakdown(
+            combined,
+            routing.weights,
+            path=f"{pool_source} exact + hybrid fill",
+        )
         emit(
             "retrieve",
             "cap_hits",
@@ -643,6 +775,11 @@ def retrieve_candidates(
                 "top": _head_asins(hits),
             },
         },
+    )
+    _emit_score_breakdown(
+        hits,
+        routing.weights,
+        path="hybrid only",
     )
     emit(
         "retrieve",

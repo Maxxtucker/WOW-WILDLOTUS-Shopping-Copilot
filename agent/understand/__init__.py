@@ -1,8 +1,8 @@
-"""Understand layer: write this turn's user/simulator text into SessionState.
+"""Understand layer: stage one natural-language turn as an observation delta.
 
 Input: raw user_message, turn, SessionState written back last turn.
-Output: updated SessionState (category, constraints, exclusions, conversion gate).
-Role: retrieval and planning read structured fields only and do not parse prose. See README.md.
+Output: updated turn clock, miss memory, and non-committed SessionState.turn_delta.
+Role: Intent Router decides how the delta changes committed constraints. See README.md.
 """
 
 from .mode import (

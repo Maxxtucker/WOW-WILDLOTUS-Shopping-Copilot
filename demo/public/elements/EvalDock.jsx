@@ -20,18 +20,19 @@ function Field({ label, children }) {
 
 const inputStyle = {
   borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.1)",
-  background: "#101010",
-  color: "#f5f7fb",
+  border: "1px solid rgba(196,181,253,0.28)",
+  background: "linear-gradient(180deg, #241634, #12081c)",
+  color: "#f7f3ff",
   padding: "8px 10px",
   fontSize: 13,
+  colorScheme: "dark",
 };
 
 const btnStyle = {
   borderRadius: 999,
-  border: "1px solid rgba(255,43,122,0.28)",
-  background: "rgba(255,43,122,0.12)",
-  color: "#ffe1ec",
+  border: "1px solid rgba(254,44,85,0.38)",
+  background: "linear-gradient(135deg, rgba(254,44,85,0.22), rgba(37,244,238,0.1))",
+  color: "#ffe4ec",
   padding: "8px 14px",
   fontSize: 13,
   fontWeight: 500,
@@ -40,9 +41,9 @@ const btnStyle = {
 
 const ghostBtn = {
   ...btnStyle,
-  background: "rgba(255,255,255,0.06)",
-  borderColor: "rgba(255,255,255,0.12)",
-  color: "#f5f7fb",
+  background: "linear-gradient(135deg, rgba(196,181,253,0.12), rgba(37,244,238,0.08))",
+  borderColor: "rgba(196,181,253,0.22)",
+  color: "#f7f3ff",
 };
 
 const BUYER_MODES = [
@@ -144,7 +145,7 @@ export default function EvalDock() {
           transform: "translateX(-50%)",
           bottom: "var(--eval-dock-bottom, 96px)",
           width: "min(560px, calc(100vw - 32px))",
-          color: "#f5f7fb",
+          color: "#f7f3ff",
           pointerEvents: "auto",
         }}
       >
@@ -154,9 +155,9 @@ export default function EvalDock() {
               borderRadius: 22,
               padding: 18,
               background:
-                "radial-gradient(circle at top left, rgba(255,43,122,0.14), transparent 28%), linear-gradient(180deg, #151515 0%, #101010 100%)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
+                "radial-gradient(ellipse 80% 60% at 0% 0%, rgba(254,44,85,0.22), transparent 52%), radial-gradient(ellipse 70% 50% at 100% 0%, rgba(37,244,238,0.12), transparent 48%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)",
+              border: "1px solid rgba(196,181,253,0.22)",
+              boxShadow: "0 20px 40px rgba(254,44,85,0.14)",
               display: "grid",
               gap: 14,
               maxHeight: "min(70vh, 640px)",
@@ -241,8 +242,8 @@ export default function EvalDock() {
                   gap: 12,
                   padding: 12,
                   borderRadius: 16,
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(0,0,0,0.28)",
+                  border: "1px solid rgba(196,181,253,0.16)",
+                  background: "rgba(7,4,14,0.35)",
                 }}
               >
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
@@ -290,12 +291,12 @@ export default function EvalDock() {
                             textAlign: "left",
                             background:
                               row.sample_id === sampleId
-                                ? "rgba(255,43,122,0.28)"
-                                : "rgba(255,255,255,0.04)",
+                                ? "linear-gradient(135deg, rgba(254,44,85,0.32), rgba(37,244,238,0.16))"
+                                : "rgba(247,243,255,0.04)",
                             borderColor:
                               row.sample_id === sampleId
-                                ? "#ff2b7a"
-                                : "rgba(255,255,255,0.08)",
+                                ? "#25f4ee"
+                                : "rgba(196,181,253,0.16)",
                           }}
                         >
                           {row.index}. {row.sample_id} · {row.scenario_type} · {row.difficulty_bucket}
@@ -303,7 +304,7 @@ export default function EvalDock() {
                       ))}
                     </div>
                     {selected ? (
-                      <div style={{ fontSize: 13, lineHeight: 1.5, color: "#ffe1ec" }}>
+                      <div style={{ fontSize: 13, lineHeight: 1.5, color: "#ffe4ec" }}>
                         <div>
                           <strong>{selected.sample_id}</strong>
                         </div>
@@ -384,9 +385,9 @@ export default function EvalDock() {
               flexWrap: "wrap",
               borderRadius: 999,
               padding: "8px 10px 8px 12px",
-              background: "linear-gradient(180deg, #1a1a1a 0%, #101010 100%)",
-              border: "1px solid rgba(255,43,122,0.28)",
-              boxShadow: "0 12px 28px rgba(0,0,0,0.35)",
+              background: "linear-gradient(90deg, #1c122c 0%, #0c0816 100%)",
+              border: "1px solid rgba(37,244,238,0.28)",
+              boxShadow: "0 12px 28px rgba(254,44,85,0.18)",
             }}
           >
             <button type="button" onClick={() => setExpanded(true)} style={btnStyle}>

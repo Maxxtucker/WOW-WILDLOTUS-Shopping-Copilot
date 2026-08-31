@@ -2,172 +2,9 @@ import React from "react";
 
 const NODE_W = 190;
 const NODE_H = 48;
-
-const GRAPHS = {
-  understand: {
-    title: "Understand · observe, ground, stage delta",
-    viewBox: "0 0 1000 1050",
-    pos: {
-      casefold: { x: 500, y: 45 },
-      color_map: { x: 270, y: 135 },
-      material_map: { x: 730, y: 135 },
-      color_verify: { x: 270, y: 225 },
-      material_verify: { x: 730, y: 225 },
-      merge_rewrite: { x: 500, y: 315 },
-      category_l1: { x: 500, y: 405 },
-      category_l2: { x: 500, y: 495 },
-      category_l3: { x: 500, y: 585 },
-      category_cap: { x: 500, y: 675 },
-      attribute_llm: { x: 500, y: 765 },
-      repair_1: { x: 250, y: 855 },
-      repair_2: { x: 500, y: 855 },
-      repair_3: { x: 750, y: 855 },
-      disclosure: { x: 500, y: 945 },
-      turn_delta: { x: 500, y: 1030 },
-    },
-    edges: [
-      ["casefold", "color_map"],
-      ["casefold", "material_map"],
-      ["color_map", "color_verify"],
-      ["material_map", "material_verify"],
-      ["color_verify", "merge_rewrite"],
-      ["material_verify", "merge_rewrite"],
-      ["merge_rewrite", "category_l1"],
-      ["category_l1", "category_l2"],
-      ["category_l2", "category_l3"],
-      ["category_l3", "category_cap"],
-      ["category_cap", "attribute_llm"],
-      ["attribute_llm", "repair_1"],
-      ["repair_1", "repair_2"],
-      ["repair_2", "repair_3"],
-      ["attribute_llm", "disclosure"],
-      ["repair_1", "disclosure"],
-      ["repair_2", "disclosure"],
-      ["repair_3", "disclosure"],
-      ["disclosure", "turn_delta"],
-    ],
-  },
-  router: {
-    title: "Intent Router · override, commit, exact pools, route",
-    viewBox: "0 0 1000 850",
-    pos: {
-      override_l1: { x: 500, y: 45 },
-      override_l2: { x: 500, y: 135 },
-      replace_delta: { x: 190, y: 240 },
-      drop_slots: { x: 410, y: 240 },
-      probe_override: { x: 300, y: 340 },
-      intention_override: { x: 300, y: 440 },
-      probe_before: { x: 760, y: 240 },
-      apply_delta: { x: 760, y: 340 },
-      probe_after: { x: 760, y: 440 },
-      route_llm: { x: 760, y: 540 },
-      buying: { x: 620, y: 645 },
-      browsing: { x: 880, y: 645 },
-      failsafe: { x: 500, y: 770 },
-    },
-    edges: [
-      ["override_l1", "override_l2"],
-      ["override_l1", "replace_delta"],
-      ["override_l2", "drop_slots"],
-      ["override_l2", "probe_before"],
-      ["replace_delta", "probe_override"],
-      ["drop_slots", "probe_override"],
-      ["probe_override", "intention_override"],
-      ["intention_override", "failsafe"],
-      ["probe_before", "apply_delta"],
-      ["apply_delta", "probe_after"],
-      ["probe_after", "route_llm"],
-      ["route_llm", "buying"],
-      ["route_llm", "browsing"],
-      ["buying", "failsafe"],
-      ["browsing", "failsafe"],
-    ],
-  },
-  retrieve: {
-    title: "Retrieve + Rank · exact/hybrid recall, safety fusion, rerank",
-    viewBox: "0 0 1000 1160",
-    pos: {
-      select_pool: { x: 500, y: 45 },
-      slot_groups: { x: 180, y: 145 },
-      rewrite_query: { x: 500, y: 145 },
-      routing: { x: 820, y: 145 },
-      lexical_in_pool: { x: 250, y: 260 },
-      score_exact: { x: 250, y: 365 },
-      hybrid_search: { x: 750, y: 365 },
-      cap_hits: { x: 500, y: 475 },
-      raw_evidence: { x: 500, y: 575 },
-      base_only: { x: 180, y: 700 },
-      relaxed_route: { x: 500, y: 700 },
-      raw_text_route: { x: 820, y: 700 },
-      weighted_rrf: { x: 660, y: 825 },
-      qwen_rerank: { x: 310, y: 950 },
-      belief_hits: { x: 690, y: 950 },
-      normalize: { x: 500, y: 1080 },
-    },
-    edges: [
-      ["select_pool", "slot_groups"],
-      ["slot_groups", "rewrite_query"],
-      ["rewrite_query", "routing"],
-      ["routing", "lexical_in_pool"],
-      ["lexical_in_pool", "score_exact"],
-      ["routing", "hybrid_search"],
-      ["score_exact", "hybrid_search"],
-      ["score_exact", "cap_hits"],
-      ["hybrid_search", "cap_hits"],
-      ["cap_hits", "raw_evidence"],
-      ["raw_evidence", "base_only"],
-      ["raw_evidence", "relaxed_route"],
-      ["raw_evidence", "raw_text_route"],
-      ["relaxed_route", "weighted_rrf"],
-      ["raw_text_route", "weighted_rrf"],
-      ["base_only", "qwen_rerank"],
-      ["base_only", "belief_hits"],
-      ["weighted_rrf", "qwen_rerank"],
-      ["weighted_rrf", "belief_hits"],
-      ["qwen_rerank", "normalize"],
-      ["belief_hits", "normalize"],
-    ],
-  },
-  decide: {
-    title: "Decide · question value, dynamic slate, writeback",
-    viewBox: "0 0 1000 1080",
-    pos: {
-      answer_signature: { x: 500, y: 45 },
-      eligible_questions: { x: 500, y: 135 },
-      viability_filter: { x: 500, y: 225 },
-      planning_head: { x: 500, y: 315 },
-      action_space: { x: 500, y: 405 },
-      planner: { x: 500, y: 500 },
-      fallback_question: { x: 500, y: 595 },
-      sequential_gate: { x: 500, y: 690 },
-      gate_rank1: { x: 280, y: 795 },
-      keep_planned: { x: 720, y: 795 },
-      persist_turn: { x: 500, y: 905 },
-      build_response: { x: 500, y: 1010 },
-    },
-    edges: [
-      ["answer_signature", "eligible_questions"],
-      ["eligible_questions", "viability_filter"],
-      ["viability_filter", "planning_head"],
-      ["planning_head", "action_space"],
-      ["action_space", "planner"],
-      ["planner", "fallback_question"],
-      ["fallback_question", "sequential_gate"],
-      ["sequential_gate", "gate_rank1"],
-      ["sequential_gate", "keep_planned"],
-      ["gate_rank1", "persist_turn"],
-      ["keep_planned", "persist_turn"],
-      ["persist_turn", "build_response"],
-    ],
-  },
-};
-
-const STAGE_RAIL = [
-  ["understand", "Understand", "understand"],
-  ["router", "Intent router", "router"],
-  ["retrieve", "Retrieve + rank", "retrieve"],
-  ["decide", "Decide", "decide"],
-];
+const FIT_PADDING = 0.94;
+const MIN_SCALE_RATIO = 0.8;
+const MAX_SCALE = 4.5;
 
 function formatElapsed(seconds) {
   const safe = Math.max(0, Math.floor(seconds || 0));
@@ -175,27 +12,27 @@ function formatElapsed(seconds) {
 }
 
 function statusTone(status) {
-  if (status === "completed") return "#20c997";
-  if (status === "running") return "#ff2b7a";
-  if (status === "error") return "#ff6b6b";
-  if (status === "skipped") return "rgba(255,255,255,0.28)";
-  return "rgba(255,255,255,0.5)";
+  if (status === "completed") return "#25f4ee";
+  if (status === "running") return "#fe2c55";
+  if (status === "error") return "#ff6b8a";
+  if (status === "skipped") return "rgba(247,243,255,0.32)";
+  return "rgba(196,181,253,0.72)";
 }
 
 function nodeFill(status) {
-  if (status === "completed") return "rgba(32,201,151,0.13)";
-  if (status === "running") return "rgba(255,43,122,0.16)";
-  if (status === "error") return "rgba(255,107,107,0.16)";
-  if (status === "skipped") return "rgba(255,255,255,0.025)";
-  return "rgba(255,255,255,0.045)";
+  if (status === "completed") return "rgba(37,244,238,0.14)";
+  if (status === "running") return "rgba(254,44,85,0.18)";
+  if (status === "error") return "rgba(255,107,138,0.16)";
+  if (status === "skipped") return "rgba(247,243,255,0.03)";
+  return "rgba(196,181,253,0.07)";
 }
 
 function nodeStroke(status) {
-  if (status === "completed") return "rgba(32,201,151,0.58)";
-  if (status === "running") return "#ff2b7a";
-  if (status === "error") return "#ff6b6b";
-  if (status === "skipped") return "rgba(255,255,255,0.08)";
-  return "rgba(255,255,255,0.13)";
+  if (status === "completed") return "rgba(37,244,238,0.62)";
+  if (status === "running") return "#fe2c55";
+  if (status === "error") return "#ff6b8a";
+  if (status === "skipped") return "rgba(247,243,255,0.1)";
+  return "rgba(196,181,253,0.22)";
 }
 
 function liveStatus(status) {
@@ -206,35 +43,62 @@ function edgeLit(nodes, from, to) {
   return liveStatus(nodes[from]?.status) && liveStatus(nodes[to]?.status);
 }
 
-function box(pos) {
+function box(position) {
   return {
-    left: pos.x - NODE_W / 2,
-    right: pos.x + NODE_W / 2,
-    top: pos.y - NODE_H / 2,
-    bottom: pos.y + NODE_H / 2,
-    cx: pos.x,
-    cy: pos.y,
+    left: position.x - NODE_W / 2,
+    right: position.x + NODE_W / 2,
+    top: position.y - NODE_H / 2,
+    bottom: position.y + NODE_H / 2,
+    cx: position.x,
+    cy: position.y,
   };
 }
 
-function edgePath(fromPos, toPos) {
-  const a = box(fromPos);
-  const b = box(toPos);
+function edgePath(fromPosition, toPosition) {
+  const a = box(fromPosition);
+  const b = box(toPosition);
   const sameRow = Math.abs(a.cy - b.cy) < 5;
-  const sameCol = Math.abs(a.cx - b.cx) < 5;
+  const sameColumn = Math.abs(a.cx - b.cx) < 5;
   if (sameRow) {
     const rightward = a.cx < b.cx;
-    return `M ${rightward ? a.right : a.left} ${a.cy} L ${rightward ? b.left : b.right} ${b.cy}`;
+    const startX = rightward ? a.right : a.left;
+    const endX = rightward ? b.left : b.right;
+    const bend = Math.min(22, Math.abs(endX - startX) / 3);
+    const direction = rightward ? 1 : -1;
+    return [
+      `M ${startX} ${a.cy}`,
+      `C ${startX + direction * bend} ${a.cy}`,
+      `${endX - direction * bend} ${b.cy}`,
+      `${endX} ${b.cy}`,
+    ].join(" ");
   }
-  if (sameCol) {
+  if (sameColumn) {
     const downward = a.cy < b.cy;
-    return `M ${a.cx} ${downward ? a.bottom : a.top} L ${b.cx} ${downward ? b.top : b.bottom}`;
+    const startY = downward ? a.bottom : a.top;
+    const endY = downward ? b.top : b.bottom;
+    const rise = Math.abs(endY - startY);
+    if (rise > 500) {
+      const bow = 280;
+      const mid1 = startY + (endY - startY) * 0.28;
+      const mid2 = startY + (endY - startY) * 0.72;
+      return `M ${a.cx} ${startY} C ${a.cx + bow} ${mid1} ${a.cx + bow} ${mid2} ${b.cx} ${endY}`;
+    }
+    return `M ${a.cx} ${startY} L ${b.cx} ${endY}`;
   }
+
   const downward = a.cy < b.cy;
   const start = { x: a.cx, y: downward ? a.bottom : a.top };
   const end = { x: b.cx, y: downward ? b.top : b.bottom };
-  const midY = (start.y + end.y) / 2;
-  return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`;
+  const rise = Math.abs(end.y - start.y);
+  const run = Math.abs(end.x - start.x);
+  const pull = Math.max(36, Math.min(120, rise * 0.55, run * 0.45));
+  const sign = downward ? 1 : -1;
+  return [
+    `M ${start.x} ${start.y}`,
+    `C ${start.x} ${start.y + sign * pull}`,
+    `${end.x} ${end.y - sign * pull}`,
+    `${end.x} ${end.y}`,
+  ].join(" ");
 }
 
 function sendAction(name, payload) {
@@ -245,28 +109,120 @@ function inspectNode(id, turn) {
   sendAction("inspect_node", { node: id, turn: turn || 0 });
 }
 
-function NodeGlyph({ id, pos, node, selected, turn }) {
+function parseViewBox(value) {
+  const parts = String(value || "0 0 1200 800")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  return {
+    minX: Number.isFinite(parts[0]) ? parts[0] : 0,
+    minY: Number.isFinite(parts[1]) ? parts[1] : 0,
+    width: parts[2] > 0 ? parts[2] : 1200,
+    height: parts[3] > 0 ? parts[3] : 800,
+  };
+}
+
+function fitTransform(viewport, world) {
+  if (!viewport.width || !viewport.height) {
+    return { x: 0, y: 0, k: 1 };
+  }
+  const scale =
+    Math.min(viewport.width / world.width, viewport.height / world.height) *
+    FIT_PADDING;
+  return {
+    x: (viewport.width - world.width * scale) / 2 - world.minX * scale,
+    y: (viewport.height - world.height * scale) / 2 - world.minY * scale,
+    k: scale,
+  };
+}
+
+const VIEWPORT_STORE_KEY = "__convergePipelineViewport";
+
+function viewportStore() {
+  const root = typeof globalThis !== "undefined" ? globalThis : {};
+  if (!root[VIEWPORT_STORE_KEY]) {
+    root[VIEWPORT_STORE_KEY] = { lastGraphId: "", byGraph: {} };
+  }
+  return root[VIEWPORT_STORE_KEY];
+}
+
+function peekCanvasCache(graphId) {
+  if (!graphId) return null;
+  return viewportStore().byGraph[graphId] || null;
+}
+
+function writeCanvasCache(graphId, next, userAdjusted) {
+  if (!graphId || !next) return;
+  const store = viewportStore();
+  store.lastGraphId = graphId;
+  store.byGraph[graphId] = {
+    x: next.x,
+    y: next.y,
+    k: next.k,
+    userAdjusted: !!userAdjusted,
+  };
+}
+
+function consumeCanvasCache(graphId) {
+  const store = viewportStore();
+  if (!graphId) return null;
+  if (store.lastGraphId && store.lastGraphId !== graphId) {
+    delete store.byGraph[store.lastGraphId];
+    store.lastGraphId = graphId;
+    return null;
+  }
+  store.lastGraphId = graphId;
+  return store.byGraph[graphId] || null;
+}
+
+function cachedTransform(graphId) {
+  const cached = peekCanvasCache(graphId);
+  if (cached && cached.userAdjusted) {
+    return { x: cached.x, y: cached.y, k: cached.k };
+  }
+  return { x: 0, y: 0, k: 1 };
+}
+
+function stageLabel(graph, stageId) {
+  const title = String(graph?.title || "").split("·")[0].trim();
+  if (title) return title;
+  return String(stageId || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function NodeGlyph({ id, position, node, selected, turn, onInspect }) {
   const running = node.status === "running";
   const tone = statusTone(node.status);
   return (
     <g
-      onClick={() => inspectNode(id, turn)}
+      onClick={() => {
+        if (typeof onInspect === "function") onInspect(id);
+        inspectNode(id, turn);
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
       style={{ cursor: "pointer" }}
     >
       <rect
-        x={pos.x - NODE_W / 2}
-        y={pos.y - NODE_H / 2}
+        x={position.x - NODE_W / 2}
+        y={position.y - NODE_H / 2}
         width={NODE_W}
         height={NODE_H}
         rx="13"
         fill={nodeFill(node.status)}
-        stroke={selected ? "#ff2b7a" : nodeStroke(node.status)}
+        stroke={selected ? "#25f4ee" : nodeStroke(node.status)}
         strokeWidth={selected || running ? 2.2 : 1.2}
-        style={running ? { filter: "drop-shadow(0 0 9px rgba(255,43,122,0.6))" } : {}}
+        style={
+          running
+            ? { filter: "drop-shadow(0 0 10px rgba(37,244,238,0.7))" }
+            : {}
+        }
       />
       <foreignObject
-        x={pos.x - NODE_W / 2 + 9}
-        y={pos.y - NODE_H / 2 + 4}
+        x={position.x - NODE_W / 2 + 9}
+        y={position.y - NODE_H / 2 + 4}
         width={NODE_W - 18}
         height={NODE_H - 8}
         style={{ pointerEvents: "none" }}
@@ -281,7 +237,10 @@ function NodeGlyph({ id, pos, node, selected, turn }) {
             justifyContent: "center",
             alignItems: "center",
             textAlign: "center",
-            color: node.status === "skipped" ? "rgba(255,255,255,0.38)" : "#f5f7fb",
+            color:
+              node.status === "skipped"
+                ? "rgba(255,255,255,0.38)"
+                : "#f5f7fb",
             fontSize: 12,
             lineHeight: 1.15,
             fontWeight: 650,
@@ -292,7 +251,10 @@ function NodeGlyph({ id, pos, node, selected, turn }) {
             <span
               style={{
                 marginTop: 3,
-                color: node.status === "skipped" ? "rgba(255,255,255,0.25)" : tone,
+                color:
+                  node.status === "skipped"
+                    ? "rgba(255,255,255,0.25)"
+                    : tone,
                 fontSize: 9.5,
                 fontWeight: 600,
                 maxWidth: "100%",
@@ -307,6 +269,232 @@ function NodeGlyph({ id, pos, node, selected, turn }) {
         </div>
       </foreignObject>
     </g>
+  );
+}
+
+function GraphCanvas({
+  graph,
+  graphId,
+  positions,
+  edges,
+  nodes,
+  selectedNode,
+  turn,
+  onInspect,
+}) {
+  const viewportRef = React.useRef(null);
+  const worldGroupRef = React.useRef(null);
+  const initial = cachedTransform(graphId);
+  const transformRef = React.useRef(initial);
+  const fitScaleRef = React.useRef(1);
+  const dragRef = React.useRef(null);
+  const sizeRef = React.useRef({ width: 0, height: 0 });
+  const userAdjustedRef = React.useRef(!!peekCanvasCache(graphId)?.userAdjusted);
+  const [transform, setTransformState] = React.useState(initial);
+  const [panning, setPanning] = React.useState(false);
+  const world = React.useMemo(
+    () => parseViewBox(graph.viewBox),
+    [graph.viewBox]
+  );
+
+  const applyTransform = React.useCallback(
+    (next) => {
+      transformRef.current = next;
+      setTransformState(next);
+      if (worldGroupRef.current) {
+        worldGroupRef.current.setAttribute(
+          "transform",
+          `translate(${next.x} ${next.y}) scale(${next.k})`
+        );
+      }
+      writeCanvasCache(graphId, next, userAdjustedRef.current);
+    },
+    [graphId]
+  );
+
+  const fitToView = React.useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const fitted = fitTransform(
+      { width: rect.width, height: rect.height },
+      world
+    );
+    fitScaleRef.current = fitted.k;
+    sizeRef.current = { width: rect.width, height: rect.height };
+    userAdjustedRef.current = false;
+    applyTransform(fitted);
+  }, [applyTransform, world]);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    const rect = viewport.getBoundingClientRect();
+    const fitted = fitTransform(
+      { width: rect.width, height: rect.height },
+      world
+    );
+    fitScaleRef.current = fitted.k;
+    sizeRef.current = { width: rect.width, height: rect.height };
+    const cached = consumeCanvasCache(graphId);
+    if (cached && cached.userAdjusted) {
+      userAdjustedRef.current = true;
+      applyTransform({ x: cached.x, y: cached.y, k: cached.k });
+    } else {
+      userAdjustedRef.current = false;
+      applyTransform(fitted);
+    }
+
+    if (typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const width = entry.contentRect.width;
+      const height = entry.contentRect.height;
+      const previous = sizeRef.current;
+      if (
+        Math.abs(width - previous.width) < 2 &&
+        Math.abs(height - previous.height) < 2
+      ) {
+        return;
+      }
+      sizeRef.current = { width, height };
+      const nextFit = fitTransform({ width, height }, world);
+      fitScaleRef.current = nextFit.k;
+      if (userAdjustedRef.current || peekCanvasCache(graphId)?.userAdjusted) {
+        return;
+      }
+      applyTransform(nextFit);
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [applyTransform, graph.viewBox, graphId, world]);
+
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    const onWheel = (event) => {
+      event.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
+      const current = transformRef.current;
+      const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const minimum = fitScaleRef.current * MIN_SCALE_RATIO;
+      const nextScale = Math.min(
+        MAX_SCALE,
+        Math.max(minimum, current.k * factor)
+      );
+      if (nextScale === current.k) return;
+      userAdjustedRef.current = true;
+      applyTransform({
+        x: pointerX - ((pointerX - current.x) * nextScale) / current.k,
+        y: pointerY - ((pointerY - current.y) * nextScale) / current.k,
+        k: nextScale,
+      });
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [applyTransform]);
+
+  const endDrag = React.useCallback((event) => {
+    if (dragRef.current && event?.pointerId != null) {
+      viewportRef.current?.releasePointerCapture?.(event.pointerId);
+    }
+    dragRef.current = null;
+    setPanning(false);
+  }, []);
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0 && event.button !== 2) return;
+    event.preventDefault();
+    viewportRef.current?.setPointerCapture?.(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+    };
+    setPanning(true);
+  };
+
+  const onPointerMove = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const current = transformRef.current;
+    userAdjustedRef.current = true;
+    applyTransform({
+      x: current.x + (event.clientX - drag.lastX),
+      y: current.y + (event.clientY - drag.lastY),
+      k: current.k,
+    });
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+  };
+
+  return (
+    <div
+      ref={viewportRef}
+      data-graph-canvas="true"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDoubleClick={fitToView}
+      onContextMenu={(event) => event.preventDefault()}
+      style={{
+        height: "min(70vh, 820px)",
+        width: "100%",
+        overflow: "hidden",
+        touchAction: "none",
+        cursor: panning ? "grabbing" : "grab",
+        userSelect: "none",
+      }}
+    >
+      <svg
+        width="100%"
+        height="100%"
+        style={{ display: "block" }}
+      >
+        <g
+          ref={worldGroupRef}
+          transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
+        >
+          {edges.map(([from, to]) => {
+            const fromPosition = positions[from];
+            const toPosition = positions[to];
+            if (!fromPosition || !toPosition) return null;
+            const lit = edgeLit(nodes, from, to);
+            return (
+              <path
+                key={`${from}-${to}`}
+                d={edgePath(fromPosition, toPosition)}
+                fill="none"
+                stroke={
+                  lit ? "rgba(254,44,85,0.85)" : "rgba(196,181,253,0.22)"
+                }
+                strokeWidth={lit ? 2.4 : 1.2}
+                vectorEffect="non-scaling-stroke"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
+          {Object.entries(positions).map(([id, position]) => (
+            <NodeGlyph
+              key={id}
+              id={id}
+              position={position}
+              node={nodes[id] || { id, label: id, status: "pending" }}
+              selected={selectedNode === id}
+              turn={turn}
+              onInspect={onInspect}
+            />
+          ))}
+        </g>
+      </svg>
+    </div>
   );
 }
 
@@ -325,12 +513,38 @@ export default function PipelineCircuit() {
     startedAt = 0,
     nodes = {},
     stages = {},
+    graphs: rawGraphs = {},
+    graphOrder: rawGraphOrder = [],
   } = root ?? {};
 
-  const liveGraph = GRAPHS[activeGraph] ? activeGraph : "understand";
-  const pinned = GRAPHS[viewGraph] ? viewGraph : "";
-  const shownGraph = pinned || liveGraph;
-  const graph = GRAPHS[shownGraph] || GRAPHS.understand;
+  const graphs =
+    rawGraphs && typeof rawGraphs === "object" && !Array.isArray(rawGraphs)
+      ? rawGraphs
+      : {};
+  const requestedOrder = Array.isArray(rawGraphOrder) ? rawGraphOrder : [];
+  const graphOrder = [
+    ...requestedOrder.filter(
+      (stageId, index) =>
+        graphs[stageId] && requestedOrder.indexOf(stageId) === index
+    ),
+    ...Object.keys(graphs).filter((stageId) => !requestedOrder.includes(stageId)),
+  ];
+  const fallbackGraph = graphOrder[0] || "";
+  const liveGraph = graphs[activeGraph] ? activeGraph : fallbackGraph;
+  const pinnedGraph = graphs[viewGraph] ? viewGraph : "";
+  const shownGraph = pinnedGraph || liveGraph;
+  const graph = graphs[shownGraph] || null;
+  const positions =
+    graph?.positions &&
+    typeof graph.positions === "object" &&
+    !Array.isArray(graph.positions)
+      ? graph.positions
+      : {};
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+  const [pickedNode, setPickedNode] = React.useState(selectedNode || "");
+  React.useEffect(() => {
+    if (selectedNode) setPickedNode(selectedNode);
+  }, [selectedNode]);
 
   const [nowMs, setNowMs] = React.useState(Date.now());
   React.useEffect(() => {
@@ -363,14 +577,14 @@ export default function PipelineCircuit() {
     <div
       style={{
         width: "100%",
-        maxWidth: 820,
+        maxWidth: 1480,
         borderRadius: 22,
         padding: 18,
-        color: "#f5f7fb",
+        color: "#f7f3ff",
         background:
-          "radial-gradient(circle at top left, rgba(255,43,122,0.16), transparent 28%), linear-gradient(180deg, #151515 0%, #0f0f0f 100%)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
+          "radial-gradient(ellipse 80% 60% at 0% 0%, rgba(254,44,85,0.24), transparent 52%), radial-gradient(ellipse 70% 50% at 100% 0%, rgba(37,244,238,0.14), transparent 48%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)",
+        border: "1px solid rgba(196,181,253,0.22)",
+        boxShadow: "0 18px 44px rgba(254,44,85,0.12), 0 0 0 1px rgba(37,244,238,0.06)",
       }}
     >
       <div
@@ -397,15 +611,33 @@ export default function PipelineCircuit() {
           <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: "-0.03em" }}>
             {title}
           </div>
-          <div style={{ marginTop: 6, fontSize: 13, color: "rgba(255,255,255,0.68)" }}>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 13,
+              color: "rgba(255,255,255,0.68)",
+            }}
+          >
             {statusLabel}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(status) }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: statusTone(status),
+            }}
+          >
             {doneCount}/{total} nodes
           </div>
-          <div style={{ marginTop: 5, fontSize: 12, color: "rgba(255,255,255,0.45)" }}>
+          <div
+            style={{
+              marginTop: 5,
+              fontSize: 12,
+              color: "rgba(255,255,255,0.45)",
+            }}
+          >
             {formatElapsed(elapsedSeconds)}
           </div>
         </div>
@@ -427,28 +659,29 @@ export default function PipelineCircuit() {
             transition: "width 300ms ease",
             background:
               status === "error"
-                ? "linear-gradient(90deg,#ff6b6b,#ff9b9b)"
-                : "linear-gradient(90deg,#ff2b7a,#ff72ab,#ffd166)",
+                ? "linear-gradient(90deg,#ff6b8a,#ff9ab0)"
+                : "linear-gradient(90deg,#fe2c55,#c4b5fd,#25f4ee)",
           }}
         />
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 15 }}>
-        {STAGE_RAIL.map(([id, label, graphId]) => {
-          const stage = stages[id] || {};
+      <div
+        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 15 }}
+      >
+        {graphOrder.map((stageId) => {
+          const stage = stages[stageId] || {};
           const stageStatus = stage.status || "pending";
-          const selected = shownGraph === graphId;
-          const canOpen =
-            stageStatus !== "pending" || graphId === liveGraph;
+          const selected = shownGraph === stageId;
+          const canOpen = stageStatus !== "pending" || stageId === liveGraph;
           return (
             <button
-              key={id}
+              key={stageId}
               type="button"
               disabled={!canOpen}
               onClick={() =>
                 canOpen &&
                 sendAction("view_graph", {
-                  graph: graphId === liveGraph ? "" : graphId,
+                  graph: stageId === liveGraph ? "" : stageId,
                   turn: turn || 0,
                 })
               }
@@ -467,9 +700,21 @@ export default function PipelineCircuit() {
                 color: "#f5f7fb",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 7 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase" }}>
-                  {label}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 7,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {stageLabel(graphs[stageId], stageId)}
                 </span>
                 <span
                   style={{
@@ -506,9 +751,9 @@ export default function PipelineCircuit() {
             marginBottom: 13,
             padding: "10px 12px",
             borderRadius: 12,
-            background: "rgba(255,107,107,0.11)",
-            border: "1px solid rgba(255,107,107,0.24)",
-            color: "#ffd8d8",
+            background: "linear-gradient(135deg, rgba(254,44,85,0.16), rgba(255,107,138,0.12))",
+            border: "1px solid rgba(254,44,85,0.32)",
+            color: "#ffd8e0",
             fontSize: 12.5,
           }}
         >
@@ -528,57 +773,61 @@ export default function PipelineCircuit() {
           textTransform: "uppercase",
         }}
       >
-        <span>{graph.title}</span>
-        <span>{pinned && pinned !== liveGraph ? "preview · live stage elsewhere" : "live stage"}</span>
+        <span>{graph?.title || "Workflow graph unavailable"}</span>
+        <span>
+          {pinnedGraph && pinnedGraph !== liveGraph
+            ? "preview · live stage elsewhere"
+            : "live stage"}
+        </span>
       </div>
 
       <div
         style={{
           borderRadius: 16,
           overflow: "hidden",
-          background: "rgba(255,255,255,0.018)",
-          border: "1px solid rgba(255,255,255,0.055)",
+          background:
+            "radial-gradient(ellipse 80% 70% at 50% 0%, rgba(254,44,85,0.08), transparent 55%), rgba(7,4,14,0.35)",
+          border: "1px solid rgba(196,181,253,0.14)",
         }}
       >
-        <svg viewBox={graph.viewBox} width="100%" style={{ display: "block" }}>
-          {graph.edges.map(([from, to]) => {
-            const fromPos = graph.pos[from];
-            const toPos = graph.pos[to];
-            if (!fromPos || !toPos) return null;
-            const lit = edgeLit(nodes, from, to);
-            return (
-              <path
-                key={`${from}-${to}`}
-                d={edgePath(fromPos, toPos)}
-                fill="none"
-                stroke={lit ? "rgba(255,43,122,0.72)" : "rgba(255,255,255,0.12)"}
-                strokeWidth={lit ? 2.4 : 1.2}
-                strokeLinejoin="round"
-              />
-            );
-          })}
-          {Object.entries(graph.pos).map(([id, pos]) => (
-            <NodeGlyph
-              key={id}
-              id={id}
-              pos={pos}
-              node={nodes[id] || { id, label: id, status: "pending" }}
-              selected={selectedNode === id}
-              turn={turn}
-            />
-          ))}
-        </svg>
+        {graph ? (
+          <GraphCanvas
+            key={shownGraph}
+            graph={graph}
+            graphId={shownGraph}
+            positions={positions}
+            edges={edges}
+            nodes={nodes}
+            selectedNode={pickedNode || selectedNode}
+            turn={turn}
+            onInspect={setPickedNode}
+          />
+        ) : (
+          <div
+            style={{
+              padding: "28px 18px",
+              textAlign: "center",
+              color: "rgba(255,255,255,0.42)",
+              fontSize: 12,
+            }}
+          >
+            No workflow graph was provided for this turn.
+          </div>
+        )}
       </div>
 
       <div
         style={{
-          marginTop: 10,
+          marginTop: 18,
           fontSize: 11.5,
           lineHeight: 1.45,
           color: "rgba(255,255,255,0.43)",
         }}
       >
-        Green = executed, pink = running, dim = skipped/pending. Click any node — including a skipped branch — to inspect its contract and this turn's real input/output.
+        Green = executed, pink = running, dim = skipped/pending. Scroll to zoom,
+        drag empty canvas to pan, double-click to fit. Click any node —
+        including a skipped branch — to inspect its design and this turn's real
+        input/output.
       </div>
     </div>
   );

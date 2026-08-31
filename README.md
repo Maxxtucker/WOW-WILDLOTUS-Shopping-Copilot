@@ -13,7 +13,12 @@ This README describes the production Agent, the official and scenario evaluators
 
 ## Competition objective
 
-The evaluator holds a target `parent_asin` and a hidden intent card derived from that product's catalog metadata. The Agent receives only a safe aggregate `user_profile`, natural-language customer messages, a turn number, and `top_k`. Correctness is always an exact catalog-ID match; an LLM never decides whether a recommendation is correct.
+The evaluator holds a target `parent_asin`, but the Agent receives only a safe
+aggregate `user_profile`, ordinary natural-language shopper messages, a turn
+number, and `top_k`. Agent logic does not depend on generated customer
+templates, public labels, session IDs, or known targets. Correctness is always
+an exact catalog-ID match; an LLM never decides whether a recommendation is
+correct.
 
 The official score is:
 
@@ -87,10 +92,37 @@ Important runtime behavior:
 
 - `SessionState` is isolated by `session_id`; the catalog index is shared.
 - Turns outside `1..10` and non-positive `top_k` values are rejected.
+- Understand makes at most three complete NLU attempts, then uses regex.
+  Grounding repairs are field-local within an attempt, and Understand writes
+  new evidence only to `turn_delta`.
+- Router L1 requires category evidence in the delta. Only after L1/L2 finish at
+  level 0 does the strong explicit fallback run, and it maps only to L2.
+- Strict exact requires known matches; lenient exact allows match-or-unknown
+  but never a known mismatch. Retrieve uses lenient only for a represented
+  strict pool below 150 when lenient is non-empty.
+- The base candidate score is
+  `1.15*w_lex*lexical + 0.003*structured + catalog_prior + w_text*soft_text`.
+  Profile fit is diagnostic and has zero final-score weight.
+- Usable active-intent text enables weighted RRF over strict/base, relaxed, and
+  raw routes with weights `1.40/0.90/1.25` and `k=60`.
+- Ranking uses an optional Qwen head reranker; deterministic fallback uses
+  fixed temperature `0.12` for ordinary scores and an adaptive clipped
+  temperature for RRF scores.
+- Decide runs production Dynamic Slate with two answer observations. Seeded
+  epsilon exploration (`0.20`) chooses uniformly from the pre-viability
+  informative, unasked attributes and never changes the planned slate.
+  `eligible_questions()` does not directly filter an attribute merely because
+  it is already present in `typed_constraints`.
+- Turn 10 returns the full allowed prefix with no question. The current
+  sequential gate is a no-op.
 - Displayed slate IDs are immediately recorded as shown/excluded. At the start of turn `t > 1`, the gate-aware miss-feedback step conditionally unions the prior slate again when the prior gate was open; that union is idempotent with current writeback.
-- A no-information response can page unshown products from the prior ranking without rerunning Router or Retrieve.
+- A no-information response can page unshown products from the prior ranking
+  without rerunning Router or Retrieve when `turn_delta` is absent and
+  `disclosure_empty` is not false.
 - The optional recommendation-preference slider changes only the runtime planner's HitRate/MRR trade-off before turn 1. It does not change the official evaluator formula.
 - User-profile `preference_tags` are weak, reset-time context. The current retrieval score computes profile similarity for diagnostics, but its final score contribution is deliberately disabled in code.
+- Response `usage` includes this turn's Intent Router prompt/completion tokens;
+  Understand token counts are not currently reported.
 
 ### Catalog and preprocessing
 
@@ -271,7 +303,11 @@ The header in `demo/chainlit_app.py` also contains the PowerShell environment-lo
 | `AGENT_RERANKER_LOCAL_FILES_ONLY` | offline-safe model loading; default true |
 | `CONVERGE_LLM_*` | optional Scenario Buyer OpenAI-compatible backend settings |
 
-`Agent(..., understand_mode="regex")` skips Ollama entirely. In default NLU mode, extraction is retried three times and then falls back to regex. Optional semantic reranking also fails safely in `auto` mode when the model is unavailable. These fallbacks matter because official scoring may disable network access.
+`Agent(..., understand_mode="regex")` skips Ollama entirely. In default NLU
+mode, the complete extraction pipeline is attempted at most three times and
+then falls back to regex. Optional semantic reranking also fails safely in
+`auto` mode when the model is unavailable. These fallbacks matter because
+official scoring may disable network access.
 
 ## Reproducibility and submission boundaries
 

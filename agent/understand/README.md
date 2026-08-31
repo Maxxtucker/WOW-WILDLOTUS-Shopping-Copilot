@@ -6,35 +6,76 @@ Default mode uses a local Ollama model (`qwen3.5:4b`) for alias-aware NLU. The d
 
 ## Strict flow
 
+<!-- workflow-schema:understand -->
 ```mermaid
 flowchart TD
-    IN["message, turn, prior SessionState"] --> MISS["Apply prior-slate miss if last gate was open"]
-    MISS --> CLOCK["Set turn/message; clear transient delta and token fields"]
-    CLOCK --> MODE{"Understand mode"}
-    MODE -- regex --> RX["Regex category and constraints"]
-    MODE -- nlu --> TRY["NLU full attempt, up to 3"]
-    TRY --> RW["Casefold and rewrite color/material aliases"]
-    RW --> CAT["Walk category tree L1 → L2 → L3"]
-    CAT --> CAP["Cap category canonicals to at most 5"]
-    CAP --> ATTR["Attribute LLM with locked context"]
-    ATTR --> GROUND["Span-ground fields and collect failures"]
-    GROUND --> FAIL{"Grounding failures?"}
-    FAIL -- yes --> REPAIR["Repair only failed fields, up to 3 rounds"]
-    REPAIR --> GROUND
-    FAIL -- no --> DISC["Disclosure classifier, up to 3 attempts"]
-    DISC --> VALID{"Valid empty flag?"}
-    VALID -- no --> OPEN["Fail open: disclosure_empty=false"]
-    VALID -- yes --> EXTRACT["Create ObservationExtract"]
-    OPEN --> EXTRACT
-    TRY -. all 3 full attempts fail .-> RX
-    RX --> COLON["Optional last-ask colon fallback"]
-    COLON --> EXTRACT
-    EXTRACT --> EMPTY{"extract.empty?"}
-    EMPTY -- yes --> VOID["turn_delta=None"]
-    EMPTY -- no --> DELTA["turn_delta=extract"]
-    VOID --> OUT["Return state; Router owns commit"]
-    DELTA --> OUT
+    prior_miss["Apply prior-turn miss feedback"]
+    turn_reset["Reset turn-scoped state"]
+    understand_mode["Choose NLU or regex extraction"]
+    nlu_attempt["Run bounded full NLU attempts"]
+    casefold["Create case-insensitive working text"]
+    color_map["Map color aliases to catalog colors"]
+    material_map["Map material aliases to catalog materials"]
+    color_verify["Verify ambiguous color words"]
+    material_verify["Verify ambiguous material words"]
+    merge_rewrite["Build the normalized NLU sentence"]
+    category_l1["Select broad catalog roots"]
+    category_l2["Refine within selected L1 branches"]
+    category_l3["Refine within selected L2 branches"]
+    category_cap["Cap grounded category ambiguity"]
+    attribute_llm["Extract typed current-turn constraints"]
+    slot_grounding["Ground extracted fields in the message"]
+    repair_1["Repair failed fields · round 1"]
+    repair_2["Repair remaining fields · round 2"]
+    repair_3["Repair remaining fields · round 3"]
+    disclosure["Validate usable shopping disclosure"]
+    regex_extract["Run deterministic fallback extraction"]
+    colon_restore["Restore a bounded last-question answer"]
+    turn_delta["Stage the turn-only observation delta"]
+    active_intent_evidence["Append current-intent raw evidence"]
+    empty_disclosure_gate["Choose paging or full pipeline"]
+    prior_miss --> turn_reset
+    turn_reset --> understand_mode
+    understand_mode -- "nlu" --> nlu_attempt
+    understand_mode -- "regex" --> regex_extract
+    nlu_attempt --> casefold
+    nlu_attempt -- "all three complete attempts fail" --> regex_extract
+    casefold --> color_map
+    casefold --> material_map
+    color_map --> color_verify
+    material_map --> material_verify
+    color_verify --> merge_rewrite
+    material_verify --> merge_rewrite
+    merge_rewrite --> category_l1
+    category_l1 -- "continue" --> category_l2
+    category_l1 -- "stop, empty, error, or no children" --> category_cap
+    category_l2 -- "continue" --> category_l3
+    category_l2 -- "stop, empty, error, or no children" --> category_cap
+    category_l3 --> category_cap
+    category_cap --> attribute_llm
+    attribute_llm --> slot_grounding
+    slot_grounding -- "failed fields" --> repair_1
+    slot_grounding -- "all grounded" --> disclosure
+    repair_1 -- "failures remain" --> repair_2
+    repair_1 -- "grounded or repair call fails" --> disclosure
+    repair_2 -- "failures remain" --> repair_3
+    repair_2 -- "grounded or repair call fails" --> disclosure
+    repair_3 --> disclosure
+    disclosure --> turn_delta
+    regex_extract -- "non-empty regex extract with no constraints" --> colon_restore
+    regex_extract -- "colon restore not eligible" --> turn_delta
+    colon_restore --> turn_delta
+    turn_delta --> active_intent_evidence
+    active_intent_evidence --> empty_disclosure_gate
 ```
+<!-- /workflow-schema -->
+
+One full NLU attempt includes alias rewrite, the bounded category walk, category
+cap, one attribute extraction, up to three field-local repair calls, and the
+disclosure judgment. The outer `nlu_attempt` limit is three complete attempts;
+repair calls are not extra full attempts. Only a failed complete extraction
+restarts from `casefold`. After all three complete attempts fail, production
+uses `regex_extract`.
 
 The model calls use JSON mode, temperature `0.0`, `num_ctx=8192`, and bounded output tokens. Category, attribute, repair, alias verification, and disclosure are separately validated; malformed model output is not accepted as structured state.
 
@@ -74,7 +115,13 @@ state.disclosure_empty = extract.disclosure_empty
 state.turn_delta = None if extract.empty else extract
 ```
 
-That distinction drives the no-information paging shortcut in `agent/pipeline.py`.
+That distinction drives the no-information paging shortcut in
+`agent/pipeline.py`. The exact gate is broader than
+`disclosure_empty is True`: it pages when `turn_delta is None`,
+`disclosure_empty is not False`, and an unshown prior-ranked ASIN remains.
+Thus a deterministic regex empty extract, whose disclosure flag may be
+`None`, can also page. Any explicit `False` flag or any non-empty delta
+continues to Router.
 
 ## Typed constraint schema
 
@@ -155,8 +202,8 @@ It emits only material, color, size, style, brand, budget, feature, use_case, an
 
 ### Closed attributes
 
-- Color canonical values must be among the 11 evaluator buckets.
-- Material canonical values must be among the 9 evaluator buckets.
+- Color canonical values must be among the 11 supported closed buckets.
+- Material canonical values must be among the 9 supported closed buckets.
 - Apparel letters map to `xs`, `s`, `m`, `l`, `xl`, `xxl`, `xxxl`, or `one_size`.
 - Size systems are accepted only when the shopper explicitly names US/UK/EU.
 
@@ -213,7 +260,7 @@ The classifier is tried three times. After three illegal responses it fails open
 - explicit requirement/override-shaped phrases; and
 - generic looking-for category templates.
 
-Regex slots are hard by default except provisional hints, which are soft. If regex extraction has a non-empty message but no constraint, `colon_fallback()` can restore one or two semicolon-separated pieces after a prior `last_ask`. It refuses official no-preference markers such as “not quite right”, “use your judgment”, “no preference”, and “additional preference”.
+Regex slots are hard by default except provisional hints, which are soft. If regex extraction has a non-empty message but no constraint, `colon_fallback()` can restore one or two semicolon-separated pieces after a prior `last_ask`. It refuses bounded no-information language such as “not quite right”, “use your judgment”, “no preference”, and “additional preference”.
 
 ## Delta merge semantics
 

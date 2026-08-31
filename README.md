@@ -4,6 +4,37 @@ WOW-WildLotus is a multi-turn shopping agent for the TechJam Conversational E-Co
 
 ![Chainlit demo: Agent pipeline graph, product shelf, and Eval step-through on a public-set turn](docs/images/demo_pipeline.png)
 
+## Contents
+
+- [Quick start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Windows](#windows)
+  - [macOS / Linux](#macos--linux)
+  - [Already-activated venv, any platform](#already-activated-venv-any-platform)
+  - [What the first run does](#what-the-first-run-does)
+  - [After setup](#after-setup)
+- [Submission](#submission)
+  - [Agent entry](#agent-entry)
+  - [Helper modules](#helper-modules)
+  - [Setup](#setup)
+  - [Method, model, and limitations](#method-model-and-limitations)
+  - [Public-set evaluation](#public-set-evaluation)
+  - [Latency, token usage, and cost](#latency-token-usage-and-cost)
+  - [Submission boundaries](#submission-boundaries)
+- [Architecture notes](#architecture-notes)
+- [Competition objective](#competition-objective)
+- [System architecture](#system-architecture)
+  - [Agent](#agent)
+  - [Catalog and preprocessing](#catalog-and-preprocessing)
+  - [Evaluators](#evaluators)
+  - [Chainlit demo](#chainlit-demo)
+- [Repository map](#repository-map)
+- [Requirements](#requirements)
+- [Prepare the catalog](#prepare-the-catalog)
+- [Run the evaluators](#run-the-evaluators)
+- [Run the Chainlit demo](#run-the-chainlit-demo)
+- [Runtime configuration](#runtime-configuration)
+
 ## Quick start
 
 From a fresh clone this creates `.venv`, installs the Chainlit extras, downloads the 50k catalog, builds the slot sidecar, checks Ollama, warms the FTS index, and starts the demo on port 8006. Chainlit always uses `demo/.chainlit/config.toml` (APP_ROOT=`demo/`). Do not create or run against a repository-root `.chainlit/` directory. Do not reuse an old `http://localhost:8005` tab; that origin caches the previous Chainlit shell.

@@ -423,19 +423,19 @@ When the conversion gate is closed (`g=0`), the current slate has zero modeled i
 Only probability mass that continues after the current slate enters future branches. For candidate index `i`:
 
 ```math
-m_i=
-\begin{cases}
-P_i(1-g), & i<k\\
-P_i, & i\ge k.
-\end{cases}
+m_i=P_i\left(1-g\,z_i(k)\right),
 ```
+
+where `z_i(k)=1` when candidate `i` is included in the displayed slate and
+`z_i(k)=0` otherwise. Thus an open gate removes displayed candidates from the
+no-hit continuation branch, while a closed gate preserves their mass.
 
 With an open gate, displayed candidates contribute no no-hit continuation mass. With a probabilistically/fully closed gate, some or all of their mass survives to future planning.
 
 The current-turn hit mass is:
 
 ```math
-M_{hit}=g\sum_{i<k}P_i.
+M_{hit}=g\sum_{i=0}^{k-1}P_i.
 ```
 
 All branch mass must be at most `1-M_hit`; otherwise the planner raises a transition-model error.

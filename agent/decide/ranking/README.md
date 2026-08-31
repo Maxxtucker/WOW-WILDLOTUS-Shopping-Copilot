@@ -16,7 +16,7 @@ improve soft matches such as use case, style, or comfort without scanning all
 
 | File | Role |
 |---|---|
-| `belief.py` | `exp((s - max)/0.12)` unnormalized weights. |
+| `belief.py` | Deterministic unnormalized weights with fixed structured-score or adaptive RRF temperature. |
 | `normalize.py` | Normalize positive weights, sort by score, define `RankedCandidate`. |
 | `semantic.py` | Lazy Qwen CrossEncoder loading, structured query/product text, semantic fusion, and safe fallback. |
 | `__init__.py` | `Ranker.apply`: semantic path when available, deterministic path otherwise. |
@@ -25,14 +25,20 @@ improve soft matches such as use case, style, or comfort without scanning all
 
 ```text
 Ranker.apply(hits, state)
-    ├─ Qwen available: rerank first N → fuse with retrieval order → normalize
-    └─ unavailable/off: belief_from_hits → normalize
+    ├─ Qwen available:
+    │    logits → sigmoid → blend with 1/log2(rank+1)
+    │    → temperature weights for head → decayed tail → normalize
+    └─ unavailable/off:
+         ordinary score → fixed T=0.12
+         weighted-RRF score → adaptive T=clip(spread/4, 0.0025, 0.02)
+         → belief weights → normalize
 Clarifier reads probability and parent_asin order only
 ```
 
 ## Core variables
 
-- `BELIEF_TEMPERATURE = 0.12`
+- `BELIEF_TEMPERATURE = 0.12` for non-RRF search scores
+- fused-score temperature: `clip((max_score-min_score)/4, 0.0025, 0.02)`
 - default model: `Qwen/Qwen3-Reranker-0.6B`
 - default reranked head: 50 candidates
 - Buying semantic weight: 0.35; Browsing semantic weight: 0.55
@@ -57,7 +63,9 @@ Download/cache the model before evaluation, then restore local-only mode. Pin
 
 The semantic query contains only committed current-state constraints. Hard and
 soft constraints are labeled separately. Aggregate profile preference tags are
-included as weak tie-breakers and never replace the current request.
+included as explicitly weak context and never replace the current request. In
+the preceding catalog score, profile similarity is computed for diagnostics
+but its weighted contribution is disabled.
 
 ## Core code
 

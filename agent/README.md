@@ -6,7 +6,10 @@ The `agent` package is the production implementation behind `starter.agent.Agent
 Understand → Intent Router → Retrieve/Rank → Decide
 ```
 
-The Agent is designed for a hidden-target evaluation. It never receives the target ASIN, hidden intent card, evaluator scenario label, or simulator state. It sees only `session_id`, aggregate `user_profile`, natural-language messages, turn number, and `top_k`.
+The Agent treats every `user_message` as ordinary shopper language. It does not
+receive or depend on a target ID, generated intent template, public label, or
+scenario state. Its runtime inputs are `session_id`, aggregate `user_profile`,
+natural-language messages, turn number, and `top_k`.
 
 Stage-specific documentation:
 
@@ -75,7 +78,9 @@ The returned dictionary is:
 }
 ```
 
-`message` is customer-facing prose. The simulator reads `ask_attribute`, not the prose, when deciding what to disclose. Only valid unique IDs among the first ten recommendations are scored.
+`message` is customer-facing prose. `ask_attribute` is the structured question
+field for downstream callers, so they do not need to infer it from prose. Only
+valid unique IDs among the first ten recommendations are scored.
 
 ## Session lifecycle
 
@@ -165,22 +170,286 @@ At each `begin_turn`:
 
 `preference_tags` are copied from `user_profile["preference_tags"]` only at reset, blank values are dropped, and duplicates are removed case-insensitively. No raw purchase history or direct identity data is expected.
 
+Catalog scoring may compute profile similarity for diagnostics, but the
+profile contribution to its final weighted score is disabled (`0.0`). The
+optional Qwen reranker can still receive those tags as explicitly weak context.
+
 ## Normal turn pipeline
 
+The identifiers below are the production progress-node IDs. Solid edges are
+the active chain; dotted edges identify bounded retries or compatibility nodes
+that can be skipped.
+
+### Understand node chain
+
+<!-- workflow-schema:understand -->
 ```mermaid
 flowchart TD
-    IN["message + turn + top_k"] --> U["Understand: begin turn and stage delta"]
-    U --> EMPTY{"Empty disclosure and unshown prior ranking?"}
-    EMPTY -- yes --> PAGE["Page up to 10 prior leftovers"]
-    PAGE --> REC["Ask recovery attribute unless turn 10"]
-    REC --> RESP["Persist and build response"]
-    EMPTY -- no --> R["Intent Router: override/accumulate, exact pools, route"]
-    R --> C["Retrieve: exact or hybrid candidates"]
-    C --> RK["Rank: semantic head or belief fallback"]
-    RK --> SAVE["Save last_ranked"]
-    SAVE --> D["Decide: question + slate size"]
-    D --> RESP
+    prior_miss["Apply prior-turn miss feedback"]
+    turn_reset["Reset turn-scoped state"]
+    understand_mode["Choose NLU or regex extraction"]
+    nlu_attempt["Run bounded full NLU attempts"]
+    casefold["Create case-insensitive working text"]
+    color_map["Map color aliases to catalog colors"]
+    material_map["Map material aliases to catalog materials"]
+    color_verify["Verify ambiguous color words"]
+    material_verify["Verify ambiguous material words"]
+    merge_rewrite["Build the normalized NLU sentence"]
+    category_l1["Select broad catalog roots"]
+    category_l2["Refine within selected L1 branches"]
+    category_l3["Refine within selected L2 branches"]
+    category_cap["Cap grounded category ambiguity"]
+    attribute_llm["Extract typed current-turn constraints"]
+    slot_grounding["Ground extracted fields in the message"]
+    repair_1["Repair failed fields · round 1"]
+    repair_2["Repair remaining fields · round 2"]
+    repair_3["Repair remaining fields · round 3"]
+    disclosure["Validate usable shopping disclosure"]
+    regex_extract["Run deterministic fallback extraction"]
+    colon_restore["Restore a bounded last-question answer"]
+    turn_delta["Stage the turn-only observation delta"]
+    active_intent_evidence["Append current-intent raw evidence"]
+    empty_disclosure_gate["Choose paging or full pipeline"]
+    prior_miss --> turn_reset
+    turn_reset --> understand_mode
+    understand_mode -- "nlu" --> nlu_attempt
+    understand_mode -- "regex" --> regex_extract
+    nlu_attempt --> casefold
+    nlu_attempt -- "all three complete attempts fail" --> regex_extract
+    casefold --> color_map
+    casefold --> material_map
+    color_map --> color_verify
+    material_map --> material_verify
+    color_verify --> merge_rewrite
+    material_verify --> merge_rewrite
+    merge_rewrite --> category_l1
+    category_l1 -- "continue" --> category_l2
+    category_l1 -- "stop, empty, error, or no children" --> category_cap
+    category_l2 -- "continue" --> category_l3
+    category_l2 -- "stop, empty, error, or no children" --> category_cap
+    category_l3 --> category_cap
+    category_cap --> attribute_llm
+    attribute_llm --> slot_grounding
+    slot_grounding -- "failed fields" --> repair_1
+    slot_grounding -- "all grounded" --> disclosure
+    repair_1 -- "failures remain" --> repair_2
+    repair_1 -- "grounded or repair call fails" --> disclosure
+    repair_2 -- "failures remain" --> repair_3
+    repair_2 -- "grounded or repair call fails" --> disclosure
+    repair_3 --> disclosure
+    disclosure --> turn_delta
+    regex_extract -- "non-empty regex extract with no constraints" --> colon_restore
+    regex_extract -- "colon restore not eligible" --> turn_delta
+    colon_restore --> turn_delta
+    turn_delta --> active_intent_evidence
+    active_intent_evidence --> empty_disclosure_gate
 ```
+<!-- /workflow-schema -->
+
+### Router node chain
+
+<!-- workflow-schema:router -->
+```mermaid
+flowchart TD
+    committed_intent["Check for committed prior intent"]
+    override_l1["Detect a full intent replacement"]
+    override_l2["Detect a partial field replacement"]
+    strong_override_fallback["Recover explicit start-over language"]
+    replace_delta["Replace the committed intent"]
+    drop_slots["Drop only replaced fields"]
+    override_gate_cleanup["Reset override-era memory"]
+    probe_override["Build replacement exact pools"]
+    intention_override["Route the replacement as override"]
+    probe_before["Measure the pre-delta exact pool"]
+    apply_delta["Accumulate the staged delta"]
+    probe_after["Measure post-delta strict and lenient pools"]
+    pool_ratio["Compute candidate-pool narrowing"]
+    route_llm["Classify focused Buying or exploratory Browsing"]
+    buying["Select focused Buying retrieval"]
+    browsing["Select exploratory Browsing retrieval"]
+    failsafe["Apply the turn-four gate failsafe"]
+    committed_intent -- "prior intent exists" --> override_l1
+    committed_intent -- "no committed intent" --> probe_before
+    override_l1 -- "level 1" --> replace_delta
+    override_l1 -- "not accepted" --> override_l2
+    override_l2 -- "level 2" --> drop_slots
+    override_l2 -- "LLM level 0" --> strong_override_fallback
+    strong_override_fallback -- "match maps only to level 2" --> drop_slots
+    strong_override_fallback -- "no match" --> probe_before
+    replace_delta --> override_gate_cleanup
+    drop_slots --> override_gate_cleanup
+    override_gate_cleanup --> probe_override
+    probe_override --> intention_override
+    intention_override --> failsafe
+    probe_before --> apply_delta
+    apply_delta --> probe_after
+    probe_after --> pool_ratio
+    pool_ratio --> route_llm
+    route_llm -- "buying" --> buying
+    route_llm -- "browsing or failed attempts" --> browsing
+    buying --> failsafe
+    browsing --> failsafe
+```
+<!-- /workflow-schema -->
+
+### Retrieve and rank node chain
+
+<!-- workflow-schema:retrieve -->
+```mermaid
+flowchart TD
+    select_pool["Select strict or lenient seed pool"]
+    slot_groups["Build hard and soft scoring groups"]
+    rewrite_query["Build the active-intent lexical query"]
+    routing["Load route weights and limits"]
+    lexical_in_pool["Restrict BM25 scores to the seed pool"]
+    score_exact["Score selected-pool candidates"]
+    hybrid_search["Recover or fill candidates permissively"]
+    bm25_score["Measure BM25 lexical relevance"]
+    required_score["Score required-constraint coverage"]
+    preferred_score["Score soft preferences"]
+    category_score["Score category agreement"]
+    budget_score["Score and enforce budget fit"]
+    dimension_score["Score and enforce dimension fit"]
+    exclusion_score["Apply negative preference evidence"]
+    structured_subtotal["Combine structured evidence"]
+    rating_prior["Compute the rating-quality prior"]
+    popularity_prior["Compute the popularity prior"]
+    catalog_prior["Combine catalog quality priors"]
+    title_text_fit["Measure soft-text title coverage"]
+    details_text_fit["Measure soft-text details coverage"]
+    description_text_fit["Measure soft-text description coverage"]
+    soft_text_fit["Select the strongest soft-text fit"]
+    profile_diagnostic["Compute disabled profile diagnostics"]
+    weighted_score["Assemble the deterministic retrieval score"]
+    cap_hits["Assemble the bounded base library"]
+    raw_evidence["Check active-intent raw-text evidence"]
+    base_only["Use the base route without fusion"]
+    relaxed_route["Run relaxed structured safety recall"]
+    raw_text_route["Run raw-text safety recall"]
+    weighted_rrf["Fuse three recall routes with weighted RRF"]
+    qwen_rerank["Try the optional Qwen semantic head"]
+    semantic_logits["Convert semantic logits to fit scores"]
+    semantic_blend["Blend semantic fit with base rank"]
+    semantic_weights["Temperature-scale semantic head weights"]
+    semantic_tail["Keep the unscored retrieval tail"]
+    belief_temperature["Choose deterministic belief temperature"]
+    belief_hits["Convert deterministic scores to weights"]
+    normalize["Normalize ranking probability mass"]
+    select_pool --> slot_groups
+    slot_groups --> rewrite_query
+    rewrite_query --> routing
+    routing -- "selected pool non-empty" --> lexical_in_pool
+    routing -- "selected pool missing or empty" --> hybrid_search
+    lexical_in_pool --> score_exact
+    score_exact -- "fewer than 150 scored hits" --> hybrid_search
+    score_exact --> bm25_score
+    score_exact --> required_score
+    score_exact --> rating_prior
+    score_exact --> title_text_fit
+    score_exact --> profile_diagnostic
+    hybrid_search --> bm25_score
+    hybrid_search --> required_score
+    hybrid_search --> rating_prior
+    hybrid_search --> title_text_fit
+    hybrid_search --> profile_diagnostic
+    required_score --> preferred_score
+    preferred_score --> category_score
+    required_score --> budget_score
+    preferred_score --> dimension_score
+    category_score --> exclusion_score
+    budget_score --> structured_subtotal
+    dimension_score --> structured_subtotal
+    exclusion_score --> structured_subtotal
+    rating_prior --> popularity_prior
+    popularity_prior --> catalog_prior
+    title_text_fit --> details_text_fit
+    details_text_fit --> description_text_fit
+    description_text_fit --> soft_text_fit
+    bm25_score --> weighted_score
+    structured_subtotal --> weighted_score
+    catalog_prior --> weighted_score
+    soft_text_fit --> weighted_score
+    profile_diagnostic --> weighted_score
+    weighted_score --> cap_hits
+    cap_hits --> raw_evidence
+    raw_evidence -- "no raw evidence" --> base_only
+    raw_evidence -- "raw evidence present" --> relaxed_route
+    raw_evidence -- "raw evidence present" --> raw_text_route
+    cap_hits -- "base route" --> weighted_rrf
+    relaxed_route --> weighted_rrf
+    raw_text_route --> weighted_rrf
+    base_only --> qwen_rerank
+    weighted_rrf --> qwen_rerank
+    qwen_rerank -- "valid semantic head" --> semantic_logits
+    qwen_rerank -- "unavailable or invalid" --> belief_temperature
+    semantic_logits --> semantic_blend
+    semantic_blend --> semantic_weights
+    semantic_weights --> semantic_tail
+    semantic_tail --> normalize
+    belief_temperature --> belief_hits
+    belief_hits --> normalize
+```
+<!-- /workflow-schema -->
+
+### Decide node chain
+
+<!-- workflow-schema:decide -->
+```mermaid
+flowchart TD
+    answer_signature["Cache catalog-predicted answers"]
+    eligible_questions["Generate informative unasked questions"]
+    viability_filter["Filter questions by effective coverage"]
+    planning_head["Build the planning head and tail mass"]
+    action_space["Enumerate question and slate-size actions"]
+    hit_component["Compute expected Hit@10 value"]
+    mrr_component["Compute expected reciprocal-rank value"]
+    efficiency_component["Compute expected turn-efficiency value"]
+    immediate_value["Sum immediate action utility"]
+    answer_branches["Expand no-hit answer branches"]
+    tail_branches["Model planning-tail recovery branches"]
+    future_value["Evaluate two future observations"]
+    planner["Choose the best Dynamic Slate action"]
+    epsilon_roll["Choose exploit or attribute exploration"]
+    technical_exploit["Keep the planner's technical choice"]
+    uniform_explore["Uniformly explore an eligible attribute"]
+    selected_attribute["Finalize the clarification attribute"]
+    fallback_question["Guarantee a pre-final question"]
+    sequential_gate["Pass through the planned slate"]
+    gate_rank1["Handle a compatibility gate change"]
+    keep_planned["Keep the Dynamic Slate recommendations"]
+    persist_turn["Persist action memory"]
+    build_response["Build the official agent response"]
+    answer_signature --> eligible_questions
+    eligible_questions --> viability_filter
+    viability_filter --> planning_head
+    planning_head --> action_space
+    action_space --> hit_component
+    action_space --> mrr_component
+    action_space --> efficiency_component
+    hit_component --> immediate_value
+    mrr_component --> immediate_value
+    efficiency_component --> immediate_value
+    action_space --> answer_branches
+    action_space --> tail_branches
+    answer_branches --> future_value
+    tail_branches --> future_value
+    immediate_value --> planner
+    future_value --> planner
+    planner --> epsilon_roll
+    eligible_questions -- "pre-viability exploration pool" --> epsilon_roll
+    epsilon_roll -- "roll >= 0.20" --> technical_exploit
+    epsilon_roll -- "roll < 0.20" --> uniform_explore
+    technical_exploit --> selected_attribute
+    uniform_explore --> selected_attribute
+    selected_attribute --> fallback_question
+    fallback_question --> sequential_gate
+    sequential_gate -- "compatibility change" --> gate_rank1
+    sequential_gate -- "current no-op" --> keep_planned
+    gate_rank1 --> persist_turn
+    keep_planned --> persist_turn
+    persist_turn --> build_response
+```
+<!-- /workflow-schema -->
 
 The main path is implemented in `TurnPipeline.run_traced()`:
 
@@ -191,14 +460,23 @@ The main path is implemented in `TurnPipeline.run_traced()`:
 5. `Clarifier.apply()` jointly chooses a recommendation prefix and `ask_attribute`.
 6. `ResponseBuilder.apply()` persists the action and emits the official response shape.
 
+`Clarifier` uses `DynamicSlatePlanner`, not `ScoreAwarePlanner.plan()`.
+The compatibility `ScoreAwarePlanner` instance supplies only the outer
+candidate-cap setting. Dynamic Slate decomposes immediate value into Hit,
+MRR, and Efficiency terms, expands two answer observations, and then applies a
+seeded epsilon policy (`0.20`) to the pre-viability informative/unasked
+attribute list while leaving the planned slate unchanged. Question eligibility
+does not directly suppress an attribute just because that attribute already
+exists in `typed_constraints`.
+
 Every stage emits structured progress events. `respond()` does not register a listener, so official evaluation has no UI dependency. `respond_traced()` returns the same response plus a read-only `TurnTrace` used by the demo and tests.
 
 ## Empty-disclosure shortcut
 
-When all of the following are true after Understand:
+The shortcut is taken when all of the following are true after Understand:
 
 - `turn_delta is None`;
-- `disclosure_empty is True`; and
+- `disclosure_empty is not False` (`True` or `None`); and
 - `last_ranked` still contains an ASIN not in `excluded_asins ∪ shown_asins`;
 
 the pipeline skips Intent Router and Retrieve. It returns the next unshown prefix from `last_ranked`, capped by `min(top_k, 10)`, and asks a recovery question before turn 10. This treats “no additional preference” as a request to continue through existing evidence instead of repeating expensive retrieval.
@@ -258,7 +536,7 @@ agent/
 ### Understand mode
 
 - `understand_mode="nlu"` or default: local Ollama extraction, three full attempts, then deterministic regex fallback.
-- `understand_mode="regex"`: no Ollama initialization; use the template/colon parser only.
+- `understand_mode="regex"`: no Ollama initialization; use deterministic regex extraction and the bounded colon restore.
 
 ### Semantic reranker
 

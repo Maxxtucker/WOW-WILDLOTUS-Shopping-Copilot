@@ -8,12 +8,12 @@ from demo.images import resolve_image_url
 
 # Soft brand accents for the image placeholder (dark UI).
 _ACCENTS = (
-    "#4A7C59",
-    "#3D6B8C",
-    "#8B5E3C",
-    "#6B4C7A",
-    "#4F6F8F",
-    "#7A5C3E",
+    "#FE2C55",
+    "#25F4EE",
+    "#C4B5FD",
+    "#FF6B8A",
+    "#7B3CFF",
+    "#82B1FF",
 )
 
 

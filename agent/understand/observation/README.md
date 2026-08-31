@@ -32,8 +32,14 @@ Understand defaults to local NLU (`understand_mode="nlu"`). `hybrid_extract` cal
 ```text
 every turn:
     hybrid_extract
-        nlu mode → rewrite (+ word-class gates) + layered category LLM + category cap + attribute LLM (3 attempts) + disclosure
-        regex mode, or all attempts None → classify.py
+        nlu mode → up to 3 complete attempts
+            each complete attempt:
+                rewrite (+ word-class gates)
+                layered category LLM + category cap
+                one attribute LLM
+                field-local grounding repairs, at most 3
+                disclosure judgment
+        regex mode, or all 3 complete attempts fail → classify.py
     colon_fallback      → last-resort constraint parse (regex path, no constraints yet)
     state.turn_delta    → extract, or None when empty
 ```
@@ -42,7 +48,10 @@ There is no `if turn == 1` branch and no evaluator Buying / Browsing / Boundary 
 
 ## Core variables
 
-No independent state. Writes `SessionState.turn_delta` only.
+No independent state. New shopping evidence is written only to
+`SessionState.turn_delta`; committed category and constraints remain unchanged
+until Intent Router accepts accumulation or replacement. The coordinator also
+writes the per-turn `disclosure_empty` control flag.
 
 NLU settings persist in `scripts/nlu.env`. Agent nlu mode loads that file. Interactive console:
 

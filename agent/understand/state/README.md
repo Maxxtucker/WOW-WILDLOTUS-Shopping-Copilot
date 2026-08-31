@@ -33,7 +33,13 @@ pipeline → StateDetector.apply
 
 ## Core variables
 
-See `SessionState`: `category`, `intention`, `turn_delta`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `typed_constraints`, `preference_tags`, `disclosed`, `excluded_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`, `disclosure_empty` / `empty_disclosure_reveal`, `candidate_count` / `previous_candidate_count` / `candidate_count_before_delta`, `exact_strict` / `exact_lenient`. `preference_tags` is a reset-time copy of the aggregate profile tags; semantic ranking uses it only as a weak tie-breaker. Retrieve maps **hard** slots to the exact pool and **soft** slots to preferred scoring in `retrieve/from_slots.py`; those pairs are not stored here. The router writes `exact_strict` (missing fields fail) and `exact_lenient` (match or unknown); retrieve scores lenient when strict is below the candidate floor.
+See `SessionState`: `category`, `intention`, `turn_delta`, `gate_open`, `intent_version`, `active_constraints` / `legacy_hints` / `ranking_constraints`, `typed_constraints`, `preference_tags`, `disclosed`, `excluded_asins` / `shown_asins` / `last_slate` / `last_gate_open`, `reply_value_lookup`, `disclosure_empty` / `empty_disclosure_reveal`, `current_intent_messages`, `candidate_count` / `previous_candidate_count` / `candidate_count_before_delta`, and `exact_strict` / `exact_lenient`.
+
+`turn_delta` is the only normal Understand write for new shopping evidence. Router later commits it. Retrieve maps **hard** slots to exact/required groups and **soft** slots to preferred and text scoring in `retrieve/from_slots.py`; those derived pairs are not stored here.
+
+The router writes `exact_strict` (all represented hard attributes must match) and `exact_lenient` (each hard attribute may match or be unknown, but a known mismatch still fails). `None` means the exact pool is unrepresentable; an empty set means it was represented and no product survived. Retrieve selects a non-empty lenient pool only when strict is represented and below the 150-candidate floor.
+
+`preference_tags` is a reset-time copy of aggregate profile tags. Catalog scoring computes profile similarity for diagnostics but gives it zero final-score weight. The optional Qwen reranker can still receive these tags as explicitly weak context.
 
 NLU slot shape and grounding rules: [../observation/slots/README.md](../observation/slots/README.md).
 

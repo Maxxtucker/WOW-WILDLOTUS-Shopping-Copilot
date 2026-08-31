@@ -9,7 +9,7 @@ function Thumb({ card, large }) {
   const {
     title = "",
     store = "",
-    accent = "#ff2b7a",
+    accent = "#fe2c55",
     image_url = null,
   } = card || {};
   const [failed, setFailed] = useState(false);
@@ -26,12 +26,12 @@ function Thumb({ card, large }) {
         borderRadius: large ? 14 : 10,
         overflow: "hidden",
         background: showImage
-          ? "#101010"
-          : `linear-gradient(145deg, ${accent} 0%, #101010 100%)`,
+          ? "#0c0816"
+          : `linear-gradient(145deg, ${accent} 0%, #0c0816 100%)`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        border: "1px solid rgba(255,255,255,0.08)",
+        border: "1px solid rgba(196,181,253,0.2)",
       }}
     >
       {showImage ? (
@@ -73,12 +73,12 @@ function ShelfCard({ card }) {
         padding: 10,
         borderRadius: 12,
         background: on_slate
-          ? "linear-gradient(180deg, rgba(255,43,122,0.16) 0%, #151515 100%)"
-          : "linear-gradient(180deg, #151515 0%, #101010 100%)",
+          ? "linear-gradient(180deg, rgba(254,44,85,0.22) 0%, #1c122c 55%, #0c0816 100%)"
+          : "linear-gradient(180deg, #1c122c 0%, #0c0816 100%)",
         border: on_slate
-          ? "1px solid rgba(255,43,122,0.55)"
-          : "1px solid rgba(255,255,255,0.08)",
-        boxShadow: on_slate ? "0 0 0 1px rgba(255,43,122,0.2)" : "none",
+          ? "1px solid rgba(37,244,238,0.45)"
+          : "1px solid rgba(196,181,253,0.18)",
+        boxShadow: on_slate ? "0 0 18px rgba(254,44,85,0.18)" : "none",
         boxSizing: "border-box",
       }}
     >
@@ -211,9 +211,9 @@ export default function ProductShelf() {
                   }
                   style={{
                     borderRadius: 999,
-                    border: "1px solid rgba(255,43,122,0.28)",
-                    background: "rgba(255,43,122,0.12)",
-                    color: "#ffe1ec",
+                    border: "1px solid rgba(254,44,85,0.38)",
+                    background: "linear-gradient(135deg, rgba(254,44,85,0.22), rgba(37,244,238,0.1))",
+                    color: "#ffe4ec",
                     padding: "8px 14px",
                     fontSize: 13,
                     fontWeight: 500,
@@ -252,9 +252,9 @@ export default function ProductShelf() {
             }
             style={{
               borderRadius: 999,
-              border: "1px solid rgba(255,43,122,0.28)",
-              background: "rgba(255,43,122,0.12)",
-              color: "#ffe1ec",
+              border: "1px solid rgba(254,44,85,0.38)",
+              background: "linear-gradient(135deg, rgba(254,44,85,0.22), rgba(37,244,238,0.1))",
+              color: "#ffe4ec",
               padding: "8px 14px",
               fontSize: 13,
               fontWeight: 500,

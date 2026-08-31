@@ -203,6 +203,28 @@ def _parse_turn(value: object) -> int | None:
     return turn if turn > 0 else None
 
 
+def _remember_circuit_selection(
+    turn: int | None,
+    *,
+    selected_node: str | None = None,
+    view_graph: str | None = None,
+) -> None:
+    """Store inspect selection on circuit state without remounting the canvas."""
+    key = _parse_turn(turn)
+    if key is None:
+        return
+    entry = _circuits_by_turn().get(key)
+    if not isinstance(entry, dict):
+        return
+    state = entry.get("state")
+    if not isinstance(state, dict):
+        return
+    if selected_node is not None:
+        state["selectedNode"] = selected_node
+    if view_graph is not None:
+        state["viewGraph"] = view_graph
+
+
 async def _sync_circuit(
     turn: int | None,
     *,
@@ -506,7 +528,7 @@ async def on_inspect_node(action: cl.Action) -> None:
     stage = str(catalog_row.get("stage") or "")
     if stage:
         cl.user_session.set("inspect_graph", stage)
-    await _sync_circuit(turn, selected_node=node, view_graph=stage or None)
+    _remember_circuit_selection(turn, selected_node=node, view_graph=stage or None)
     turns = list(cl.user_session.get("inspect_turns") or [])
     await _publish_sidebar(turns, cl.user_session.get("inspect_turn"))
 

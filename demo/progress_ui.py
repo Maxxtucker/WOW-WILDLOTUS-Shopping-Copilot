@@ -2,7 +2,7 @@
 
 Input: ProgressEvent dicts from agent.progress plus an optional TurnTrace.
 Output: JSON-safe props for PipelineCircuit and NodeInspector.
-Role: UI state only. Does not run the pipeline.
+Role: UI state only. Does not run or alter the recommendation pipeline.
 """
 
 from __future__ import annotations
@@ -11,94 +11,47 @@ import time
 from typing import Any
 
 from agent.trace import TurnTrace
-from demo.node_catalog import NODE_CATALOG
-
-NODE_SPECS: tuple[tuple[str, str, str], ...] = (
-    ("casefold", "understand", "Normalize text"),
-    ("color_map", "understand", "Normalize color"),
-    ("material_map", "understand", "Normalize material"),
-    ("color_verify", "understand", "Validate mapped color"),
-    ("material_verify", "understand", "Validate mapped material"),
-    ("merge_rewrite", "understand", "Build normalized query"),
-    ("category_l1", "understand", "Find broad product family"),
-    ("category_l2", "understand", "Narrow to product type"),
-    ("category_l3", "understand", "Resolve final category"),
-    ("category_cap", "understand", "Limit category ambiguity"),
-    ("attribute_llm", "understand", "Extract user constraints"),
-    ("repair_1", "understand", "LLM Retry 1"),
-    ("repair_2", "understand", "LLM Retry 2"),
-    ("repair_3", "understand", "LLM Retry 3"),
-    ("disclosure", "understand", "Disclosure"),
-    ("turn_delta", "understand", "Turn delta"),
-    ("override_l1", "router", "Judge Global Override"),
-    ("override_l2", "router", "Judge Field Override"),
-    ("replace_delta", "router", "Replace"),
-    ("drop_slots", "router", "Drop slots"),
-    ("probe_override", "router", "Probe once"),
-    ("intention_override", "router", "Override label"),
-    ("probe_before", "router", "Probe current Pool"),
-    ("apply_delta", "router", "Update new constraints"),
-    ("probe_after", "router", "Probe current Pool"),
-    ("route_llm", "router", "LLM intent judge"),
-    ("buying", "router", "Buying"),
-    ("browsing", "router", "Browsing"),
-    ("failsafe", "router", "Failsafe"),
-    ("slot_groups", "retrieve", "Slot groups"),
-    ("rewrite_query", "retrieve", "Query"),
-    ("routing", "retrieve", "Routing"),
-    ("lexical_in_pool", "retrieve", "Lexical ∩ pool"),
-    ("score_exact", "retrieve", "Score exact"),
-    ("hybrid_search", "retrieve", "Hybrid search"),
-    ("cap_hits", "retrieve", "Cap hits"),
-    ("qwen_rerank", "retrieve", "Qwen rerank"),
-    ("belief_hits", "retrieve", "Belief"),
-    ("normalize", "retrieve", "Normalize"),
-    ("answer_signature", "decide", "Answers"),
-    ("eligible_questions", "decide", "Questions"),
-    ("planner", "decide", "Planner"),
-    ("sequential_gate", "decide", "Slate gate"),
-    ("gate_rank1", "decide", "Rank-1"),
-    ("keep_planned", "decide", "Keep slate"),
-    ("persist_turn", "decide", "Persist"),
-    ("build_response", "decide", "Respond"),
+from demo.workflow_schema import (
+    STAGE_ORDER,
+    WORKFLOW_SCHEMA,
+    workflow_graph_props,
 )
 
-STAGE_ORDER = ("understand", "router", "retrieve", "decide")
+NODE_SPECS: tuple[tuple[str, str, str], ...] = tuple(
+    (node_id, stage, metadata["label"])
+    for stage in STAGE_ORDER
+    for node_id, metadata in WORKFLOW_SCHEMA[stage]["nodes"].items()
+)
 
 DONE = frozenset({"completed", "skipped", "error"})
 
-GRAPH_FOR_STAGE = {
-    "understand": "understand",
-    "router": "router",
-    "retrieve": "retrieve",
-    "decide": "decide",
-}
+GRAPH_FOR_STAGE = {stage: stage for stage in STAGE_ORDER}
 
 NEXT_GRAPH = {
-    "understand": "router",
-    "router": "retrieve",
-    "retrieve": "decide",
+    stage: STAGE_ORDER[index + 1]
+    for index, stage in enumerate(STAGE_ORDER[:-1])
 }
 
 
 def empty_circuit_state() -> dict[str, Any]:
-    """Initial circuit props: every node pending."""
+    """Initial circuit props: every production-observation node is pending."""
 
     nodes: dict[str, Any] = {}
     for node_id, stage, label in NODE_SPECS:
-        extra = NODE_CATALOG.get(node_id) or {}
+        metadata = WORKFLOW_SCHEMA[stage]["nodes"][node_id]
         nodes[node_id] = {
             "id": node_id,
             "stage": stage,
             "label": label,
             "status": "pending",
-            "function": extra.get("function") or "",
-            "implementation": extra.get("implementation") or extra.get("meaning") or "",
+            "task": metadata["task"],
+            "rationale": metadata["rationale"],
+            "implementation": metadata["implementation"],
         }
     return {
         "title": "Agent pipeline",
         "status": "running",
-        "current": "casefold",
+        "current": "prior_miss",
         "activeGraph": "understand",
         "viewGraph": "",
         "selectedNode": "",
@@ -107,18 +60,25 @@ def empty_circuit_state() -> dict[str, Any]:
         "error": "",
         "startedAt": time.time(),
         "nodes": nodes,
-        "stages": {name: {"status": "pending", "summary": ""} for name in STAGE_ORDER},
+        "graphs": workflow_graph_props(),
+        "graphOrder": list(STAGE_ORDER),
+        "stages": {
+            name: {"status": "pending", "summary": ""}
+            for name in STAGE_ORDER
+        },
     }
 
 
-def empty_inspect_turn(turn: int, original: str, nodes: dict[str, Any]) -> dict[str, Any]:
+def empty_inspect_turn(
+    turn: int, original: str, nodes: dict[str, Any]
+) -> dict[str, Any]:
     """One inspector turn row. ``nodes`` is the live circuit node map."""
 
     return {"turn": turn, "original": original, "nodes": nodes}
 
 
 def apply_event(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-    """Mutate circuit props from one progress event. Returns the same dict."""
+    """Mutate circuit props from one production progress event."""
 
     stage = str(event.get("stage") or "")
     node_id = str(event.get("node") or "")
@@ -146,6 +106,7 @@ def apply_event(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
         return _refresh_progress(state)
     if status == "skipped" and node["status"] in {"completed", "error"}:
         return _refresh_progress(state)
+
     node["status"] = status
     if detail:
         node["detail"] = detail
@@ -156,7 +117,10 @@ def apply_event(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
         state["current"] = node_id
         stage_name = node.get("stage")
         _set_active_graph(state, str(stage_name or ""))
-        if stage_name in state["stages"] and state["stages"][stage_name]["status"] == "pending":
+        if (
+            stage_name in state["stages"]
+            and state["stages"][stage_name]["status"] == "pending"
+        ):
             state["stages"][stage_name]["status"] = "running"
     elif status == "error":
         state["status"] = "error"
@@ -165,7 +129,9 @@ def apply_event(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
     return _refresh_progress(state)
 
 
-def apply_understand_event(turn_state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+def apply_understand_event(
+    turn_state: dict[str, Any], event: dict[str, Any]
+) -> dict[str, Any]:
     """Fold understand-node details into the inspector row metadata."""
 
     if event.get("stage") != "understand":
@@ -175,7 +141,13 @@ def apply_understand_event(turn_state: dict[str, Any], event: dict[str, Any]) ->
     if not isinstance(detail, dict):
         return turn_state
     if node_id == "merge_rewrite":
-        turn_state["rewritten"] = str(detail.get("rewritten") or "")
+        turn_state["rewritten"] = str(
+            detail.get("rewritten")
+            or (detail.get("output") or {}).get("rewritten")
+            if isinstance(detail.get("output"), dict)
+            else detail.get("rewritten")
+            or ""
+        )
         if detail.get("original") and not turn_state.get("original"):
             turn_state["original"] = str(detail["original"])
     elif node_id in {"turn_delta", "stage"}:
@@ -183,15 +155,19 @@ def apply_understand_event(turn_state: dict[str, Any], event: dict[str, Any]) ->
     return turn_state
 
 
-def apply_understand_from_trace(turn_state: dict[str, Any], trace: TurnTrace) -> dict[str, Any]:
+def apply_understand_from_trace(
+    turn_state: dict[str, Any], trace: TurnTrace
+) -> dict[str, Any]:
     """Fill leftover understand fields from the finished trace."""
 
     _apply_understand_detail(turn_state, trace.understand)
     return turn_state
 
 
-def finalize_circuit(state: dict[str, Any], trace: TurnTrace | None) -> dict[str, Any]:
-    """Mark leftover nodes skipped and attach stage summaries from the trace."""
+def finalize_circuit(
+    state: dict[str, Any], trace: TurnTrace | None
+) -> dict[str, Any]:
+    """Close the circuit without rewriting genuinely skipped stage outcomes."""
 
     for node in state["nodes"].values():
         if node["status"] in {"pending", "running"}:
@@ -203,15 +179,22 @@ def finalize_circuit(state: dict[str, Any], trace: TurnTrace | None) -> dict[str
         state["stages"]["understand"]["summary"] = _stage_summary(
             "understand", trace.understand
         )
-        state["stages"]["router"]["summary"] = _stage_summary("router", trace.router)
+        state["stages"]["router"]["summary"] = _stage_summary(
+            "router", trace.router
+        )
         state["stages"]["retrieve"]["summary"] = _stage_summary(
             "retrieve", trace.retrieve
         )
-        state["stages"]["decide"]["summary"] = _stage_summary("decide", trace.decide)
+        state["stages"]["decide"]["summary"] = _stage_summary(
+            "decide", trace.decide
+        )
         for name in STAGE_ORDER:
-            if state["stages"][name]["status"] != "error":
+            current = state["stages"][name]["status"]
+            if current in {"pending", "running"}:
                 state["stages"][name]["status"] = "completed"
-    if state["status"] != "error":
+        state["status"] = "completed"
+        state["error"] = ""
+    elif state["status"] != "error":
         state["status"] = "completed"
     state["progressPercent"] = 100
     state["current"] = "build_response"
@@ -219,7 +202,9 @@ def finalize_circuit(state: dict[str, Any], trace: TurnTrace | None) -> dict[str
     return state
 
 
-def _apply_understand_detail(turn_state: dict[str, Any], detail: dict[str, Any]) -> None:
+def _apply_understand_detail(
+    turn_state: dict[str, Any], detail: dict[str, Any]
+) -> None:
     if "source" in detail:
         turn_state["source"] = detail.get("source")
     if "empty" in detail:
@@ -246,9 +231,14 @@ def _refresh_progress(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _from_io(detail: dict[str, Any], key: str, fallback: str) -> str:
-    output = detail.get("output")
-    if isinstance(output, dict) and output.get(key) not in (None, ""):
+def _output(detail: dict[str, Any]) -> dict[str, Any]:
+    value = detail.get("output")
+    return value if isinstance(value, dict) else {}
+
+
+def _from_io(detail: dict[str, Any], key: str, fallback: str = "") -> str:
+    output = _output(detail)
+    if output.get(key) not in (None, ""):
         return str(output[key])
     if detail.get(key) not in (None, ""):
         return str(detail[key])
@@ -256,64 +246,177 @@ def _from_io(detail: dict[str, Any], key: str, fallback: str) -> str:
 
 
 def _node_caption(node_id: str, detail: dict[str, Any]) -> str:
+    out = _output(detail)
     if node_id == "merge_rewrite":
-        rewritten = str(detail.get("rewritten") or "").strip()
+        rewritten = str(
+            out.get("rewritten") or detail.get("rewritten") or ""
+        ).strip()
         if rewritten:
             return rewritten[:72]
-    if node_id in {"color_map", "material_map", "color_verify", "material_verify"}:
-        hits = detail.get("hits") or []
+    if node_id in {
+        "color_map",
+        "material_map",
+        "color_verify",
+        "material_verify",
+    }:
+        hits = detail.get("hits") or out.get("hits") or []
         return f"{len(hits)} hit" + ("" if len(hits) == 1 else "s")
     if node_id.startswith("category_l"):
-        labels = detail.get("labels") or []
+        labels = detail.get("labels") or out.get("labels") or []
         return ", ".join(str(item) for item in labels) if labels else "none"
     if node_id == "category_cap":
-        kept = detail.get("kept") or []
+        kept = detail.get("kept") or out.get("kept") or []
         if kept:
             return ", ".join(str(item) for item in kept)
     if node_id == "disclosure":
-        flag = detail.get("empty")
+        flag = detail.get("empty", out.get("empty"))
         if flag is True:
-            return "empty"
+            return "empty disclosure"
         if flag is False:
-            return "disclosed"
+            return "shopping evidence"
     if node_id == "override_l1":
-        flag = detail.get("full")
-        if isinstance(detail.get("output"), dict):
-            flag = detail["output"].get("full", flag)
+        flag = out.get("full", detail.get("full"))
         if flag is None:
             return ""
-        return "full reset" if flag else "not full"
+        return "full reset" if flag else "keep intent"
     if node_id == "override_l2":
-        flag = detail.get("override")
-        if isinstance(detail.get("output"), dict):
-            flag = detail["output"].get("override", flag)
+        flag = out.get("override", detail.get("override"))
         if flag is None:
             return ""
         return "replace fields" if flag else "accumulate"
     if node_id in {"probe_override", "probe_before", "probe_after"}:
-        exact = detail.get("exact")
-        if exact is None and isinstance(detail.get("output"), dict):
-            exact = detail["output"].get("exact")
-        return "hybrid" if exact is None else f"exact={exact}"
+        exact = out.get("exact", detail.get("exact"))
+        lenient = out.get("exact_lenient", detail.get("exact_lenient"))
+        if exact is None:
+            return "exact=None"
+        suffix = "" if lenient is None else f" · lenient={lenient}"
+        return f"exact={exact}{suffix}"
     if node_id == "route_llm":
-        return _from_io(detail, "intention", "")
+        return _from_io(detail, "intention")
     if node_id in {"buying", "browsing", "intention_override"}:
-        return _from_io(detail, "intention", "")
-    if node_id == "cap_hits":
-        count = detail.get("hit_count")
-        if count is None and isinstance(detail.get("output"), dict):
-            count = detail["output"].get("hit_count")
-        return "" if count is None else f"{count} hits"
+        return _from_io(detail, "intention")
+    if node_id == "select_pool":
+        selected = out.get("selected")
+        count = out.get("selected_count")
+        if selected:
+            return f"{selected} · {count if count is not None else 'None'}"
+    if node_id == "slot_groups":
+        required = out.get("required") or []
+        preferred = out.get("preferred") or []
+        return f"{len(required)} hard · {len(preferred)} soft"
+    if node_id == "routing":
+        library = out.get("library_limit")
+        return "" if library is None else f"library={library}"
+    if node_id in {
+        "score_exact",
+        "hybrid_search",
+        "cap_hits",
+        "base_only",
+        "relaxed_route",
+        "raw_text_route",
+        "weighted_rrf",
+    }:
+        count = out.get("hit_count", out.get("scored"))
+        path = out.get("path")
+        if count is not None:
+            return f"{count} hits" + (f" · {path}" if path else "")
+    if node_id == "raw_evidence":
+        if out.get("has_raw_evidence"):
+            return f"{out.get('term_count', 0)} raw terms"
+        return "no raw evidence"
+    if node_id == "qwen_rerank":
+        count = out.get("reranked_weights", out.get("reranked"))
+        return "semantic" if count is None else f"semantic · {count} weights"
+    if node_id == "belief_hits":
+        count = out.get("weighted")
+        return "belief" if count is None else f"belief · {count} weights"
     if node_id == "normalize":
-        count = detail.get("count")
-        if count is None and isinstance(detail.get("output"), dict):
-            count = detail["output"].get("count")
+        count = out.get("count", detail.get("count"))
         return "" if count is None else f"{count} ranked"
+    if node_id == "eligible_questions":
+        questions = out.get("questions") or []
+        return f"{len(questions)} candidates"
+    if node_id == "viability_filter":
+        questions = out.get("planner_questions") or []
+        return f"{len(questions)} viable"
+    if node_id == "planning_head":
+        head = out.get("head_count")
+        tail = out.get("tail_probability")
+        if head is not None:
+            return f"head={head} · tail={tail}"
+    if node_id == "action_space":
+        count = out.get("action_count")
+        return "" if count is None else f"{count} actions"
     if node_id == "planner":
-        return str(detail.get("ask_attribute") or _from_io(detail, "reason", ""))
+        ask = out.get("ask_attribute") or "none"
+        planned = out.get("planned")
+        return f"ask={ask} · k={planned}"
+    if node_id == "fallback_question":
+        used = out.get("used")
+        ask = out.get("ask_attribute") or "none"
+        return f"{'used' if used else 'not needed'} · ask={ask}"
+    if node_id == "sequential_gate":
+        return "changed" if out.get("gated") else "no-op · unchanged"
+    if node_id == "keep_planned":
+        count = out.get("count")
+        return "" if count is None else f"keep {count}"
+    if node_id == "persist_turn":
+        count = out.get("last_slate")
+        ask = out.get("last_ask") or "none"
+        return f"slate={count} · ask={ask}"
+    if node_id == "build_response":
+        recs = out.get("recommendations")
+        ask = out.get("ask_attribute") or "none"
+        if recs is not None:
+            return f"{recs} recs · ask={ask}"
     if node_id == "turn_delta":
-        source = detail.get("source")
+        source = detail.get("source") or out.get("source")
         return "" if source is None else f"source={source}"
+    if node_id == "understand_mode":
+        return _from_io(detail, "selected_path")
+    if node_id == "nlu_attempt":
+        used = out.get("attempts_used")
+        source = out.get("source") or out.get("fallback")
+        if used is None:
+            return ""
+        return f"attempts={used}" + (f" · {source}" if source else "")
+    if node_id == "regex_extract":
+        return _from_io(detail, "source") or "regex"
+    if node_id == "colon_restore":
+        applied = out.get("applied")
+        if applied is True:
+            return "restored"
+        if applied is False:
+            return "not applied"
+    if node_id == "empty_disclosure_gate":
+        return _from_io(detail, "path")
+    if node_id == "committed_intent":
+        flag = out.get("has_committed_intent")
+        if flag is True:
+            return "prior intent"
+        if flag is False:
+            return "no prior intent"
+    if node_id == "strong_override_fallback":
+        matched = out.get("matched")
+        if matched is True:
+            return "explicit start-over"
+        if matched is False:
+            return "no match"
+    if node_id == "pool_ratio":
+        ratio = out.get("ratio")
+        if ratio is None and out.get("defined") is False:
+            return "undefined"
+        if ratio is not None:
+            return f"ratio={ratio}"
+    if node_id == "profile_diagnostic":
+        return "computed · weight 0"
+    if node_id == "weighted_score":
+        formula = detail.get("input", {}).get("formula") if isinstance(detail.get("input"), dict) else None
+        return str(formula)[:72] if formula else ""
+    if node_id == "epsilon_roll":
+        return _from_io(detail, "selection_mode") or _from_io(detail, "branch")
+    if node_id in {"technical_exploit", "uniform_explore", "selected_attribute"}:
+        return _from_io(detail, "ask_attribute")
     why = detail.get("why")
     if why:
         return str(why)[:72]
@@ -324,23 +427,29 @@ def _stage_summary(stage: str, detail: dict[str, Any]) -> str:
     if stage == "understand":
         source = detail.get("source") or "-"
         category = detail.get("category") or "-"
-        gate = "open" if detail.get("gate_open") else "closed"
-        return f"source={source}\ncategory={category}\ngate={gate}"
+        disclosure = "empty" if detail.get("disclosure_empty") else "evidence"
+        return f"source={source}\ncategory={category}\n{disclosure}"
     if stage == "router":
+        if detail.get("skipped"):
+            return f"skipped\n{detail.get('reason') or '-'}"
         intention = detail.get("intention") or "-"
-        exact = detail.get("exact")
-        exact_bit = "None" if exact is None else str(exact)
-        return f"intention={intention}\nexact={exact_bit}"
+        strict = detail.get("exact")
+        lenient = detail.get("exact_lenient")
+        strict_bit = "None" if strict is None else str(strict)
+        lenient_bit = "None" if lenient is None else str(lenient)
+        return f"{intention}\nstrict={strict_bit}\nlenient={lenient_bit}"
     if stage == "retrieve":
         count = detail.get("hit_count")
         top = detail.get("top") or []
         head = top[0] if top else None
         extra = ""
         if isinstance(head, dict) and head.get("parent_asin"):
-            extra = f"\ntop {head['parent_asin']}"
-        return f"{count or 0} hits{extra}"
+            routes = head.get("routes") or []
+            route_bit = f" · {'+'.join(routes)}" if routes else ""
+            extra = f"\ntop {head['parent_asin']}{route_bit}"
+        return f"{count or 0} candidates{extra}"
     if stage == "decide":
-        ask = detail.get("ask_attribute") or "-"
+        ask = detail.get("ask_attribute") or "none"
         slate = detail.get("slate")
         planned = detail.get("planned_slate")
         slate_n = len(slate) if isinstance(slate, list) else slate

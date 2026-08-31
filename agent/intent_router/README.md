@@ -6,30 +6,49 @@ The stage returns the strict exact set (or `None`) and stores both strict and le
 
 ## Strict flow
 
+<!-- workflow-schema:router -->
 ```mermaid
 flowchart TD
-    IN["SessionState with non-committed turn_delta"] --> PRIOR["Save previous candidate_count"]
-    PRIOR --> COMMIT{"Any committed prior intent?"}
-    COMMIT -- no --> ACC["Override level 0: accumulate"]
-    COMMIT -- yes --> L1["L1 LLM: full replacement?"]
-    L1 --> FULL{"Valid true and delta has category?"}
-    FULL -- yes --> RESET["Clear all typed state; apply delta"]
-    FULL -- no --> L2["L2 LLM: replace named fields?"]
-    L2 --> PART{"Valid true or strong explicit fallback?"}
-    PART -- yes --> DROP["Drop attributes present in delta; apply delta"]
-    PART -- no --> ACC
-    RESET --> GATE["Open new-intent conversion gate"]
-    DROP --> GATE
-    GATE --> OPOOL["Probe strict + lenient override pools"]
-    OPOOL --> OOUT["intention=override; return strict pool"]
-    ACC --> BEFORE["Probe exact pools before delta"]
-    BEFORE --> APPLY["Accumulate delta"]
-    APPLY --> AFTER["Probe exact pools after delta"]
-    AFTER --> RATIO["Compute after/before ratio when defined"]
-    RATIO --> ROUTE["Route LLM: buying or browsing"]
-    ROUTE --> SAFE["Turn-4 conversion-gate fail-safe"]
-    SAFE --> OUT["Persist pools/counts/intention; return strict"]
+    committed_intent["Check for committed prior intent"]
+    override_l1["Detect a full intent replacement"]
+    override_l2["Detect a partial field replacement"]
+    strong_override_fallback["Recover explicit start-over language"]
+    replace_delta["Replace the committed intent"]
+    drop_slots["Drop only replaced fields"]
+    override_gate_cleanup["Reset override-era memory"]
+    probe_override["Build replacement exact pools"]
+    intention_override["Route the replacement as override"]
+    probe_before["Measure the pre-delta exact pool"]
+    apply_delta["Accumulate the staged delta"]
+    probe_after["Measure post-delta strict and lenient pools"]
+    pool_ratio["Compute candidate-pool narrowing"]
+    route_llm["Classify focused Buying or exploratory Browsing"]
+    buying["Select focused Buying retrieval"]
+    browsing["Select exploratory Browsing retrieval"]
+    failsafe["Apply the turn-four gate failsafe"]
+    committed_intent -- "prior intent exists" --> override_l1
+    committed_intent -- "no committed intent" --> probe_before
+    override_l1 -- "level 1" --> replace_delta
+    override_l1 -- "not accepted" --> override_l2
+    override_l2 -- "level 2" --> drop_slots
+    override_l2 -- "LLM level 0" --> strong_override_fallback
+    strong_override_fallback -- "match maps only to level 2" --> drop_slots
+    strong_override_fallback -- "no match" --> probe_before
+    replace_delta --> override_gate_cleanup
+    drop_slots --> override_gate_cleanup
+    override_gate_cleanup --> probe_override
+    probe_override --> intention_override
+    intention_override --> failsafe
+    probe_before --> apply_delta
+    apply_delta --> probe_after
+    probe_after --> pool_ratio
+    pool_ratio --> route_llm
+    route_llm -- "buying" --> buying
+    route_llm -- "browsing or failed attempts" --> browsing
+    buying --> failsafe
+    browsing --> failsafe
 ```
+<!-- /workflow-schema -->
 
 All Router LLM calls use the same local model settings as Understand but a separate process-wide client. They require strict JSON, use temperature `0.0`, `num_ctx=8192`, and are tried up to three times. Prompt/completion tokens are accumulated in the session and returned by `ResponseBuilder` as this turn's usage.
 
@@ -67,7 +86,10 @@ Override is intentionally a two-level decision. L1 is evaluated first; L2 runs o
 
 The L1 model answers exactly `{"full": true|false}`. It may return true only when the shopper explicitly discards the complete prior need and supplies a distant replacement product category, such as sandals → backpack.
 
-The code accepts L1 only when `turn_delta` actually contains a category. This grounding guard prevents a model from erasing all state after a phrase such as “ignore my earlier preference; I need polyester,” which names an attribute but no replacement product family.
+The code accepts L1 only when `turn_delta` actually contains a category. The
+model prompt judges whether the replacement is a full, distant need; the
+deterministic acceptance guard itself checks only that the delta has category
+evidence. If that guard fails, classification continues to L2.
 
 Accepted L1 behavior:
 
@@ -94,7 +116,12 @@ Accepted L2 behavior:
 
 ### Strong explicit fallback
 
-If both model levels return no override but prior intent exists, a conservative anchored regex recognizes explicit start-over language such as “ignore my earlier preference,” “forget the old requirement,” “I changed my mind,” or “I no longer want…”. It maps only to L2, never L1. That allows named delta fields to be replaced without risking an ungrounded full reset.
+Only after L1/L2 finish at level `0` and prior intent exists, a conservative
+anchored regex checks explicit start-over language such as “ignore my earlier
+preference,” “forget the old requirement,” “I changed my mind,” or “I no
+longer want…”. A match maps only to L2, never L1. L2 then drops whatever
+attribute names are actually present in the delta, applies the delta, and runs
+new-intent cleanup.
 
 ## New-intent gate cleanup
 
@@ -161,7 +188,10 @@ If a non-category hard group has no exact match, that empty group is retained fo
 
 ### Response-only versus broader aliases
 
-Regex/legacy slots normally use response-only normalized signature values. Typed slots carrying sidecar canonicals allow broader search aliases. This preserves exact evaluator-like response values when appropriate while allowing the structured preprocessing vocabulary to match catalog attributes.
+Regex/legacy slots normally use conservative response-signature values. Typed
+slots carrying sidecar canonicals allow broader search aliases. This preserves
+the complete cited value on the deterministic path while allowing the
+structured preprocessing vocabulary to match catalog attributes.
 
 ## Lenient match-or-unknown pool
 
@@ -218,6 +248,23 @@ The first hard structured dimension is used. Length, width, and height are inche
 where `τ_abs=0.25` inches for dimensions and `0.05` pounds for weight. `lte` permits `have ≤ wanted + τ`; `gte` permits `have ≥ wanted - τ`; `eq` requires absolute difference at most `τ`.
 
 As with price, missing axes fail strict and survive lenient; present mismatches fail both.
+
+## Session product exclusions
+
+State-bound strict and lenient pools remove every ASIN in
+`state.excluded_asins` after signature and numeric filtering. Router pool
+counts, before/after evidence, and Retrieve's strict-versus-lenient selection
+therefore operate only on products that have not already been shown for the
+current intent.
+
+This subtraction preserves the pool representation contract: an
+unrepresentable pool remains `None`, while a representable pool whose products
+are all excluded becomes `set()`. Retrieve and catalog scoring retain their own
+ASIN exclusion checks as a downstream safety layer.
+
+Accepted L1/L2 overrides clear `excluded_asins` before probing the replacement
+intent, so products shown under the superseded intent may enter its exact pools
+again.
 
 ## Before/after evidence and route classification
 
@@ -280,5 +327,7 @@ intent_router/
 - Alternatives within an attribute are OR; attributes are AND.
 - `None` and an empty exact set are never conflated.
 - Known mismatches never enter the lenient pool.
+- State-bound strict and lenient pools exclude previously shown ASINs before
+  routing counts and Retrieve pool selection.
 - There is no hard-coded Buying/Browsing pool-ratio threshold in the current implementation.
 - Old-intent raw messages, misses, shown products, and questions are cleared only for an accepted override, not for ordinary accumulation.

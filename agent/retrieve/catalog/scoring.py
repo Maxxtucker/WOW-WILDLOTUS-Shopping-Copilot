@@ -14,6 +14,7 @@ import zlib
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from ...progress import progress_enabled
 from .profile_embed import profile_fits
 from .protocol_copy import normalize_text, tokenize
 from .signatures import coerce_budget, coerce_constraints, signature_similarity
@@ -300,6 +301,7 @@ class ScoringMixin:
             for parent_asin, fields in text_map.items()
         }
         profile_scores = profile_fits(profile_tags, profile_docs)
+        include_score_breakdown = progress_enabled()
         hits: list[SearchHit] = []
 
         def _rarity(attribute: str, value: str) -> float:
@@ -322,6 +324,13 @@ class ScoringMixin:
             reasons: list[str] = []
             matched: list[str] = []
             structured_score = 0.0
+            required_score = 0.0
+            missing_required_score = 0.0
+            preferred_score = 0.0
+            exclusion_score = 0.0
+            category_score = 0.0
+            budget_score = 0.0
+            dimension_score = 0.0
 
             required_similarities: list[float] = []
             for attribute, values in required_or:
@@ -340,11 +349,15 @@ class ScoringMixin:
                     rarity = (
                         1.0 if in_exact_pool else _rarity(attribute, matched_value)
                     )
-                    structured_score += scoring.required * similarity * rarity
+                    contribution = scoring.required * similarity * rarity
+                    required_score += contribution
+                    structured_score += contribution
                 elif not in_exact_pool:
-                    structured_score += scoring.missing_required * _group_rarity(
+                    contribution = scoring.missing_required * _group_rarity(
                         attribute, values
                     )
+                    missing_required_score += contribution
+                    structured_score += contribution
             if required_or:
                 required_coverage = sum(required_similarities) / len(required_similarities)
                 reasons.append(f"required_coverage={required_coverage:.2f}")
@@ -363,11 +376,13 @@ class ScoringMixin:
                         matched_value = value
                 if similarity > 0 and matched_value is not None:
                     matched.append(f"preferred:{attribute}={matched_value}")
-                    structured_score += (
+                    contribution = (
                         scoring.preferred
                         * similarity
                         * _rarity(attribute, matched_value)
                     )
+                    preferred_score += contribution
+                    structured_score += contribution
 
             excluded_match = 0.0
             for attribute, value in excluded_pairs:
@@ -377,7 +392,8 @@ class ScoringMixin:
                 excluded_match = max(excluded_match, similarity)
             if hard_exclusions and excluded_match >= 0.9:
                 continue
-            structured_score += scoring.excluded * excluded_match
+            exclusion_score = scoring.excluded * excluded_match
+            structured_score += exclusion_score
             if excluded_match:
                 reasons.append(f"excluded_match={excluded_match:.2f}")
 
@@ -396,7 +412,8 @@ class ScoringMixin:
                     if in_exact_pool or category_value is None
                     else _rarity("category", category_value)
                 )
-                structured_score += scoring.category * category_match * rarity
+                category_score = scoring.category * category_match * rarity
+                structured_score += category_score
                 matched.append("category")
 
             price = None if row["price"] is None else float(row["price"])
@@ -404,7 +421,8 @@ class ScoringMixin:
                 if not self._budget_in_range(price, budget_range):
                     continue
             budget_fit = self._budget_fit(price, budget_range)
-            structured_score += scoring.budget * budget_fit
+            budget_score = scoring.budget * budget_fit
+            structured_score += budget_score
             if budget_fit:
                 reasons.append(f"budget_fit={budget_fit:.2f}")
 
@@ -413,31 +431,39 @@ class ScoringMixin:
                 if hard_dimension and not dim_ok:
                     continue
                 dim_fit = 1.0 if dim_ok else 0.0
-                structured_score += scoring.dimension * dim_fit
+                dimension_score = scoring.dimension * dim_fit
+                structured_score += dimension_score
                 if dim_ok:
                     matched.append("size")
                     reasons.append("dimension_fit=1.00")
 
             rating = 0.0 if row["average_rating"] is None else float(row["average_rating"])
             rating_count = max(0, int(row["rating_number"]))
-            prior_score = (
-                scoring.rating * max(0.0, min(1.0, rating / 5.0))
-                + scoring.popularity
+            rating_score = scoring.rating * max(0.0, min(1.0, rating / 5.0))
+            popularity_score = (
+                scoring.popularity
                 * math.log1p(rating_count)
                 / math.log1p(self._max_rating_count)
             )
+            prior_score = rating_score + popularity_score
             lexical_score = float(lexical.get(parent_asin, 0.0))
-            text_fit = _text_fit(text_map.get(parent_asin), soft_tokens)
+            text_components = _text_fit_components(
+                text_map.get(parent_asin), soft_tokens
+            )
+            text_fit = max(text_components.values(), default=0.0)
             if text_fit:
                 reasons.append(f"text_fit={text_fit:.2f}")
             profile_fit = float(profile_scores.get(parent_asin, 0.0))
             if profile_fit:
                 reasons.append(f"profile_fit={profile_fit:.2f}")
+            lexical_contribution = 1.15 * scoring.lexical * lexical_score
+            structured_contribution = 0.003 * structured_score
+            text_contribution = scoring.text * text_fit
             score = (
-                 1.15 * scoring.lexical * lexical_score
-                + 0.003 * structured_score
+                lexical_contribution
+                + structured_contribution
                 + prior_score
-                + 1.0 * scoring.text * text_fit
+                + text_contribution
                 # + scoring.profile * profile_fit
             )
             hits.append(
@@ -450,6 +476,40 @@ class ScoringMixin:
                     required_coverage=round(required_coverage, 8),
                     matched_constraints=tuple(matched),
                     reasons=tuple(reasons),
+                    score_breakdown={
+                        "bm25_raw": round(lexical_score, 8),
+                        "bm25_weighted": round(lexical_contribution, 8),
+                        "required": round(required_score, 8),
+                        "missing_required": round(missing_required_score, 8),
+                        "preferred": round(preferred_score, 8),
+                        "category": round(category_score, 8),
+                        "budget": round(budget_score, 8),
+                        "dimension": round(dimension_score, 8),
+                        "exclusion": round(exclusion_score, 8),
+                        "structured_raw": round(structured_score, 8),
+                        "structured_weighted": round(
+                            structured_contribution, 8
+                        ),
+                        "rating_prior": round(rating_score, 8),
+                        "popularity_prior": round(popularity_score, 8),
+                        "catalog_prior": round(prior_score, 8),
+                        "title_text_fit": round(
+                            text_components.get("title", 0.0), 8
+                        ),
+                        "details_text_fit": round(
+                            text_components.get("details", 0.0), 8
+                        ),
+                        "description_text_fit": round(
+                            text_components.get("description", 0.0), 8
+                        ),
+                        "soft_text_fit": round(text_fit, 8),
+                        "soft_text_weighted": round(text_contribution, 8),
+                        "profile_fit": round(profile_fit, 8),
+                        "profile_weighted": 0.0,
+                        "final_score": round(score, 8),
+                    }
+                    if include_score_breakdown
+                    else {},
                 )
             )
 
@@ -472,8 +532,17 @@ _EQ_REL = 0.10
 def _text_fit(
     fields: Mapping[str, str] | None, soft_tokens: set[str]
 ) -> float:
+    return max(
+        _text_fit_components(fields, soft_tokens).values(),
+        default=0.0,
+    )
+
+
+def _text_fit_components(
+    fields: Mapping[str, str] | None, soft_tokens: set[str]
+) -> dict[str, float]:
     if not fields or not soft_tokens:
-        return 0.0
+        return {"title": 0.0, "details": 0.0, "description": 0.0}
 
     def cover(blob: str) -> float:
         tokens = set(tokenize(blob))
@@ -481,11 +550,11 @@ def _text_fit(
             return 0.0
         return len(soft_tokens & tokens) / len(soft_tokens)
 
-    return max(
-        cover(fields.get("title") or ""),
-        0.7 * cover(fields.get("details") or ""),
-        0.5 * cover(fields.get("description") or ""),
-    )
+    return {
+        "title": cover(fields.get("title") or ""),
+        "details": 0.7 * cover(fields.get("details") or ""),
+        "description": 0.5 * cover(fields.get("description") or ""),
+    }
 
 
 def _dimension_source_rank(source_key: str, source: str) -> int:

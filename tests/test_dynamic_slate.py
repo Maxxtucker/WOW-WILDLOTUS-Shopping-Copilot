@@ -10,7 +10,15 @@ from agent.decide.clarification.dynamic_slate import (
     DynamicSlateState,
 )
 from agent.decide.clarification.dynamic_adapter import CatalogSignatureTransitionModel
+from agent.decide.clarification.questions import eligible_questions
+from agent.decide.clarification.stage import (
+    ATTRIBUTE_EXPLORATION_RATE,
+    _select_attribute_with_exploration,
+)
+from agent.decide.clarification.types import NO_ADDITIONAL, Plan
 from agent.decide.ranking.normalize import RankedCandidate, normalize_probabilities
+from agent.understand.state.gate import open_conversion_gate
+from agent.understand.state.session import SessionState
 
 
 def candidate(parent_asin: str, probability: float) -> RankedCandidate:
@@ -29,6 +37,20 @@ class FixedTransitionModel:
     ) -> list[DynamicSlateBranch]:
         self.calls.append((state.cache_key, action))
         return self.transitions.get(state.cache_key, [])
+
+
+class StubRandom:
+    def __init__(self, roll: float, selected: str) -> None:
+        self.roll = roll
+        self.selected = selected
+
+    def random(self) -> float:
+        return self.roll
+
+    def choice(self, values: tuple[str, ...]) -> str:
+        if self.selected not in values:
+            raise AssertionError(f"{self.selected!r} is not in the exploration pool")
+        return self.selected
 
 
 class DynamicSlatePlannerTests(unittest.TestCase):
@@ -284,6 +306,189 @@ class CatalogSignatureTransitionModelTests(unittest.TestCase):
         self.assertIn(result, ("feature", "color", "material"))
         # Should prefer never-asked over repeatable in scoring
 
+
+
+class AttributeExplorationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.state = SessionState("session-a", {})
+        self.state.turn = 3
+        self.raw_plan = Plan(("A", "B"), "feature", 0.75, "planner optimum")
+
+    def test_exploit_keeps_the_planner_attribute_and_slate(self) -> None:
+        selection = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            ["feature", "size", "budget"],
+            has_ranked_candidates=True,
+            rng=StubRandom(ATTRIBUTE_EXPLORATION_RATE, "size"),
+        )
+
+        self.assertEqual(selection.mode, "exploit")
+        self.assertIs(selection.plan, self.raw_plan)
+        self.assertEqual(selection.exploration_pool, ("feature", "size", "budget"))
+
+    def test_explore_can_select_an_informative_attribute_below_viability(self) -> None:
+        model = CatalogSignatureTransitionModel(
+            lambda _asin, _attribute: ("answer",)
+        )
+        dynamic_state = model.root_state(
+            turn=self.state.turn,
+            candidates=(candidate("A", 1.0),),
+            questions=("feature", "size", "budget"),
+            gate_open=True,
+        )
+        self.assertEqual(dynamic_state.questions, ("feature",))
+
+        selection = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            ["feature", "size", "budget"],
+            has_ranked_candidates=True,
+            rng=StubRandom(0.0, "size"),
+        )
+
+        self.assertEqual(selection.mode, "explore")
+        self.assertEqual(selection.plan.ask_attribute, "size")
+        self.assertEqual(selection.plan.recommendations, self.raw_plan.recommendations)
+        self.assertEqual(selection.plan.expected_value, self.raw_plan.expected_value)
+        self.assertIn("attribute exploration: size", selection.plan.reason)
+
+    def test_selection_is_reproducible_and_changes_seed_after_override(self) -> None:
+        first = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            ["feature", "size", "budget"],
+            has_ranked_candidates=True,
+        )
+        repeated = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            ["feature", "size", "budget"],
+            has_ranked_candidates=True,
+        )
+
+        self.assertEqual(first, repeated)
+        old_roll = first.roll
+        old_version = self.state.intent_version
+        self.state.asked = ["feature", "size"]
+        ranked = [candidate("A", 1.0)]
+        signature = lambda _asin, _attribute: ("answer",)
+        before_override = eligible_questions(
+            self.state,
+            ranked,
+            signature,
+            max_planning_candidates=500,
+        )
+        self.assertNotIn("feature", before_override)
+        self.assertNotIn("size", before_override)
+
+        open_conversion_gate(self.state)
+        after_override_questions = eligible_questions(
+            self.state,
+            ranked,
+            signature,
+            max_planning_candidates=500,
+        )
+        after_override = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            after_override_questions,
+            has_ranked_candidates=True,
+        )
+
+        self.assertEqual(self.state.intent_version, old_version + 1)
+        self.assertEqual(self.state.asked, [])
+        self.assertIn("feature", after_override.exploration_pool)
+        self.assertIn("size", after_override.exploration_pool)
+        self.assertNotEqual(after_override.roll, old_roll)
+
+    def test_exploration_pool_uses_informative_unasked_questions(self) -> None:
+        self.state.asked = ["color"]
+        self.state.disclosure_empty = True
+        ranked = [candidate("A", 1.0)]
+
+        def signature(_asin: str, attribute: str) -> tuple[str, ...]:
+            return NO_ADDITIONAL if attribute == "budget" else ("answer",)
+
+        questions = eligible_questions(
+            self.state,
+            ranked,
+            signature,
+            max_planning_candidates=500,
+        )
+        selection = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            questions,
+            has_ranked_candidates=True,
+            rng=StubRandom(0.0, "size"),
+        )
+
+        self.assertNotIn("color", selection.exploration_pool)
+        self.assertNotIn("other", selection.exploration_pool)
+        self.assertNotIn("budget", selection.exploration_pool)
+        self.assertIn("size", selection.exploration_pool)
+        self.assertEqual(selection.plan.ask_attribute, "size")
+
+    def test_empty_ranking_disables_exploration_and_preserves_recovery(self) -> None:
+        selection = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            ["feature", "material", "color", "other"],
+            has_ranked_candidates=False,
+            rng=StubRandom(0.0, "feature"),
+        )
+
+        self.assertEqual(selection.mode, "disabled")
+        self.assertEqual(selection.exploration_pool, ())
+        self.assertIs(selection.plan, self.raw_plan)
+
+    def test_all_asked_disables_exploration(self) -> None:
+        self.state.asked = [
+            "other",
+            "feature",
+            "material",
+            "color",
+            "style",
+            "size",
+            "use_case",
+            "budget",
+        ]
+        questions = eligible_questions(
+            self.state,
+            [candidate("A", 1.0)],
+            lambda _asin, _attribute: ("answer",),
+            max_planning_candidates=500,
+        )
+        selection = _select_attribute_with_exploration(
+            self.state,
+            self.raw_plan,
+            questions,
+            has_ranked_candidates=True,
+            rng=StubRandom(0.0, "feature"),
+        )
+
+        self.assertEqual(questions, [])
+        self.assertEqual(selection.mode, "disabled")
+        self.assertEqual(selection.exploration_pool, ())
+        self.assertIs(selection.plan, self.raw_plan)
+
+    def test_final_turn_disables_exploration_and_keeps_no_question(self) -> None:
+        self.state.turn = 10
+        final_plan = Plan(("A", "B"), None, 0.75, "final turn")
+
+        selection = _select_attribute_with_exploration(
+            self.state,
+            final_plan,
+            ["feature", "size"],
+            has_ranked_candidates=True,
+            rng=StubRandom(0.0, "size"),
+        )
+
+        self.assertEqual(selection.mode, "disabled")
+        self.assertEqual(selection.exploration_pool, ())
+        self.assertIsNone(selection.plan.ask_attribute)
+        self.assertEqual(selection.plan.recommendations, ("A", "B"))
 
 
 if __name__ == "__main__":

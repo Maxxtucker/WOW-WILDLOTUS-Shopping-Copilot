@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, Sequence
 
+from ...progress import progress_enabled
 from ...retrieve.from_slots import (
     constraint_groups,
     preferred_groups,
@@ -274,6 +275,7 @@ class QwenSemanticReranker:
         self._model = model
         self._load_attempted = model is not None
         self.last_error: str | None = None
+        self.last_trace: dict[str, object] = {}
 
     @property
     def enabled(self) -> bool:
@@ -322,6 +324,7 @@ class QwenSemanticReranker:
         hits: Sequence["SearchHit"],
         retriever: "CatalogRetriever",
     ) -> list[float] | None:
+        self.last_trace = {}
         model = self._ensure_model()
         if model is None or not hits:
             return None
@@ -376,9 +379,60 @@ class QwenSemanticReranker:
             if state.intention == "browsing"
             else self.config.buying_weight
         )
-        return semantic_belief(
+        weighted = semantic_belief(
             hits,
             scores,
             semantic_weight=weight,
             temperature=self.config.temperature,
         )
+        if not progress_enabled():
+            return weighted
+        head_size = min(len(hits), len(scores))
+        combined = [
+            {
+                "parent_asin": hit.parent_asin,
+                "base_rank_prior": round(1.0 / math.log2(index + 2.0), 8),
+                "semantic": round(float(score), 8),
+                "combined": round(
+                    (1.0 - weight) * (1.0 / math.log2(index + 2.0))
+                    + weight * float(score),
+                    8,
+                ),
+            }
+            for index, (hit, score) in enumerate(
+                zip(hits[:head_size], scores, strict=False)
+            )
+        ]
+        head_weights = weighted[:head_size]
+        tail_weights = weighted[head_size:]
+        self.last_trace = {
+            "head_size": head_size,
+            "tail_size": max(0, len(hits) - head_size),
+            "semantic_weight": weight,
+            "temperature": self.config.temperature,
+            "semantic_scores": [
+                {
+                    "parent_asin": hit.parent_asin,
+                    "semantic": round(float(score), 8),
+                }
+                for hit, score in zip(hits[:head_size], scores, strict=False)
+            ][:5],
+            "combined": sorted(
+                combined,
+                key=lambda row: (
+                    -float(row["combined"]),
+                    str(row["parent_asin"]),
+                ),
+            )[:5],
+            "head_weights": [
+                {"parent_asin": asin, "weight": round(float(value), 8)}
+                for asin, value in head_weights[:5]
+            ],
+            "tail_anchor": (
+                None
+                if not tail_weights
+                else round(float(tail_weights[0][1]), 8)
+            ),
+            "tail_decay_denominator": 80.0,
+        }
+        return weighted

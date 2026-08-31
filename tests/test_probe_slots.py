@@ -283,6 +283,38 @@ class FixtureProbeSlotsTest(unittest.TestCase):
         self.assertNotIn("B", pools.lenient)
         self.assertNotIn("C", pools.lenient)
 
+    def test_excluded_asins_are_removed_from_strict_and_lenient(self) -> None:
+        state = _state(
+            ConstraintSlot("color", "blue", canonical="blue"),
+            ConstraintSlot("material", "leather", canonical="leather"),
+        )
+        state.excluded_asins = {"A", "D"}
+
+        pools = probe_exact_pools(self.retriever, state)
+
+        self.assertEqual(pools.strict, set())
+        self.assertEqual(pools.lenient, {"E"})
+
+    def test_excluding_every_pool_member_preserves_empty_set_semantics(self) -> None:
+        state = _state(ConstraintSlot("color", "blue", canonical="blue"))
+        state.excluded_asins = {"A", "B", "C", "D", "E"}
+
+        pools = probe_exact_pools(self.retriever, state)
+
+        self.assertEqual(pools.strict, set())
+        self.assertEqual(pools.lenient, set())
+
+    def test_exclusions_do_not_turn_unrepresentable_pools_into_empty_sets(self) -> None:
+        state = _state(
+            ConstraintSlot("category", "xyzzy not a catalog node")
+        )
+        state.excluded_asins = {"A", "B", "C", "D", "E"}
+
+        pools = probe_exact_pools(self.retriever, state)
+
+        self.assertIsNone(pools.strict)
+        self.assertIsNone(pools.lenient)
+
     def test_lenient_budget_keeps_missing_price(self) -> None:
         pools = probe_exact_pools(
             self.retriever,
@@ -304,6 +336,23 @@ class FixtureProbeSlotsTest(unittest.TestCase):
         self.assertNotIn("A", pools.lenient)
         self.assertNotIn("C", pools.lenient)
         self.assertNotIn("D", pools.lenient)
+
+    def test_exclusions_apply_after_numeric_filtering(self) -> None:
+        state = _state(
+            ConstraintSlot("color", "blue", canonical="blue"),
+            ConstraintSlot(
+                "budget",
+                "under $40",
+                amount=40.0,
+                op="lte",
+            ),
+        )
+        state.excluded_asins = {"E"}
+
+        pools = probe_exact_pools(self.retriever, state)
+
+        self.assertEqual(pools.strict, set())
+        self.assertEqual(pools.lenient, set())
 
     def test_unknown_category_does_not_drop_other_hard_groups(self) -> None:
         pool = probe_exact_pool(

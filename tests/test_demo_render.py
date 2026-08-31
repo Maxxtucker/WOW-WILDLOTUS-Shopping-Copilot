@@ -7,6 +7,7 @@ import unittest
 
 from demo.node_catalog import NODE_CATALOG
 from demo.render import format_assistant_text, shelf_props, visible_reply_content
+from demo.workflow_schema import NODE_FIELDS, NODE_METADATA, STAGE_ORDER
 
 
 class VisibleReplyContentTest(unittest.TestCase):
@@ -58,16 +59,25 @@ class ShelfPropsTest(unittest.TestCase):
 
 
 class NodeCatalogCopyTest(unittest.TestCase):
-    def test_node_catalog_uses_product_focused_sections(self) -> None:
+    def test_node_catalog_exposes_exactly_the_three_static_sections(self) -> None:
         casefold = NODE_CATALOG["casefold"]
-        self.assertIn("purpose", casefold)
-        self.assertIn("why", casefold)
-        self.assertIn("this_turn", casefold)
-        self.assertIn("how_it_works", casefold)
-        self.assertEqual(casefold["label"], "Normalize text")
-        self.assertIn("capitalization", casefold["why"].lower())
+        self.assertTrue(NODE_FIELDS.issubset(casefold))
+        self.assertNotIn("this_turn", casefold)
+        self.assertNotIn("function", casefold)
+        self.assertEqual(
+            casefold["label"], "Create case-insensitive working text"
+        )
+        self.assertIn("capitalization", casefold["rationale"].lower())
 
-    def test_retrieve_nodes_read_like_search_story(self) -> None:
+    def test_every_node_has_complete_self_explaining_metadata(self) -> None:
+        self.assertEqual(STAGE_ORDER, ("understand", "router", "retrieve", "decide"))
+        self.assertEqual(set(NODE_CATALOG), set(NODE_METADATA))
+        for node_id, node in NODE_METADATA.items():
+            self.assertEqual(set(node), set(NODE_FIELDS), node_id)
+            for field in NODE_FIELDS:
+                self.assertTrue(str(node[field]).strip(), (node_id, field))
+
+    def test_retrieve_titles_read_like_the_real_search_story(self) -> None:
         slot_groups = NODE_CATALOG["slot_groups"]
         query = NODE_CATALOG["rewrite_query"]
         routing = NODE_CATALOG["routing"]
@@ -79,20 +89,18 @@ class NodeCatalogCopyTest(unittest.TestCase):
         normalize = NODE_CATALOG["normalize"]
 
         for node in (slot_groups, query, routing, exact, hybrid, cap_hits, rerank, belief, normalize):
-            self.assertIn("purpose", node)
-            self.assertIn("why", node)
-            self.assertIn("this_turn", node)
-            self.assertIn("how_it_works", node)
+            self.assertTrue(NODE_FIELDS.issubset(node))
+            self.assertNotIn("this_turn", node)
 
-        self.assertEqual(slot_groups["label"], "Separate requirements from preferences")
-        self.assertEqual(query["label"], "Build the retrieval query")
-        self.assertEqual(routing["label"], "Choose retrieval breadth")
-        self.assertEqual(exact["label"], "Rank within the exact-match pool")
-        self.assertEqual(hybrid["label"], "Recover broader candidates")
-        self.assertEqual(cap_hits["label"], "Merge and cap candidates")
-        self.assertEqual(rerank["label"], "Semantic rerank")
-        self.assertEqual(belief["label"], "Convert scores to ranking confidence")
-        self.assertEqual(normalize["label"], "Normalize ranking weights")
+        self.assertEqual(slot_groups["label"], "Build hard and soft scoring groups")
+        self.assertEqual(query["label"], "Build the active-intent lexical query")
+        self.assertEqual(routing["label"], "Load route weights and limits")
+        self.assertEqual(exact["label"], "Restrict BM25 scores to the seed pool")
+        self.assertEqual(hybrid["label"], "Recover or fill candidates permissively")
+        self.assertEqual(cap_hits["label"], "Assemble the bounded base library")
+        self.assertEqual(rerank["label"], "Try the optional Qwen semantic head")
+        self.assertEqual(belief["label"], "Convert deterministic scores to weights")
+        self.assertEqual(normalize["label"], "Normalize ranking probability mass")
 
 
 if __name__ == "__main__":

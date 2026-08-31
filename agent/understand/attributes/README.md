@@ -2,7 +2,10 @@
 
 ## Purpose
 
-Turn shopping evidence in simulator/user messages into structured constraints for retrieve. This is semantic capture, not prose understanding. Observation classify finds the strings; this package writes them and restores semicolon-containing values.
+Turn ordinary shopper evidence into cited constraint strings and restore compact
+follow-up values that contain semicolons. Observation finds the strings and
+stages them in `turn_delta`; Router writeback calls this package when it commits
+an accumulation or replacement decision.
 
 ## Files
 
@@ -15,9 +18,14 @@ Turn shopping evidence in simulator/user messages into structured constraints fo
 ## Collaboration
 
 ```text
-observe → extract_constraints
-            ├─ key requirement / what matters is
-            └─ resolve_matters_pieces (lookup)
+observe
+    extract_constraints
+        ├─ key requirement / what matters is
+        └─ resolve_matters_pieces (lookup)
+    → turn_delta
+Intent Router
+    apply_delta
+        └─ add_constraint → active_constraints / disclosed
 ```
 
 `reply_value_lookup` is written by the previous turn's `decide/response/writeback.set_reply_options`. This package only reads it.

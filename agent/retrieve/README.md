@@ -2,39 +2,110 @@
 
 Retrieve turns committed session constraints plus Intent Router's exact pools into a ranked probability distribution for Decide. The stage is exact-first when hard evidence can be represented, hybrid when recall is small or unavailable, and protected by three-route weighted reciprocal-rank fusion (RRF) whenever active-intent raw text exists.
 
-This README documents current constants and formulas. In particular, current Buying/Override output is capped at 150 search hits, not 300. The minimum candidate library is 300 only for small-exact fill, hybrid-only search, and safety fusion.
+This README documents current constants and formulas. A Buying/Override
+base exact list is capped at 150 when it already meets the floor. Small-exact
+fill, hybrid-only search, and optional safety fusion use a 300-candidate
+library target; Browsing uses 500. Consequently, a fused Buying/Override result
+may contain up to 300 hits even when its strict/base input was capped at 150.
 
 ## Strict end-to-end flow
 
+<!-- workflow-schema:retrieve -->
 ```mermaid
 flowchart TD
-    IN["SessionState + strict/lenient exact pools"] --> PICK{"strict exists, size < 150, lenient non-empty?"}
-    PICK -- yes --> LEN["Use lenient exact pool"]
-    PICK -- no --> STR["Use strict exact pool"]
-    LEN --> SIGNAL["Build hard groups, soft groups, budget, dimension, query"]
-    STR --> SIGNAL
-    SIGNAL --> POOL{"Selected exact pool non-empty?"}
-    POOL -- yes --> BM["Fielded BM25 top 1500; retain scores for exact members"]
-    BM --> ES["Score every product in selected exact pool"]
-    ES --> FLOOR{"Scored exact count >= 150?"}
-    FLOOR -- yes --> CAP["Cap: Buying/Override 150; Browsing 500"]
-    FLOOR -- no --> FILL["Hybrid fill to library size 300 or 500"]
-    FILL --> BASE["Exact hits first + fill hits"]
-    CAP --> BASE
-    POOL -- no --> HYB["Hybrid-only search to 300 or 500"]
-    HYB --> BASE
-    BASE --> RAW{"Any non-empty current-intent message?"}
-    RAW -- no --> HITS["Keep base search hits"]
-    RAW -- yes --> ROUTES["Build strict, relaxed, and raw routes"]
-    ROUTES --> RRF["Weighted RRF, k=60"]
-    RRF --> HITS
-    HITS --> QWEN{"Local semantic reranker available?"}
-    QWEN -- yes --> SEM["Rerank head 50 and construct weights"]
-    QWEN -- no --> BEL["Temperature belief from search/RRF scores"]
-    SEM --> NORM["Sort and normalize probabilities to sum 1"]
-    BEL --> NORM
-    NORM --> OUT["RankedCandidate list for Decide"]
+    select_pool["Select strict or lenient seed pool"]
+    slot_groups["Build hard and soft scoring groups"]
+    rewrite_query["Build the active-intent lexical query"]
+    routing["Load route weights and limits"]
+    lexical_in_pool["Restrict BM25 scores to the seed pool"]
+    score_exact["Score selected-pool candidates"]
+    hybrid_search["Recover or fill candidates permissively"]
+    bm25_score["Measure BM25 lexical relevance"]
+    required_score["Score required-constraint coverage"]
+    preferred_score["Score soft preferences"]
+    category_score["Score category agreement"]
+    budget_score["Score and enforce budget fit"]
+    dimension_score["Score and enforce dimension fit"]
+    exclusion_score["Apply negative preference evidence"]
+    structured_subtotal["Combine structured evidence"]
+    rating_prior["Compute the rating-quality prior"]
+    popularity_prior["Compute the popularity prior"]
+    catalog_prior["Combine catalog quality priors"]
+    title_text_fit["Measure soft-text title coverage"]
+    details_text_fit["Measure soft-text details coverage"]
+    description_text_fit["Measure soft-text description coverage"]
+    soft_text_fit["Select the strongest soft-text fit"]
+    profile_diagnostic["Compute disabled profile diagnostics"]
+    weighted_score["Assemble the deterministic retrieval score"]
+    cap_hits["Assemble the bounded base library"]
+    raw_evidence["Check active-intent raw-text evidence"]
+    base_only["Use the base route without fusion"]
+    relaxed_route["Run relaxed structured safety recall"]
+    raw_text_route["Run raw-text safety recall"]
+    weighted_rrf["Fuse three recall routes with weighted RRF"]
+    qwen_rerank["Try the optional Qwen semantic head"]
+    semantic_logits["Convert semantic logits to fit scores"]
+    semantic_blend["Blend semantic fit with base rank"]
+    semantic_weights["Temperature-scale semantic head weights"]
+    semantic_tail["Keep the unscored retrieval tail"]
+    belief_temperature["Choose deterministic belief temperature"]
+    belief_hits["Convert deterministic scores to weights"]
+    normalize["Normalize ranking probability mass"]
+    select_pool --> slot_groups
+    slot_groups --> rewrite_query
+    rewrite_query --> routing
+    routing -- "selected pool non-empty" --> lexical_in_pool
+    routing -- "selected pool missing or empty" --> hybrid_search
+    lexical_in_pool --> score_exact
+    score_exact -- "fewer than 150 scored hits" --> hybrid_search
+    score_exact --> bm25_score
+    score_exact --> required_score
+    score_exact --> rating_prior
+    score_exact --> title_text_fit
+    score_exact --> profile_diagnostic
+    hybrid_search --> bm25_score
+    hybrid_search --> required_score
+    hybrid_search --> rating_prior
+    hybrid_search --> title_text_fit
+    hybrid_search --> profile_diagnostic
+    required_score --> preferred_score
+    preferred_score --> category_score
+    required_score --> budget_score
+    preferred_score --> dimension_score
+    category_score --> exclusion_score
+    budget_score --> structured_subtotal
+    dimension_score --> structured_subtotal
+    exclusion_score --> structured_subtotal
+    rating_prior --> popularity_prior
+    popularity_prior --> catalog_prior
+    title_text_fit --> details_text_fit
+    details_text_fit --> description_text_fit
+    description_text_fit --> soft_text_fit
+    bm25_score --> weighted_score
+    structured_subtotal --> weighted_score
+    catalog_prior --> weighted_score
+    soft_text_fit --> weighted_score
+    profile_diagnostic --> weighted_score
+    weighted_score --> cap_hits
+    cap_hits --> raw_evidence
+    raw_evidence -- "no raw evidence" --> base_only
+    raw_evidence -- "raw evidence present" --> relaxed_route
+    raw_evidence -- "raw evidence present" --> raw_text_route
+    cap_hits -- "base route" --> weighted_rrf
+    relaxed_route --> weighted_rrf
+    raw_text_route --> weighted_rrf
+    base_only --> qwen_rerank
+    weighted_rrf --> qwen_rerank
+    qwen_rerank -- "valid semantic head" --> semantic_logits
+    qwen_rerank -- "unavailable or invalid" --> belief_temperature
+    semantic_logits --> semantic_blend
+    semantic_blend --> semantic_weights
+    semantic_weights --> semantic_tail
+    semantic_tail --> normalize
+    belief_temperature --> belief_hits
+    belief_hits --> normalize
 ```
+<!-- /workflow-schema -->
 
 ## Track routing and candidate sizes
 

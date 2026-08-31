@@ -122,7 +122,7 @@ default_theme = "dark"
 # If not set, the browser's language will be used
 # language = "en-US"
 
-# layout = "wide"
+layout = "wide"
 
 default_sidebar_state = "open"  # Options: "open", "closed", "hidden"
 
@@ -172,10 +172,10 @@ alert_style = "classic"
 # custom_meta_image_url = "https://chainlit-cloud.s3.eu-west-3.amazonaws.com/logo/chainlit_banner.png"
 
 # Load assistant logo directly from URL.
-logo_file_url = ""
+logo_file_url = "/public/logo_dark.png"
 
 # Load assistant avatar image directly from URL.
-default_avatar_file_url = ""
+default_avatar_file_url = "/public/logo_dark.png"
 
 # Avatar size in pixels (default: 20).
 # avatar_size = 20

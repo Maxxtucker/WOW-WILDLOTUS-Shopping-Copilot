@@ -21,7 +21,7 @@ export default function EvalScoreCard() {
   const root = typeof props !== "undefined" ? props : {};
   const kind = root.kind || "session";
   const hit = Boolean(root.hit);
-  const accent = kind === "group" ? "#5da8ff" : hit ? "#20c997" : "#ff6b6b";
+  const accent = kind === "group" ? "#25f4ee" : hit ? "#25f4ee" : "#fe2c55";
 
   if (kind === "session") {
     return (
@@ -31,9 +31,9 @@ export default function EvalScoreCard() {
           maxWidth: 420,
           borderRadius: 18,
           padding: 16,
-          color: "#f5f7fb",
-          background: `radial-gradient(circle at top left, ${accent}22, transparent 34%), linear-gradient(180deg, #151515 0%, #101010 100%)`,
-          border: "1px solid rgba(255,255,255,0.08)",
+          color: "#f7f3ff",
+          background: `radial-gradient(ellipse 80% 60% at 0% 0%, ${accent}33, transparent 52%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)`,
+          border: "1px solid rgba(196,181,253,0.22)",
         }}
       >
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.42)", fontWeight: 700 }}>
@@ -60,10 +60,10 @@ export default function EvalScoreCard() {
         maxWidth: 480,
         borderRadius: 18,
         padding: 16,
-        color: "#f5f7fb",
-        background:
-          "radial-gradient(circle at top left, rgba(93,168,255,0.18), transparent 34%), linear-gradient(180deg, #151515 0%, #101010 100%)",
-        border: "1px solid rgba(255,255,255,0.08)",
+          color: "#f7f3ff",
+          background:
+            "radial-gradient(ellipse 80% 60% at 0% 0%, rgba(37,244,238,0.18), transparent 50%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)",
+          border: "1px solid rgba(196,181,253,0.22)",
       }}
     >
       <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.42)", fontWeight: 700 }}>

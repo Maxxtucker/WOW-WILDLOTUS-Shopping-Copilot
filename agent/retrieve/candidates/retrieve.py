@@ -1,7 +1,7 @@
 """Purpose: score the router's exact pool, then fill with hybrid if under the floor.
 
 Input: CatalogRetriever, SessionState, optional exact ASIN set from the router
-and unused exact_lenient (match-or-unknown superset; scoring still uses exact).
+and exact_lenient (match-or-unknown superset).
 Output: SearchHit values (library at least 300 when exact is under 150; browsing 500).
 Role: pipeline stage 5. Does not recompute the hard intersection. Hard hits
 stay in front; hybrid fill (hard_required=False) pads a small exact pool.
@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from ...progress import emit, skip_nodes
+from ...progress import emit, progress_enabled, skip_nodes
 from ..catalog.protocol_copy import tokenize
 from ..catalog.types import DimensionSpec, SearchWeights
 from ..from_slots import (
@@ -24,19 +24,20 @@ from ..from_slots import (
     soft_text_terms,
     uses_typed_slots,
 )
-from .query import rewrite_query
-from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
 from .multi_route import (
     RAW_TEXT_WEIGHT,
     RELAXED_WEIGHT,
     STRICT_WEIGHT,
     fuse_routes,
+    route_membership,
 )
+from .query import rewrite_query
+from .routing import CANDIDATE_FLOOR, library_limit_for, routing_for
 
 if TYPE_CHECKING:
+    from ...understand.state.session import SessionState
     from ..catalog.retriever import CatalogRetriever
     from ..catalog.types import SearchHit
-    from ...understand.state.session import SessionState
 
 
 class CandidateOrganizer:
@@ -73,6 +74,127 @@ def _group_rows(groups: object) -> list[dict[str, Any]]:
     return rows
 
 
+def _pool_size(pool: set[str] | None) -> int | None:
+    return None if pool is None else len(pool)
+
+
+def _head_asins(hits: list[SearchHit], limit: int = 5) -> list[str]:
+    return [hit.parent_asin for hit in hits[:limit]]
+
+
+def _component_rows(
+    hits: list[SearchHit], *keys: str, limit: int = 5
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for hit in hits[:limit]:
+        row: dict[str, object] = {"parent_asin": hit.parent_asin}
+        for key in keys:
+            row[key] = round(float(hit.score_breakdown.get(key, 0.0)), 8)
+        rows.append(row)
+    return rows
+
+
+def _emit_score_breakdown(
+    hits: list[SearchHit],
+    weights: SearchWeights,
+    *,
+    path: str,
+) -> None:
+    """Publish the real score fan-out without changing candidate ordering."""
+
+    if not progress_enabled():
+        return
+    specs = (
+        (
+            "bm25_score",
+            {"fielded_bm25": True, "route_weight": weights.lexical, "outer_scale": 1.15},
+            ("bm25_raw", "bm25_weighted"),
+        ),
+        (
+            "required_score",
+            {
+                "match_weight": weights.required,
+                "missing_weight": weights.missing_required,
+            },
+            ("required", "missing_required"),
+        ),
+        ("preferred_score", {"weight": weights.preferred}, ("preferred",)),
+        ("category_score", {"weight": weights.category}, ("category",)),
+        ("budget_score", {"weight": weights.budget}, ("budget",)),
+        ("dimension_score", {"weight": weights.dimension}, ("dimension",)),
+        (
+            "exclusion_score",
+            {"weight": weights.excluded, "hard_drop_similarity": 0.9},
+            ("exclusion",),
+        ),
+        (
+            "structured_subtotal",
+            {"outer_scale": 0.003},
+            ("structured_raw", "structured_weighted"),
+        ),
+        ("rating_prior", {"weight": weights.rating}, ("rating_prior",)),
+        (
+            "popularity_prior",
+            {"weight": weights.popularity},
+            ("popularity_prior",),
+        ),
+        (
+            "catalog_prior",
+            {"formula": "rating prior + popularity prior"},
+            ("catalog_prior",),
+        ),
+        (
+            "title_text_fit",
+            {"field_scale": 1.0},
+            ("title_text_fit",),
+        ),
+        (
+            "details_text_fit",
+            {"field_scale": 0.7},
+            ("details_text_fit",),
+        ),
+        (
+            "description_text_fit",
+            {"field_scale": 0.5},
+            ("description_text_fit",),
+        ),
+        (
+            "soft_text_fit",
+            {"route_weight": weights.text, "combiner": "maximum field coverage"},
+            ("soft_text_fit", "soft_text_weighted"),
+        ),
+        (
+            "profile_diagnostic",
+            {"configured_weight": weights.profile, "final_score_weight": 0.0},
+            ("profile_fit", "profile_weighted"),
+        ),
+        (
+            "weighted_score",
+            {
+                "formula": (
+                    "1.15*w_lex*lexical + 0.003*structured "
+                    "+ catalog_prior + w_text*soft_text"
+                )
+            },
+            ("final_score",),
+        ),
+    )
+    for node, config, keys in specs:
+        emit(
+            "retrieve",
+            node,
+            "completed",
+            {
+                "input": {
+                    "path": path,
+                    "candidate_count": len(hits),
+                    **config,
+                },
+                "output": {"top": _component_rows(hits, *keys)},
+            },
+        )
+
+
 RAW_RECALL_WEIGHTS = SearchWeights(
     lexical=2.2,
     required=0.0,
@@ -100,47 +222,30 @@ def _without_excluded_hits(
 
 
 def _build_frequency_weighted_raw_text(messages: list[str]) -> str:
-    """Build frequency-weighted raw search text from non-empty disclosures.
-    
-    Uses all messages in the current intent (post-override), computes term
-    frequencies, and repeats high-frequency terms to boost their BM25 weights.
-    Tokenization handles lowercase, stopword filtering, and deduplication.
-    
-    Args:
-        messages: non-empty current_intent_messages from SessionState, already
-              cleared of pre-override content by open_conversion_gate
-    
-    Returns:
-        Frequency-weighted text string for BM25 query; empty string if no messages
+    """Build the current implementation's raw search text.
+
+    ``tokenize`` deduplicates terms before Counter sees them, so the current
+    runtime output is first-seen unique terms even though the helper retains the
+    intended frequency-weighting loop. This behavior is documented in the
+    Retrieve README and is exposed in the demo rather than hidden.
     """
+
     if not messages:
         return ""
-    
-    # Concatenate all messages
     full_text = " ".join(msg.strip() for msg in messages if msg.strip())
     if not full_text:
         return ""
-    
-    # Tokenize (handles: lowercase, punctuation removal, stopword filtering)
     tokens = tokenize(full_text, limit=None)
     if not tokens:
         return ""
-    
-    # Count term frequencies
     term_freq = Counter(tokens)
-    
-    # Build frequency-weighted text by repeating high-frequency terms.
-    # Keep order of first appearance, cap repetitions at 3 for balance.
     weighted_parts: list[str] = []
     seen_terms: set[str] = set()
-    
     for token in tokens:
         if token not in seen_terms:
             seen_terms.add(token)
-            freq = min(term_freq[token], 3)  # Cap at 3 repetitions
-            # Repeat the term based on frequency
+            freq = min(term_freq[token], 3)
             weighted_parts.extend([token] * freq)
-    
     return " ".join(weighted_parts)
 
 
@@ -154,13 +259,62 @@ def _safe_route_fusion(
     soft_groups: object,
     candidate_limit: int,
 ) -> list[SearchHit]:
-    """Add relaxed and raw-text recall when live utterance evidence exists."""
+    """Add relaxed and raw-text recall when active-intent evidence exists."""
 
     base_hits = _without_excluded_hits(base_hits, state.excluded_asins)
-    raw_text = _build_frequency_weighted_raw_text(state.current_intent_messages).strip()
+    emit("retrieve", "raw_evidence", "running")
+    raw_text = _build_frequency_weighted_raw_text(
+        state.current_intent_messages
+    ).strip()
+    raw_terms = raw_text.split()
+    emit(
+        "retrieve",
+        "raw_evidence",
+        "completed",
+        {
+            "input": {
+                "current_intent_messages": list(state.current_intent_messages),
+                "message_count": len(state.current_intent_messages),
+            },
+            "output": {
+                "raw_text": raw_text[:240],
+                "term_count": len(raw_terms),
+                "has_raw_evidence": bool(raw_text),
+                "note": "tokenize currently deduplicates before frequency counting",
+            },
+        },
+    )
     if not raw_text:
+        emit(
+            "retrieve",
+            "base_only",
+            "completed",
+            {
+                "input": {"base_hits": len(base_hits)},
+                "output": {
+                    "hit_count": len(base_hits),
+                    "path": "base only",
+                    "top": _head_asins(base_hits),
+                },
+            },
+        )
+        skip_nodes(
+            "retrieve",
+            "relaxed_route",
+            "raw_text_route",
+            "weighted_rrf",
+            why="no non-empty current-intent raw evidence",
+        )
         return base_hits
+
+    skip_nodes(
+        "retrieve",
+        "base_only",
+        why="active-intent raw evidence enables three-route safety fusion",
+    )
     limit = library_limit_for(state.intention)
+
+    emit("retrieve", "relaxed_route", "running")
     relaxed = retriever.search(
         query,
         required_groups=groups,
@@ -178,6 +332,28 @@ def _safe_route_fusion(
         text_query=" ".join(soft_text_terms(state)),
         profile_tags=state.preference_tags,
     )
+    emit(
+        "retrieve",
+        "relaxed_route",
+        "completed",
+        {
+            "input": {
+                "query": query[:160],
+                "limit": limit,
+                "required_groups": _group_rows(groups),
+                "hard_category": False,
+                "hard_budget": False,
+                "hard_dimension": False,
+            },
+            "output": {
+                "hit_count": len(relaxed),
+                "top": _head_asins(relaxed),
+            },
+        },
+    )
+
+    emit("retrieve", "raw_text_route", "running")
+    raw_candidate_limit = max(candidate_limit, 2_000)
     raw = retriever.search(
         raw_text,
         required_groups=(),
@@ -186,7 +362,7 @@ def _safe_route_fusion(
         budget=None,
         exclude_asins=state.excluded_asins,
         limit=limit,
-        candidate_limit=max(candidate_limit, 2_000),
+        candidate_limit=raw_candidate_limit,
         weights=RAW_RECALL_WEIGHTS,
         hard_required=False,
         hard_budget=False,
@@ -195,6 +371,25 @@ def _safe_route_fusion(
         text_query="",
         profile_tags=(),
     )
+    emit(
+        "retrieve",
+        "raw_text_route",
+        "completed",
+        {
+            "input": {
+                "raw_text": raw_text[:240],
+                "limit": limit,
+                "candidate_limit": raw_candidate_limit,
+                "lexical_weight": RAW_RECALL_WEIGHTS.lexical,
+            },
+            "output": {
+                "hit_count": len(raw),
+                "top": _head_asins(raw),
+            },
+        },
+    )
+
+    emit("retrieve", "weighted_rrf", "running")
     fused = fuse_routes(
         (
             ("strict", STRICT_WEIGHT, base_hits),
@@ -203,7 +398,48 @@ def _safe_route_fusion(
         ),
         limit=limit,
     )
-    return _without_excluded_hits(fused, state.excluded_asins)
+    fused = _without_excluded_hits(fused, state.excluded_asins)
+    emit(
+        "retrieve",
+        "weighted_rrf",
+        "completed",
+        {
+            "input": {
+                "k": 60,
+                "limit": limit,
+                "routes": [
+                    {
+                        "name": "strict/base",
+                        "weight": STRICT_WEIGHT,
+                        "hits": len(base_hits),
+                    },
+                    {
+                        "name": "relaxed",
+                        "weight": RELAXED_WEIGHT,
+                        "hits": len(relaxed),
+                    },
+                    {
+                        "name": "raw_text",
+                        "weight": RAW_TEXT_WEIGHT,
+                        "hits": len(raw),
+                    },
+                ],
+            },
+            "output": {
+                "hit_count": len(fused),
+                "top": _head_asins(fused),
+                "route_membership": route_membership(fused),
+                "top_contributions": _component_rows(
+                    fused,
+                    "rrf_strict",
+                    "rrf_relaxed",
+                    "rrf_raw",
+                    "rrf_total",
+                ),
+            },
+        },
+    )
+    return fused
 
 
 def retrieve_candidates(
@@ -214,6 +450,8 @@ def retrieve_candidates(
 ) -> list[SearchHit]:
     if exact_lenient is None:
         exact_lenient = state.exact_lenient
+
+    emit("retrieve", "select_pool", "running")
     exact_pool = exact
     pool_source = "strict"
     if (
@@ -223,6 +461,25 @@ def retrieve_candidates(
     ):
         exact_pool = exact_lenient
         pool_source = "lenient"
+    emit(
+        "retrieve",
+        "select_pool",
+        "completed",
+        {
+            "input": {
+                "strict": _pool_size(exact),
+                "lenient": _pool_size(exact_lenient),
+                "candidate_floor": CANDIDATE_FLOOR,
+            },
+            "output": {
+                "selected": pool_source,
+                "selected_count": _pool_size(exact_pool),
+                "selected_nonempty": bool(exact_pool),
+                "note": "None means unrepresentable; 0 means represented but empty",
+            },
+        },
+    )
+
     emit("retrieve", "slot_groups", "running")
     groups, budget = required_and_budget(state)
     soft_groups = preferred_groups(state)
@@ -231,14 +488,22 @@ def retrieve_candidates(
         "slot_groups",
         "completed",
         {
-            "input": {"intention": state.intention},
+            "input": {
+                "intention": state.intention,
+                "typed_constraints": len(state.typed_constraints),
+            },
             "output": {
                 "required": _group_rows(groups),
                 "preferred": _group_rows(soft_groups),
-                "budget": None if budget is None else {"low": budget[0], "high": budget[1]},
+                "budget": (
+                    None
+                    if budget is None
+                    else {"low": budget[0], "high": budget[1]}
+                ),
             },
         },
     )
+
     emit("retrieve", "rewrite_query", "running")
     routing = routing_for(state.intention)
     categories = _hard_categories(state)
@@ -248,10 +513,14 @@ def retrieve_candidates(
         "rewrite_query",
         "completed",
         {
-            "input": {"category": state.category},
-            "output": {"query": query[:160]},
+            "input": {
+                "category": state.category,
+                "latest_message_fallback": state.latest_message[:160],
+            },
+            "output": {"query": query[:240], "hard_categories": list(categories)},
         },
     )
+
     emit("retrieve", "routing", "running")
     emit(
         "retrieve",
@@ -260,13 +529,21 @@ def retrieve_candidates(
         {
             "input": {"intention": state.intention},
             "output": {
-                "limit": routing.limit,
+                "direct_exact_cap": routing.limit,
                 "library_limit": library_limit_for(state.intention),
                 "candidate_limit": routing.candidate_limit,
                 "exact_first": routing.exact_first,
+                "weights": {
+                    "lexical": routing.weights.lexical,
+                    "required": routing.weights.required,
+                    "preferred": routing.weights.preferred,
+                    "category": routing.weights.category,
+                    "text": routing.weights.text,
+                },
             },
         },
     )
+
     text_query = " ".join(soft_text_terms(state))
     hard_budget = session_budget(state, hard_only=True) is not None
     dim = session_dimension(state)
@@ -295,6 +572,7 @@ def retrieve_candidates(
         "text_query": text_query,
         "profile_tags": state.preference_tags,
     }
+
     if exact_pool:
         emit("retrieve", "lexical_in_pool", "running")
         lexical = retriever.lexical_scores(query, routing.candidate_limit)
@@ -309,14 +587,21 @@ def retrieve_candidates(
             "completed",
             {
                 "input": {
-                    "strict_exact": None if exact is None else len(exact),
-                    "exact_pool": len(exact_pool),
+                    "strict_exact": _pool_size(exact),
+                    "selected_pool": len(exact_pool),
                     "pool_source": pool_source,
-                    "query": query[:120],
+                    "query": query[:160],
+                    "bm25_candidate_limit": routing.candidate_limit,
                 },
-                "output": {"lexical_in_pool": len(in_pool)},
+                "output": {
+                    "lexical_in_pool": len(in_pool),
+                    "pool_members_without_bm25_hit": max(
+                        0, len(exact_pool) - len(in_pool)
+                    ),
+                },
             },
         )
+
         emit("retrieve", "score_exact", "running")
         exact_hits = retriever.score_candidates(
             exact_pool,
@@ -328,13 +613,30 @@ def retrieve_candidates(
             "retrieve",
             "score_exact",
             "completed",
-            {"output": {"scored": len(exact_hits)}},
+            {
+                "input": {
+                    "selected_pool": len(exact_pool),
+                    "pool_source": pool_source,
+                    "hard_budget": hard_budget,
+                    "hard_dimension": hard_dimension,
+                },
+                "output": {
+                    "scored": len(exact_hits),
+                    "top": _head_asins(exact_hits),
+                },
+            },
         )
+
         if len(exact_hits) >= CANDIDATE_FLOOR:
             skip_nodes(
                 "retrieve",
                 "hybrid_search",
-                why="exact pool already meets candidate floor",
+                why="scored exact pool already meets candidate floor",
+            )
+            _emit_score_breakdown(
+                exact_hits,
+                routing.weights,
+                path=f"{pool_source} exact",
             )
             capped = exact_hits[: routing.limit]
             emit(
@@ -343,14 +645,15 @@ def retrieve_candidates(
                 "completed",
                 {
                     "input": {
-                        "scored": len(exact_hits),
-                        "limit": routing.limit,
+                        "scored_exact": len(exact_hits),
+                        "direct_exact_cap": routing.limit,
                     },
                     "output": {
                         "hit_count": len(capped),
                         "path": "exact",
                         "exact_n": len(capped),
                         "fill_n": 0,
+                        "top": _head_asins(capped),
                     },
                     "hit_count": len(capped),
                 },
@@ -364,6 +667,7 @@ def retrieve_candidates(
                 soft_groups=soft_groups,
                 candidate_limit=routing.candidate_limit,
             )
+
         library_limit = library_limit_for(state.intention)
         need = max(0, library_limit - len(exact_hits))
         fill_exclude = set(state.excluded_asins) | set(exact_pool)
@@ -386,28 +690,44 @@ def retrieve_candidates(
             "completed",
             {
                 "input": {
-                    "query": query[:120],
-                    "limit": need,
+                    "reason": "scored exact count below candidate floor",
+                    "exact_hits": len(exact_hits),
+                    "candidate_floor": CANDIDATE_FLOOR,
+                    "query": query[:160],
+                    "requested_fill": need,
                     "hard_required": False,
+                    "hard_budget": False,
+                    "hard_dimension": False,
+                    "excluded_selected_pool": len(exact_pool),
                 },
-                "output": {"hit_count": len(fill)},
+                "output": {
+                    "hit_count": len(fill),
+                    "top": _head_asins(fill),
+                },
             },
         )
         combined = exact_hits + fill
+        _emit_score_breakdown(
+            combined,
+            routing.weights,
+            path=f"{pool_source} exact + hybrid fill",
+        )
         emit(
             "retrieve",
             "cap_hits",
             "completed",
             {
                 "input": {
-                    "scored": len(exact_hits),
-                    "limit": library_limit,
+                    "exact_hits": len(exact_hits),
+                    "fill_hits": len(fill),
+                    "library_limit": library_limit,
                 },
                 "output": {
                     "hit_count": len(combined),
                     "path": "exact+fill",
                     "exact_n": len(exact_hits),
                     "fill_n": len(fill),
+                    "top": _head_asins(combined),
                 },
                 "hit_count": len(combined),
             },
@@ -426,7 +746,7 @@ def retrieve_candidates(
         "retrieve",
         "lexical_in_pool",
         "score_exact",
-        why="no strict or lenient exact candidates",
+        why="selected strict/lenient pool is None or empty",
     )
     library_limit = library_limit_for(state.intention)
     emit("retrieve", "hybrid_search", "running")
@@ -442,17 +762,38 @@ def retrieve_candidates(
         "hybrid_search",
         "completed",
         {
-            "input": {"query": query[:120], "limit": library_limit},
-            "output": {"hit_count": len(hits)},
+            "input": {
+                "reason": "no non-empty selected exact pool",
+                "query": query[:160],
+                "limit": library_limit,
+                "hard_required": False,
+                "hard_budget": hard_budget,
+                "hard_dimension": hard_dimension,
+            },
+            "output": {
+                "hit_count": len(hits),
+                "top": _head_asins(hits),
+            },
         },
+    )
+    _emit_score_breakdown(
+        hits,
+        routing.weights,
+        path="hybrid only",
     )
     emit(
         "retrieve",
         "cap_hits",
         "completed",
         {
-            "input": {"limit": library_limit},
-            "output": {"hit_count": len(hits), "path": "hybrid"},
+            "input": {"library_limit": library_limit},
+            "output": {
+                "hit_count": len(hits),
+                "path": "hybrid",
+                "exact_n": 0,
+                "fill_n": len(hits),
+                "top": _head_asins(hits),
+            },
             "hit_count": len(hits),
         },
     )

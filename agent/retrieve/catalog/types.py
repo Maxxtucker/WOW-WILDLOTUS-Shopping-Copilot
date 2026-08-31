@@ -160,6 +160,7 @@ class SearchHit:
     required_coverage: float
     matched_constraints: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
+    score_breakdown: Mapping[str, float] = field(default_factory=dict, repr=False)
 
     def recommendation(self, *, include_score: bool = False) -> dict[str, object]:
         result: dict[str, object] = {"parent_asin": self.parent_asin}

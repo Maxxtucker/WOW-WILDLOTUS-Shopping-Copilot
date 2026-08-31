@@ -39,6 +39,9 @@ class ResponseBuilder:
                 f"{plan.reason} (response recovery)",
             )
         emit("decide", "persist_turn", "running")
+        shown_before = set(state.shown_asins)
+        excluded_before = set(state.excluded_asins)
+        asked_before = list(state.asked)
         persist_turn(state, retriever, candidate_asins, plan, slate)
         emit(
             "decide",
@@ -53,6 +56,14 @@ class ResponseBuilder:
                 "output": {
                     "last_ask": state.last_ask,
                     "last_slate": len(state.last_slate),
+                    "newly_shown": sorted(set(state.shown_asins) - shown_before),
+                    "newly_excluded": sorted(
+                        set(state.excluded_asins) - excluded_before
+                    ),
+                    "asked_added": [
+                        item for item in state.asked if item not in asked_before
+                    ],
+                    "reply_lookup_size": len(state.reply_value_lookup),
                 },
             },
         )
@@ -78,6 +89,7 @@ class ResponseBuilder:
                     "ask_attribute": response.get("ask_attribute"),
                     "recommendations": len(response.get("recommendations") or []),
                     "message": str(response.get("message") or "")[:160],
+                    "usage": dict(response.get("usage") or {}),
                 },
             },
         )

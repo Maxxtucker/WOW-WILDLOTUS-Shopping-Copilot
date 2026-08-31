@@ -55,9 +55,23 @@ def rewrite_for_nlu(
 ) -> str:
     """Casefold ``message`` and replace known color/material phrases."""
 
-    emit("understand", "casefold", "running")
+    emit(
+        "understand",
+        "casefold",
+        "running",
+        {"input": {"message": message or ""}},
+    )
     folded = (message or "").casefold()
-    emit("understand", "casefold", "completed", {"text": folded})
+    emit(
+        "understand",
+        "casefold",
+        "completed",
+        {
+            "text": folded,
+            "input": {"message": message or ""},
+            "output": {"folded": folded},
+        },
+    )
     if not folded.strip():
         skip_nodes(
             "understand",
@@ -66,6 +80,7 @@ def rewrite_for_nlu(
             "color_verify",
             "material_verify",
             "merge_rewrite",
+            why="casefolded message is empty",
         )
         return folded
     spans = [(match.start(), match.end(), match.group()) for match in _WORD_RE.finditer(folded)]
@@ -77,6 +92,7 @@ def rewrite_for_nlu(
             "color_verify",
             "material_verify",
             "merge_rewrite",
+            why="message contains no word tokens for alias matching",
         )
         return folded
     color_map, color_n = _load_color_mapping()
@@ -85,12 +101,33 @@ def rewrite_for_nlu(
     emit("understand", "material_map", "running")
     color_hits = collect_hits(spans, color_map, color_n)
     material_hits = collect_hits(spans, material_map, material_n)
-    emit("understand", "color_map", "completed", {"hits": _alias_rows(color_hits)})
+    emit(
+        "understand",
+        "color_map",
+        "completed",
+        {
+            "hits": _alias_rows(color_hits),
+            "input": {
+                "folded": folded,
+                "maximum_ngram": color_n,
+                "alias_count": len(color_map),
+            },
+            "output": {"hits": _alias_rows(color_hits)},
+        },
+    )
     emit(
         "understand",
         "material_map",
         "completed",
-        {"hits": _alias_rows(material_hits)},
+        {
+            "hits": _alias_rows(material_hits),
+            "input": {
+                "folded": folded,
+                "maximum_ngram": material_n,
+                "alias_count": len(material_map),
+            },
+            "output": {"hits": _alias_rows(material_hits)},
+        },
     )
     color_work = _has_nontrivial(color_hits)
     material_work = _has_nontrivial(material_hits)
@@ -111,13 +148,23 @@ def rewrite_for_nlu(
             "understand",
             "color_verify",
             "completed",
-            {"hits": _alias_rows(before_color, color_hits)},
+            {
+                "hits": _alias_rows(before_color, color_hits),
+                "input": {"hits": _alias_rows(before_color)},
+                "output": {"hits": _alias_rows(before_color, color_hits)},
+            },
         )
         emit(
             "understand",
             "material_verify",
             "completed",
-            {"hits": _alias_rows(before_material, material_hits)},
+            {
+                "hits": _alias_rows(before_material, material_hits),
+                "input": {"hits": _alias_rows(before_material)},
+                "output": {
+                    "hits": _alias_rows(before_material, material_hits)
+                },
+            },
         )
     else:
         color_hits = _gate_with_progress(
@@ -137,6 +184,15 @@ def rewrite_for_nlu(
             "original": message,
             "rewritten": rewritten,
             "hits": _alias_rows(merged),
+            "input": {
+                "folded": folded,
+                "color_hits": _alias_rows(color_hits),
+                "material_hits": _alias_rows(material_hits),
+            },
+            "output": {
+                "rewritten": rewritten,
+                "hits": _alias_rows(merged),
+            },
         },
     )
     return rewritten
@@ -253,12 +309,34 @@ def _gate_with_progress(
     verify: AliasVerify | None,
 ) -> list[AliasHit]:
     if verify is None or not hits or not _has_nontrivial(hits):
-        skip_nodes("understand", node)
+        skip_nodes(
+            "understand",
+            node,
+            why=(
+                "no verifier is configured"
+                if verify is None
+                else "no non-trivial alias hit requires semantic verification"
+            ),
+        )
         return _gate_hits(hits, verify)
     before = list(hits)
-    emit("understand", node, "running")
+    emit(
+        "understand",
+        node,
+        "running",
+        {"input": {"hits": _alias_rows(before)}},
+    )
     kept = _gate_hits(hits, verify)
-    emit("understand", node, "completed", {"hits": _alias_rows(before, kept)})
+    emit(
+        "understand",
+        node,
+        "completed",
+        {
+            "hits": _alias_rows(before, kept),
+            "input": {"hits": _alias_rows(before)},
+            "output": {"hits": _alias_rows(before, kept)},
+        },
+    )
     return kept
 
 

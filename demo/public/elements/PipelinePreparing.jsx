@@ -2,12 +2,12 @@ import React from "react";
 
 function toneForStatus(status) {
   if (status === "completed") {
-    return { accent: "#20c997", glow: "rgba(32, 201, 151, 0.18)", text: "#d7fff2" };
+    return { accent: "#fe2c55", glow: "rgba(254, 44, 85, 0.28)", text: "#ffe4ec" };
   }
   if (status === "error") {
-    return { accent: "#ff6b6b", glow: "rgba(255, 107, 107, 0.16)", text: "#ffe0e0" };
+    return { accent: "#ff6b8a", glow: "rgba(255, 107, 138, 0.2)", text: "#ffe0e8" };
   }
-  return { accent: "#5da8ff", glow: "rgba(93, 168, 255, 0.18)", text: "#deecff" };
+  return { accent: "#25f4ee", glow: "rgba(37, 244, 238, 0.22)", text: "#d9fbff" };
 }
 
 export default function PipelinePreparing() {
@@ -28,10 +28,10 @@ export default function PipelinePreparing() {
         maxWidth: 560,
         borderRadius: 22,
         padding: 18,
-        color: "#f5f7fb",
-        background: `radial-gradient(circle at top left, ${tone.glow}, transparent 28%), linear-gradient(180deg, #151515 0%, #101010 100%)`,
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
+        color: "#f7f3ff",
+        background: `radial-gradient(ellipse 80% 60% at 0% 0%, ${tone.glow}, transparent 52%), linear-gradient(165deg, #1c122c 0%, #0c0816 100%)`,
+        border: "1px solid rgba(196,181,253,0.22)",
+        boxShadow: "0 18px 40px rgba(254,44,85,0.12)",
       }}
     >
       <style>
@@ -94,7 +94,7 @@ export default function PipelinePreparing() {
               width: "42%",
               height: "100%",
               borderRadius: 999,
-              background: "linear-gradient(90deg, #5da8ff 0%, #88baff 55%, #c9dcff 100%)",
+              background: "linear-gradient(90deg, #fe2c55 0%, #c4b5fd 50%, #25f4ee 100%)",
             }}
           />
           <div

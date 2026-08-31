@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Pipeline stage 7. Joint search over “which `ask_attribute` to ask” and “how many products to show”. The existing runtime objective is one-step expected TechnicalScore, followed by sequential slate risk gating that usually keeps rank 1.
+Pipeline stage 7 jointly searches “which `ask_attribute` to ask” and “how many products to show.” Production uses `DynamicSlatePlanner` with two answer observations. `ScoreAwarePlanner` remains only as a compatibility object whose `max_planning_candidates` setting is read by `Clarifier`; its one-step plan is not executed.
 
-The simulator reads only structured `ask_attribute`. It does not infer the question from `message`.
+The structured `ask_attribute` is the machine-readable question. `message` is customer-facing wording generated later by the response stage.
 
 ## Files
 
@@ -14,38 +14,46 @@ The simulator reads only structured `ask_attribute`. It does not infer the quest
 | `utility.py` | Session-weighted HitRate/MRR utility; defaults to `0.50 + 0.30/rank + 0.02*(11-turn)`. |
 | `questions.py` | Still-informative attributes; `explain_question` templates. |
 | `replies.py` | Cache `predict_reply` for planner counterfactuals. |
-| `distinguish.py` | Partition by predicted reply; estimate next-turn Top-10 utility. |
-| `planner.py` | `ScoreAwarePlanner.plan`: one-step search over question × slate prefix. |
-| `dynamic_slate.py` | Proposed two-observation Dynamic Slating policy. |
-| `slate.py` | Sequential gate after planning. |
-| `stage.py` | `Clarifier`: stage entry for plan + gate. |
+| `dynamic_adapter.py` | Production catalog-signature, no-information, and tail transition model. |
+| `dynamic_slate.py` | Production two-observation Dynamic Slate search. |
+| `slate.py` | Compatibility gate; currently returns the planned slate unchanged. |
+| `stage.py` | Production entry, trace decomposition, deterministic exploration, fallback, and gate call. |
+| `planner.py`, `distinguish.py` | Legacy one-step planner retained for compatibility and isolated callers. |
 
 ## Collaboration
 
 ```text
 Clarifier.apply
     make_answer_signature(retriever, disclosed)
-    ScoreAwarePlanner.plan(state, ranked, top_k, answer_signature)
-        eligible_questions × k∈[0, top_k]
-            immediate-hit utility + future_value(partitions)
-    apply_sequential_gate → usually rank-1; turn 10 or empty disclosure is full slate and no question
+    eligible_questions                   # pre-viability, informative, unasked
+    CatalogSignatureTransitionModel
+        viability filter + head/tail state
+    DynamicSlatePlanner.plan
+        viable questions × k∈[0, top_k]
+        immediate TechnicalScore components + two-observation future value
+    deterministic epsilon policy         # 80% exploit, 20% uniform pre-viability explore
+    pre-final fallback question if needed
+    apply_sequential_gate                 # current no-op
 ```
 
-The existing planner asks the catalog how an ASIN would answer through a callback. It does not touch SQLite directly.
+The production planner asks the retriever how a candidate could answer through a cached callback. It does not execute SQL directly and does not mutate the live session while expanding branches.
 
 ## Core variables
 
 - `Plan`: `recommendations`, `ask_attribute`, `expected_value`, `reason`
 - `NO_ADDITIONAL`: no more information is available for that attribute
-- `max_planning_candidates = 500`
+- outer eligibility cap: `max_planning_candidates = 500`
+- Dynamic Slate planning head: at most 80 candidates, with at least 0.20 tail mass
+- `lookahead_steps = 2`
+- `ATTRIBUTE_EXPLORATION_RATE = 0.20`
 
 ## Core code
 
 - Entry: `Clarifier.apply` in `stage.py`
-- Existing search: `ScoreAwarePlanner.plan` in `planner.py`
-- Proposed search: `DynamicSlatePlanner.plan` in `dynamic_slate.py`
-- Distinguishability: `future_value` in `distinguish.py`
-- Gate: `apply_sequential_gate` in `slate.py`
+- Production search: `DynamicSlatePlanner.plan` in `dynamic_slate.py`
+- Production transitions: `CatalogSignatureTransitionModel` in `dynamic_adapter.py`
+- Compatibility planner: `ScoreAwarePlanner.plan` in `planner.py`
+- No-op gate: `apply_sequential_gate` in `slate.py`
 
 ## Dynamic Slating
 
@@ -124,7 +132,7 @@ V_{t+1}^{(h-1)}\left(S_{t+1}^{y,k_t}\right),
 V_t^{(h)}(S_t)=\max_{a_t,k_t}Q_t^{(h)}(S_t,a_t,k_t).
 ```
 
-The proposed policy uses two answer observations:
+The production policy uses two answer observations:
 
 ```math
 (a_t^*,k_t^*)
@@ -157,3 +165,32 @@ no-preference answer to one attribute returns to retrieval and Dynamic Slate
 instead of paging the previous ranking forever. If retrieval produces an empty
 head, the tail model can still choose a high-coverage recovery question with
 `k=0` rather than repeatedly returning no question and no products.
+
+The pre-viability eligibility pass removes previously asked attributes and
+requires at least one informative answer signature. It does not remove an
+attribute merely because that attribute already appears in
+`state.typed_constraints`. Viability filtering is a later, separate step.
+
+## Deterministic attribute exploration
+
+After Dynamic Slate chooses its expected-TechnicalScore optimum, `Clarifier`
+applies a deterministic epsilon-greedy question policy. It keeps the planner
+attribute 80% of the time. With 20% probability, it uniformly selects from the
+pre-viability attributes that are still unasked and have at least one
+informative answer signature in the current ranked candidates.
+
+This exploration path can select size, use case, or budget without changing
+the viability threshold used by the 80% exploitation path. It does not explore
+when the ranked candidates or exploration pool are empty, and it never explores
+on turn 10. Product recommendations and slate size remain planner-controlled.
+The seed combines `session_id`, `intent_version`, and `turn`, making decisions
+reproducible and starting a new sequence after an accepted intent override.
+
+On turn 10, Dynamic Slate forces the full allowed ranked prefix and
+`ask_attribute=None`; epsilon exploration and fallback-question injection are
+disabled. Before turn 10, a null selected question is replaced without
+changing the planned recommendations.
+
+`apply_sequential_gate()` is currently a compatibility no-op. It returns the
+planned recommendations exactly; the `gate_rank1` progress node is skipped and
+`keep_planned` is the active path.

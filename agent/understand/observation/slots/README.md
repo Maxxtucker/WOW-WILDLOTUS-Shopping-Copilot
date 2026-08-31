@@ -4,11 +4,11 @@
 
 Turn one LLM or regex constraint into a `ConstraintSlot`. The model reads ordinary shopper language. Code checks that cited text is in the message, and that classified labels are official keys. Category may be a top-level field and/or `attribute=category` rows.
 
-Each slot has `is_hard`. Hardness is user language (must vs prefer), not evaluator `intent_card` fingerprints. Same `(attribute, value)` later overwrites earlier hardness. Different values of the same attribute may be hard and soft at once.
+Each slot has `is_hard`. Hardness comes from ordinary shopper language such as “must” versus “prefer,” not from generated scenario labels or template fingerprints. Same `(attribute, value)` later overwrites earlier hardness. Different values of the same attribute may be hard and soft at once.
 
 When `typed_constraints` is non-empty, retrieve uses hard slots to prune and soft slots only as preferred scoring. Empty slots fall back to `active_constraints` strings (not leftover hints). Understand defaults to NLU; regex is the fallback after failed extracts or `understand_mode="regex"`.
 
-Do not copy evaluator `intent_card`, customer templates, or `public_set.jsonl` labels into these handlers.
+Do not encode evaluator templates, public labels, or session-specific targets in these handlers.
 
 ## Design
 
@@ -85,8 +85,9 @@ llm_nlu / regex payload
         budget              # amount + op
         free strings
     merge_or_attribute_slots    # one row per (attribute, value)
-    ObservationExtract.slots → SessionState.typed_constraints
-    retrieve/from_slots.py  → hard groups prune; soft pairs only score
+    ObservationExtract.slots → SessionState.turn_delta
+    Intent Router writeback  → SessionState.typed_constraints
+    retrieve/from_slots.py   → hard groups prune; soft pairs only score
 ```
 
 Repair (max three rounds) replaces only ungrounded fields; already-cited slots stay. Later turns upsert the same `(attribute, value)`; a later hard overwrites an earlier soft for that value. Different values of one attribute stay as separate rows.
@@ -95,7 +96,11 @@ Repair (max three rounds) replaces only ungrounded fields; already-cited slots s
 
 On `ConstraintSlot`: `attribute`, `surface`, `canonical`, `is_hard`, plus size/budget fields. Writeback stores one row per `(attribute, value)`.
 
-On session: `typed_constraints` (list of slots, including category). `active_constraints` is the cited-string view. Retrieve maps **hard** slots to the exact pool and **soft** slots to preferred scoring.
+On session after Router commit: `typed_constraints` is the list of slots,
+including category. `active_constraints` is the regex/legacy cited-string
+view. Understand itself does not mutate either committed collection. Retrieve
+maps **hard** slots to exact/required groups and **soft** slots to preferred
+and soft-text scoring.
 
 ## Core code
 

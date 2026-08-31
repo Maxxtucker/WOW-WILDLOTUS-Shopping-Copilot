@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ...progress import progress_enabled
 from ..catalog.types import SearchHit
 
 RRF_CONSTANT = 60.0
@@ -24,7 +25,9 @@ def fuse_routes(
 ) -> list[SearchHit]:
     """Fuse ranked routes while retaining inspectable hit components."""
 
+    include_breakdown = progress_enabled()
     scores: dict[str, float] = {}
+    contributions: dict[str, dict[str, float]] = {}
     best: dict[str, SearchHit] = {}
     source_names: dict[str, list[str]] = {}
     first_seen: dict[str, int] = {}
@@ -39,7 +42,10 @@ def fuse_routes(
             if asin not in first_seen:
                 first_seen[asin] = serial
                 serial += 1
-            scores[asin] = scores.get(asin, 0.0) + weight / (RRF_CONSTANT + rank)
+            contribution = weight / (RRF_CONSTANT + rank)
+            scores[asin] = scores.get(asin, 0.0) + contribution
+            if include_breakdown:
+                contributions.setdefault(asin, {})[route_name] = contribution
             source_names.setdefault(asin, []).append(route_name)
             previous = best.get(asin)
             if previous is None or hit.score > previous.score:
@@ -53,6 +59,11 @@ def fuse_routes(
     for asin in ordered:
         hit = best[asin]
         routes_reason = "route:" + "+".join(dict.fromkeys(source_names[asin]))
+        breakdown = dict(hit.score_breakdown)
+        if include_breakdown:
+            for route_name, contribution in contributions.get(asin, {}).items():
+                breakdown[f"rrf_{route_name}"] = round(contribution, 8)
+            breakdown["rrf_total"] = round(scores[asin], 8)
         result.append(
             SearchHit(
                 parent_asin=asin,
@@ -63,6 +74,7 @@ def fuse_routes(
                 required_coverage=hit.required_coverage,
                 matched_constraints=hit.matched_constraints,
                 reasons=(*hit.reasons, routes_reason),
+                score_breakdown=breakdown,
             )
         )
     return result

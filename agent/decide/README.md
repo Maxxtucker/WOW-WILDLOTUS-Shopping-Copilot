@@ -9,29 +9,63 @@ The current production policy is a two-observation dynamic slate planner backed 
 
 ## Strict flow
 
+<!-- workflow-schema:decide -->
 ```mermaid
 flowchart TD
-    IN["RankedCandidate posterior + SessionState + top_k"] --> SIG["Create catalog answer-signature function"]
-    SIG --> ELIG["Filter unasked, informative attributes"]
-    ELIG --> ROOT["Build planning head: max 80 + explicit tail mass"]
-    ROOT --> ACT["Enumerate every eligible attribute × slate size k"]
-    ACT --> IMM["Immediate expected hit utility"]
-    ACT --> BR["No-hit answer branches from catalog signatures"]
-    BR --> FUT["Best future value, two observations deep"]
-    IMM --> TOTAL["Action value = immediate + expected future"]
-    FUT --> TOTAL
-    TOTAL --> BEST["Choose maximum; ties prefer question then smaller k"]
-    BEST --> FINAL{"Turn 10?"}
-    FINAL -- yes --> FULL["Force full allowed final slate; ask=None"]
-    FINAL -- no --> ASK{"Planner returned concrete ask?"}
-    ASK -- no --> FALL["Highest-value eligible fallback or recovery question"]
-    ASK -- yes --> PLAN["Plan"]
-    FALL --> PLAN
-    FULL --> PLAN
-    PLAN --> GATE["Sequential gate currently returns planned slate unchanged"]
-    GATE --> WRITE["Persist reply lookup, slate, question, shown/excluded sets"]
-    WRITE --> RESP["Build official response dictionary"]
+    answer_signature["Cache catalog-predicted answers"]
+    eligible_questions["Generate informative unasked questions"]
+    viability_filter["Filter questions by effective coverage"]
+    planning_head["Build the planning head and tail mass"]
+    action_space["Enumerate question and slate-size actions"]
+    hit_component["Compute expected Hit@10 value"]
+    mrr_component["Compute expected reciprocal-rank value"]
+    efficiency_component["Compute expected turn-efficiency value"]
+    immediate_value["Sum immediate action utility"]
+    answer_branches["Expand no-hit answer branches"]
+    tail_branches["Model planning-tail recovery branches"]
+    future_value["Evaluate two future observations"]
+    planner["Choose the best Dynamic Slate action"]
+    epsilon_roll["Choose exploit or attribute exploration"]
+    technical_exploit["Keep the planner's technical choice"]
+    uniform_explore["Uniformly explore an eligible attribute"]
+    selected_attribute["Finalize the clarification attribute"]
+    fallback_question["Guarantee a pre-final question"]
+    sequential_gate["Pass through the planned slate"]
+    gate_rank1["Handle a compatibility gate change"]
+    keep_planned["Keep the Dynamic Slate recommendations"]
+    persist_turn["Persist action memory"]
+    build_response["Build the official agent response"]
+    answer_signature --> eligible_questions
+    eligible_questions --> viability_filter
+    viability_filter --> planning_head
+    planning_head --> action_space
+    action_space --> hit_component
+    action_space --> mrr_component
+    action_space --> efficiency_component
+    hit_component --> immediate_value
+    mrr_component --> immediate_value
+    efficiency_component --> immediate_value
+    action_space --> answer_branches
+    action_space --> tail_branches
+    answer_branches --> future_value
+    tail_branches --> future_value
+    immediate_value --> planner
+    future_value --> planner
+    planner --> epsilon_roll
+    eligible_questions -- "pre-viability exploration pool" --> epsilon_roll
+    epsilon_roll -- "roll >= 0.20" --> technical_exploit
+    epsilon_roll -- "roll < 0.20" --> uniform_explore
+    technical_exploit --> selected_attribute
+    uniform_explore --> selected_attribute
+    selected_attribute --> fallback_question
+    fallback_question --> sequential_gate
+    sequential_gate -- "compatibility change" --> gate_rank1
+    sequential_gate -- "current no-op" --> keep_planned
+    gate_rank1 --> persist_turn
+    keep_planned --> persist_turn
+    persist_turn --> build_response
 ```
+<!-- /workflow-schema -->
 
 ## Inputs
 
@@ -73,11 +107,17 @@ Question order is:
 other → feature → material → color → style → size → use_case → budget
 ```
 
-`category` and `brand` remain valid API attributes, but the released question ordering omits them because the current answer-signature coverage is less useful for the simulator.
+`category` and `brand` remain valid API attributes, but they are not members of
+the current `QUESTION_ATTRIBUTES` planning order.
 
 ### Normal ranking
 
 Before turn 10, an attribute is eligible only when at least one candidate among the planning candidate cap has an informative non-`NO_ADDITIONAL` signature. Already asked attributes are removed. `other` is also removed after either an explicit empty disclosure or a prior `other` question.
+
+`eligible_questions()` does **not** directly filter an attribute merely because
+`typed_constraints` already contains that attribute. A committed color, size,
+or material can still be eligible when it has not been asked and at least one
+candidate has a remaining informative answer signature.
 
 ### Empty ranking
 
@@ -103,6 +143,22 @@ At turn 10 the only question is `None`; there is no future interaction to purcha
 | budget | 0.0053 | 0.95 | 0.005035 |
 
 Root-state viability requires `q ≥ 0.10`. Under current constants, other, feature, material, color, and style pass; size, use_case, and budget are filtered out of the dynamic root even if the earlier eligibility scan found an answer. This threshold is a planner approximation, not the Intent Router's Buying/Browsing decision.
+
+## Deterministic attribute exploration
+
+Before turn 10, question selection uses a deterministic epsilon-greedy policy.
+The Dynamic Slate question is retained 80% of the time. The other 20% uniformly
+selects from the pre-viability eligible attributes, so informative low-coverage
+attributes such as size, use case, and budget can still be asked.
+
+Exploration does not bypass answer-signature eligibility, prior-question
+exclusion, or the explicit empty-disclosure rule for `other`. It is disabled
+when the ranked candidate list or exploration pool is empty. The recommendation
+prefix and slate size remain the values chosen by Dynamic Slate.
+
+The local random generator is seeded with `session_id`, `intent_version`, and
+`turn`. Repeated runs are reproducible, while an accepted override starts a new
+deterministic exploration sequence after clearing the asked-attribute history.
 
 When no viable pre-final question remains, the root injects the first viable attribute among feature, material, color, and other. If none can be injected, it uses `None`.
 
@@ -368,7 +424,11 @@ Accepted intent override later clears both shown and excluded sets.
 }
 ```
 
-With a non-empty slate, the message says how many high-confidence options were found and appends the attribute-specific question template. With an empty slate, it explains that low-confidence matches are being withheld and asks the selected question. The evaluator follows `ask_attribute`, not natural-language template parsing.
+With a non-empty slate, the message says how many high-confidence options were
+found and appends the attribute-specific question wording. With an empty slate,
+it explains that low-confidence matches are being withheld and asks the
+selected question. Downstream callers should use the structured
+`ask_attribute`; they need not parse the prose.
 
 ## Files
 

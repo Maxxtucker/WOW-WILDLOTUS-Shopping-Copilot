@@ -210,33 +210,62 @@ def exact_pools_for_state(
         response_only=response_only,
     )
     budget, spec, hard_dimension = _numeric_spec(state)
-    if budget is None and not hard_dimension:
-        return pools
-    strict = (
-        None
-        if pools.strict is None
-        else retriever.filter_hard_numeric(
-            pools.strict,
-            budget=budget,
-            dimensions=spec,
-            hard_budget=budget is not None,
-            hard_dimension=hard_dimension,
-            allow_missing=False,
+    strict = pools.strict
+    lenient = pools.lenient
+    if budget is not None or hard_dimension:
+        strict = (
+            None
+            if strict is None
+            else retriever.filter_hard_numeric(
+                strict,
+                budget=budget,
+                dimensions=spec,
+                hard_budget=budget is not None,
+                hard_dimension=hard_dimension,
+                allow_missing=False,
+            )
         )
-    )
-    lenient = (
-        None
-        if pools.lenient is None
-        else retriever.filter_hard_numeric(
-            pools.lenient,
-            budget=budget,
-            dimensions=spec,
-            hard_budget=budget is not None,
-            hard_dimension=hard_dimension,
-            allow_missing=True,
+        lenient = (
+            None
+            if lenient is None
+            else retriever.filter_hard_numeric(
+                lenient,
+                budget=budget,
+                dimensions=spec,
+                hard_budget=budget is not None,
+                hard_dimension=hard_dimension,
+                allow_missing=True,
+            )
         )
+    blocked = state.excluded_asins
+    return ExactPools(
+        None if strict is None else strict - blocked,
+        None if lenient is None else lenient - blocked,
     )
-    return ExactPools(strict, lenient)
+
+
+def pool_probe_diagnostics(state: SessionState) -> dict[str, object]:
+    """Describe exact-pool construction without recomputing candidate sets."""
+
+    budget, _spec, hard_dimension = _numeric_spec(state)
+    return {
+        "within_attribute": "OR",
+        "across_attributes": "AND",
+        "hard_groups": [
+            {"attribute": attribute, "values": list(values)}
+            for attribute, values in exact_pool_groups(state)
+        ],
+        "lenient_unknown": (
+            "match OR catalog-unknown; known mismatch is still excluded"
+        ),
+        "numeric": {
+            "budget": None if budget is None else [budget[0], budget[1]],
+            "hard_dimension": hard_dimension,
+            "strict_allow_missing": False,
+            "lenient_allow_missing": True,
+        },
+        "excluded_asins": len(state.excluded_asins),
+    }
 
 
 def exact_pool_for_state(

@@ -1,3 +1,4 @@
-# Extra deps for the local Chainlit shopping demo (not required for evaluation).
+# Chainlit shopping demo. Not required for official evaluation.
+# Additive to requirements.txt (core Agent has no third-party deps).
 # Pin 2.12: unpinned installs resolve literalai -> traceloop-sdk and hang pip.
 chainlit==2.12.0

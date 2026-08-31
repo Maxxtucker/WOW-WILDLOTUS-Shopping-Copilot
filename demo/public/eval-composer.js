@@ -1,4 +1,19 @@
 (function hookEvalComposer() {
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => {
+        reg.unregister();
+      });
+    });
+  }
+  if (window.caches) {
+    caches.keys().then((keys) => {
+      keys.forEach((key) => {
+        caches.delete(key);
+      });
+    });
+  }
+
   function emptyComposer() {
     const area = document.querySelector("textarea");
     return !area || !String(area.value || "").trim();

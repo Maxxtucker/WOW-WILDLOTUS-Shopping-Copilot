@@ -23,13 +23,14 @@ import sys
 import urllib.request
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 META_URL = (
     "https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/"
     "raw/meta_categories/meta_Clothing_Shoes_and_Jewelry.jsonl.gz"
 )
-DEFAULT_META_GZ = Path("data/releases/meta_Clothing_Shoes_and_Jewelry.jsonl.gz")
-DEFAULT_CATALOG = Path("data/catalog.jsonl")
-DEFAULT_OUTPUT = Path("data/catalog_images.jsonl")
+DEFAULT_META_GZ = ROOT / "data" / "releases" / "meta_Clothing_Shoes_and_Jewelry.jsonl.gz"
+DEFAULT_CATALOG = ROOT / "data" / "catalog.jsonl"
+DEFAULT_OUTPUT = ROOT / "data" / "catalog_images.jsonl"
 
 
 def get_main_image_url(images: object) -> str | None:

@@ -192,7 +192,22 @@ The original evaluator tests remain unchanged.
 
 ## 8. Public evaluation
 
-Using the unmodified public evaluator at commit `9a35be5`:
+Development measurements on `data/public_set.jsonl` only. They must not be
+represented as private evaluation results.
+
+**Live NLU** (default `qwen3.5:4b`, Eval / same Agent as the harness):
+
+| | N | Hit Rate@10 | MRR | MTTC | Efficiency | Technical |
+|---|---:|---:|---:|---:|---:|---:|
+| Overall | 200 | 0.930 | 0.584 | 3.88 | 0.712 | 0.783 |
+| buying | 80 | 0.938 | 0.649 | | | |
+| browsing | 80 | 0.963 | 0.529 | | | |
+| intent_override | 30 | 0.800 | 0.654 | | | |
+| boundary | 10 | 1.000 | 0.295 | | | |
+
+Screenshot: [`docs/images/public_set_eval.png`](images/public_set_eval.png).
+
+**Regex observe** (unmodified public evaluator at commit `9a35be5`; token usage zero):
 
 | Scenario | N | Hit Rate@10 | MRR | MTTC |
 |---|---:|---:|---:|---:|
@@ -202,9 +217,7 @@ Using the unmodified public evaluator at commit `9a35be5`:
 | Boundary | 10 | 1.000000 | 1.000000 | 2.500000 |
 | Overall | 200 | 1.000000 | 1.000000 | 2.060000 |
 
-The resulting recommended technical composite is `0.978800`. Token usage is
-zero because those runs used regex observation. These numbers are development
-measurements and must not be represented as private evaluation results.
+The regex recommended technical composite is `0.978800`.
 
 ## 9. Robustness and anti-overfitting checks
 

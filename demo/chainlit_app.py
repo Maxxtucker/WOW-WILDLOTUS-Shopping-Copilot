@@ -3,11 +3,17 @@
 Uses the full ``data/catalog.jsonl`` catalog and default live NLU — the same
 ``TurnPipeline`` path as ``scripts/nlu_console.py``. The Eval composer button
 opens a local-evaluator dock over ``data/public_set.jsonl`` (demo-only; the
-agent package does not read those labels). Custom elements load from
-``public/elements`` relative to cwd, so run from the ``demo/`` directory:
+agent package does not read those labels). Chainlit APP_ROOT is ``demo/``
+(``demo/.chainlit/config.toml`` plus ``demo/public/``). Use the repo-root
+launchers, which set ``cwd`` and ``CHAINLIT_APP_ROOT``:
+
+    powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
+    python scripts/bootstrap.py --extras demo --run demo
+
+Do not run Chainlit from the repository root. Manual launch from ``demo/``:
 
     . ..\\scripts\\load_nlu_env.ps1
-    python -m chainlit run chainlit_app.py -w --port 8005
+    python -m chainlit run chainlit_app.py -w --port 8006
 
 Each circuit stage reveal also prints turn_delta / session / router / retrieve
 top-10 / decide+respond on this terminal.
@@ -25,6 +31,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import chainlit as cl
+from chainlit.config import APP_ROOT as _CHAINLIT_APP_ROOT
+from chainlit.config import config as _chainlit_config
 
 from agent.progress import progress_listener
 from demo.node_catalog import NODE_CATALOG, STAGE_BLURBS
@@ -56,6 +64,11 @@ _FULL_CATALOG = _REPO_ROOT / "data" / "catalog.jsonl"
 _AGENT: Agent | None = None
 _AGENT_LOCK = threading.Lock()
 _AGENT_ERROR: str | None = None
+
+print(
+    f"Chainlit APP_ROOT={_CHAINLIT_APP_ROOT} UI={_chainlit_config.ui.name}",
+    flush=True,
+)
 
 
 def get_agent() -> Agent:

@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-
+ROOT = Path(__file__).resolve().parents[1]
 CATALOG_URL = (
     "https://github.com/TechJam2026/techjam-conversational-search/"
     "releases/download/participant-kit/catalog.jsonl.gz"
@@ -30,7 +30,7 @@ def digest(path: Path) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("data/catalog.jsonl"))
+    parser.add_argument("--output", type=Path, default=ROOT / "data" / "catalog.jsonl")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--keep-gzip", action="store_true")
     args = parser.parse_args()

@@ -26,8 +26,12 @@ if (Test-Path $OllamaDir) {
     $env:PATH = "$OllamaDir;$env:PATH"
 }
 
+$DemoRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "demo"
+$env:CHAINLIT_APP_ROOT = $DemoRoot
+
 Write-Host "Loaded $EnvFile"
 Write-Host "AGENT_NLU_ENABLED=$env:AGENT_NLU_ENABLED"
 Write-Host "AGENT_NLU_MODEL=$env:AGENT_NLU_MODEL"
 Write-Host "AGENT_NLU_HOST=$env:AGENT_NLU_HOST"
 Write-Host "AGENT_NLU_TIMEOUT=$env:AGENT_NLU_TIMEOUT"
+Write-Host "CHAINLIT_APP_ROOT=$env:CHAINLIT_APP_ROOT"

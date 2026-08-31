@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from pathlib import Path
 from typing import Any
 
 import chainlit as cl
@@ -180,8 +182,35 @@ def _cancel_flag() -> dict:
     return flag
 
 
+def _live_app():
+    """Return the Chainlit-loaded app module (do not import it a second time)."""
+
+    target = (Path(__file__).resolve().parent / "chainlit_app.py").resolve()
+    preferred = None
+    fallback = None
+    for name, module in sys.modules.items():
+        file = getattr(module, "__file__", None)
+        if not file:
+            continue
+        try:
+            if Path(file).resolve() != target:
+                continue
+        except OSError:
+            continue
+        if name != "demo.chainlit_app":
+            preferred = module
+            break
+        fallback = module
+    module = preferred or fallback
+    if module is None:
+        raise RuntimeError("chainlit_app is not loaded; start the demo from demo/")
+    # Chainlit registers sys.modules["chainlit_app.py"] only after exec_module.
+    sys.modules.setdefault("demo.chainlit_app", module)
+    return module
+
+
 async def run_auto(payload: dict) -> None:
-    from demo.chainlit_app import get_agent
+    get_agent = _live_app().get_agent
 
     evaluator = _evaluator_id(payload)
     if evaluator not in RUNNABLE_EVALUATORS:
@@ -269,9 +298,7 @@ async def run_auto(payload: dict) -> None:
 
 
 async def _reset_eval_agent(state: StepState) -> None:
-    from demo.chainlit_app import get_agent
-
-    agent = get_agent()
+    agent = _live_app().get_agent()
     profile = state.current_sample.get("user_profile")
     if not isinstance(profile, dict):
         profile = {}
@@ -279,7 +306,7 @@ async def _reset_eval_agent(state: StepState) -> None:
 
 
 async def play_pending_turn(state: StepState) -> None:
-    from demo.chainlit_app import handle_user_text
+    handle_user_text = _live_app().handle_user_text
 
     if state.cancelled or _cancel_flag().get("cancelled"):
         await refresh_picker(status="idle", statusDetail="Cancelled.", canStep=False)

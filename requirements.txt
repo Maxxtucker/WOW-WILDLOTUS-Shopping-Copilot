@@ -1,2 +1,16 @@
-# Converge has no third-party runtime dependencies.
-# Python 3.10+ with a SQLite build that includes FTS5 is required.
+# Core Agent (starter.agent.Agent, evaluator, official scoring).
+# No third-party runtime dependencies. Python 3.10+ with SQLite FTS5.
+# This file is intentionally empty of packages so official scoring stays stdlib-only.
+# `pip install -r requirements.txt` is a no-op; bootstrap.py skips it.
+#
+# Optional extras — install only what you need:
+#   requirements-demo.txt         Chainlit demo UI
+#   requirements-reranker.txt     local Qwen cross-encoder (pulls PyTorch)
+#   requirements-preprocess.txt   rebuild color aliases from Hugging Face
+#   requirements-dev.txt          all extras above
+#
+# One-command local setup (venv + catalog + sidecar + demo):
+#   powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
+#   bash scripts/setup.sh
+#   python scripts/bootstrap.py --check
+# See scripts/README.md.

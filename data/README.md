@@ -10,6 +10,14 @@ Each session contains a safe aggregate `user_profile` and public labels for loca
 
 Download `catalog.jsonl.gz` from the GitHub Release and decompress it as `catalog.jsonl` in this directory. Expected row count: 50,000.
 
+From the repository root (SHA-256 verified; skips the download when the file already exists):
+
+```bash
+python scripts/download_catalog.py
+```
+
+`python scripts/bootstrap.py` runs that step as part of first-time setup. See [`scripts/README.md`](../scripts/README.md).
+
 ## `catalog_images.jsonl` (optional, UI only)
 
 Side-car map of `parent_asin` → `main_image_url` joined from Amazon Reviews 2023 item metadata (Clothing_Shoes_and_Jewelry). Does not change the frozen contest catalog.

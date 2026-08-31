@@ -8,6 +8,9 @@ recommendations. Does not read public_set.jsonl.
 
 From repo root (PowerShell):
 
+    python scripts/bootstrap.py --extras demo
+    python scripts/nlu_console.py
+
     . .\\scripts\\load_nlu_env.ps1
     python scripts/nlu_console.py
 

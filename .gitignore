@@ -1,8 +1,14 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+.venv/
+venv/
 .env
 results.json
+# Chainlit APP_ROOT is demo/. Never keep a repository-root config.
+/.chainlit/
+# Chainlit session payloads (custom-element JSON). Not source.
+demo/.files/
 data/catalog.jsonl
 data/product_slots.csv
 data/product_slots_meta.csv

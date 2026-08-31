@@ -34,7 +34,9 @@ flowchart TD
 
 ## Build commands
 
-The normal build sequence is:
+First-time clones should run `python scripts/bootstrap.py` (or `scripts/setup.ps1` / `scripts/setup.sh`). That downloads the catalog and builds the sidecar. It does **not** rebuild committed alias JSON or the category tree.
+
+Rebuild aliases and the tree only when their source data or the frozen catalog changes:
 
 ```bash
 python scripts/build_aliases_color.py

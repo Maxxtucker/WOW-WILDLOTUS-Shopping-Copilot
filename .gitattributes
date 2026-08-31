@@ -1,0 +1,6 @@
+# Force LF for files executed or sourced by Unix shells.
+# Windows core.autocrlf=true would otherwise check them out as CRLF and
+# bash setup.sh fails on macOS/Linux: set: pipefail\r: invalid option name.
+*.sh text eol=lf
+*.env text eol=lf
+.gitattributes text eol=lf

@@ -1,11 +1,52 @@
-# Decide stage
+# Decide: ranking, clarification, and dynamic slating
 
-Decide consumes Retrieve's normalized candidate posterior and jointly chooses:
+Decide consumes Retrieve's ordered `SearchHit` library, optionally reranks its
+head, converts ranking weights into a normalized decision belief, and jointly
+chooses:
 
 1. which ranked prefix to recommend now (`k`, from zero to at most ten); and
 2. which structured attribute to ask about next.
 
-The current production policy is a two-observation dynamic slate planner backed by catalog-derived answer signatures. It optimizes expected TechnicalScore-style utility, preserves probability mass outside the planning head, forces a full final-turn slate, and writes the selected action back into session memory.
+The current production policy is a two-observation dynamic slate planner backed
+by catalog-derived answer signatures. It optimizes expected
+TechnicalScore-style utility, preserves probability mass outside the planning
+head, forces a full final-turn slate, and writes the selected action back into
+session memory.
+
+## Stage boundary
+
+```text
+SearchHit[] from Retrieve
+        |
+        v
+Ranker
+  optional Qwen semantic head, otherwise deterministic score belief
+        |
+        v
+RankedCandidate[] = (parent_asin, score, probability)
+        |
+        v
+Clarifier
+  eligible questions + catalog answer signatures + tail approximation
+        |
+        v
+DynamicSlatePlanner
+  joint search over (ask_attribute, slate_size)
+        |
+        v
+ResponseBuilder
+  action writeback + official response dictionary
+```
+
+Decide may change the order through its bounded semantic reranker, but it never
+adds a product that Retrieve did not supply. After ranking, every recommendation
+slate is a prefix of the `RankedCandidate` order represented in the planner
+state. The natural-language `message` is customer-facing; the evaluator uses
+the structured `ask_attribute` to choose its next reply.
+
+The legacy one-step `ScoreAwarePlanner` remains as a compatibility baseline and
+provides the candidate cap used by `Clarifier`. Production action selection uses
+`DynamicSlatePlanner`.
 
 ## Strict flow
 
@@ -69,9 +110,31 @@ flowchart TD
 
 ## Inputs
 
+### Ranking path
+
+`Ranker.apply()` first offers the retrieved head to `QwenSemanticReranker`.
+When the configured cross-encoder is disabled, unavailable, or returns no
+weights, ranking falls back deterministically to a shifted softmax over
+retrieval scores:
+
+\[
+w_i=\exp\left(\frac{s_i-s_{max}}{\tau}\right).
+\]
+
+Ordinary structured scores use temperature `0.12`. Weighted-RRF scores operate
+at a much smaller numeric scale, so `belief_temperature()` uses a clipped
+adaptive temperature derived from the score range. Both paths end in
+`normalize_probabilities()`. These values are decision beliefs derived from
+retrieval evidence, not calibrated probabilities that a shopper will purchase
+an item.
+
+Semantic reranking is bounded to the retrieved head and fails safely to the
+deterministic path. Runtime configuration and model-loading behavior are
+documented in [`ranking/README.md`](ranking/README.md).
+
 ### Ranked posterior
 
-Retrieve supplies ordered `RankedCandidate` rows:
+The internal Ranker supplies ordered `RankedCandidate` rows:
 
 ```python
 RankedCandidate(
@@ -215,6 +278,31 @@ k\in\{0,1,\ldots,\min(10,top\_k,|head|)\}.
 
 ## Immediate recommendation utility
 
+### Pre-chat recommendation-preference slider
+
+The Chainlit demo displays an optional preference slider before the shopper's
+first message. Its user-facing endpoints are:
+
+| Slider position | Displayed endpoint label | Planner emphasis | Runtime weights `(w_H, w_M, w_E)` |
+|---|---|---|---|
+| `0` (left) | **Recommend more products** | favor broader slates and HitRate | `(0.72, 0.08, 0.20)` |
+| `34.375` (default) | — | match the official scoring proportions | `(0.50, 0.30, 0.20)` |
+| `100` (right) | **More precise recommendations** | favor high-ranked results and MRR | `(0.08, 0.72, 0.20)` |
+
+Positions between the endpoints interpolate linearly. The slider redistributes
+only the fixed `0.80` recommendation budget between HitRate and MRR; the
+Efficiency weight remains `0.20`.
+
+The selected position is stored in the session and passed into Decide's joint
+question-and-slate planner. It can therefore change the selected slate size and,
+when actions have close utility, the chosen clarification action. It does not
+change retrieval, reorder the candidate ranking, alter candidate probabilities,
+or modify the official evaluator formula.
+
+The setting is available only before the first `respond()` begins. At that point
+the session locks it, so every later turn uses the same preference. Evaluator
+sessions and callers that do not set a preference use the balanced default.
+
 For turn `t`, rank `r`, and runtime weights `(w_H,w_M,w_E)`:
 
 \[
@@ -229,7 +317,7 @@ w_M = 0.30
 w_E = 0.20
 ```
 
-`w_H+w_M` is fixed at `0.80`; `w_E` is always `0.20`. The Chainlit pre-turn slider may redistribute the first `0.80` but cannot change the total or Efficiency weight.
+`w_H+w_M` is fixed at `0.80`; `w_E` is always `0.20`.
 
 For state gate probability `g` and slate size `k`, immediate expected value is:
 
@@ -463,3 +551,60 @@ decide/
 - Question branches are catalog-signature approximations with explicit no-information mass.
 - Displayed products are immediately added to shown and excluded sets in current writeback.
 - The response always uses the official `message`, `ask_attribute`, `recommendations`, and `usage` shape.
+
+## Design rationale
+
+The planner couples question choice and recommendation count because the two
+actions consume the same turn. Showing a wider slate increases immediate hit
+coverage, but a first hit at a lower rank receives less MRR credit. Asking an
+informative question can improve the next ranking, while waiting also loses
+turn-efficiency value. Optimizing `(ask_attribute, slate_size)` together keeps
+that trade-off in one objective instead of applying a question heuristic and a
+separate fixed `k` policy.
+
+Within the counterfactual planner, the conversion gate prevents pre-override
+recommendations from receiving immediate hit value or being treated as certain
+negative feedback. Tail mass prevents the bounded planning head from claiming
+that the hidden target must be among its explicit candidates. These are
+planning abstractions; neither exposes the evaluator's hidden target or private
+scenario state to the Agent.
+
+## Limitations
+
+- Score softmaxes are ranking beliefs, not out-of-fold calibrated target
+  probabilities. Overconfidence can make a slate too narrow; a flat belief can
+  make it too wide.
+- Counterfactual branches partition the current planning head. They do not run
+  Understand, Router, and Retrieve again for every hypothetical answer, so new
+  entrants are represented only by the coarse tail-recovery branch.
+- Catalog coverage, parser reliability, tail recovery, and future gate movement
+  are global engineering priors rather than category-conditioned measurements.
+- The released simulator gives `other` unusual disclosure behavior. Parser
+  discounting and branch compaction reduce, but do not eliminate, sensitivity
+  to that behavior.
+- Live writeback immediately excludes every displayed ID, regardless of gate
+  state, although an accepted intent override clears those exclusions. The
+  planner's probabilistic gate model is therefore more nuanced than the current
+  between-turn retrieval memory.
+- The two-observation horizon is deliberately bounded. Questions whose value
+  appears only after three or more additional turns may be underestimated.
+- The competition objective has no explicit cognitive-load cost for displaying
+  more products. The planner is metric-aligned but is not a complete model of
+  real shopper fatigue or choice overload.
+
+## Verification and useful ablations
+
+Run the focused unit tests from the repository root:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_dynamic_slate.py'
+python3 -m unittest discover -s tests -p 'test_recommendation_preference.py'
+```
+
+When reporting planner quality, compare fixed `k` baselines, the legacy
+one-step planner, Dynamic Slating with and without zero-product turns, and the
+semantic versus deterministic ranking paths on the same sessions. Report
+HitRate@10, MRR, MTTC, slate-size distribution, repeated-recommendation rate,
+and planner latency. Public-set scenario labels are correlated with the
+released sample construction, so per-scenario differences are diagnostic and
+should not be presented as clean causal effects.

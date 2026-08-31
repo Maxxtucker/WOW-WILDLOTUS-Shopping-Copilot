@@ -59,7 +59,7 @@ dataset.
 
 #### Source dataset preview
 
-![colors-normalized dataset preview](../../docs/assets/colors-normalized-preview.png)
+![colors-normalized dataset preview](colors-normalized-preview.png)
 
 *Example records from the upstream `colors-normalized` dataset used to construct
 the color alias mapping.*
@@ -165,7 +165,7 @@ together with FTC fiber terminology.
 
 #### Source dataset preview
 
-![textile-fiber-database preview](../../docs/assets/textile-fiber-database-preview.png)
+![textile-fiber-database preview](textile-fiber-database-preview.png)
 
 *Example records from the upstream textile-fiber database used to construct
 the material alias mapping.*

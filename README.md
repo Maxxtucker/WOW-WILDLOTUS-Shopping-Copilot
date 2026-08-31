@@ -1,6 +1,6 @@
-# WOW-WildLotus Shopping Copilot
+# WOW-WILDLOTUS Shopping Copilot
 
-WOW-WildLotus is a multi-turn shopping agent for the TechJam Conversational E-Commerce Search Challenge. It searches a frozen 50,000-product Amazon catalog for a hidden target product, returns up to ten ranked `parent_asin` values per turn, and decides which structured attribute to ask about next. A session ends at the first target hit or after ten turns. Official contest deliverables are in [Submission](#submission).
+WOW-WILDLOTUS is a multi-turn shopping agent for the TechJam Conversational E-Commerce Search Challenge. It searches a frozen 50,000-product Amazon catalog for a hidden target product, returns up to ten ranked `parent_asin` values per turn, and decides which structured attribute to ask about next. A session ends at the first target hit or after ten turns. Official contest deliverables are in [Submission](#submission).
 
 ![Chainlit demo: Agent pipeline graph, product shelf, and Eval step-through on a public-set turn](docs/images/demo_pipeline.png)
 

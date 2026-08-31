@@ -51,7 +51,10 @@ For a smoke build, `extract_catalog_slots.py --limit N` stops after `N` valid pr
 
 ### Color aliases
 
-`scripts/build_aliases_color.py` builds `aliases/color_aliases.json` from the Hugging Face `colors-normalized` dataset. It:
+`scripts/build_aliases_color.py` builds `aliases/color_aliases.json`
+from the Hugging Face
+[`NacerKr/colors-normalized`](https://huggingface.co/datasets/NacerKr/colors-normalized)
+dataset. It:
 
 1. normalizes every alias with Unicode NFKC, case folding, whitespace folding, and `colour → color` / `grey → gray`;
 2. maps the source dataset's 20 base colors to the evaluator's 11 closed buckets;
@@ -63,7 +66,10 @@ The closed runtime buckets are `black`, `white`, `blue`, `red`, `pink`, `green`,
 
 ### Material aliases
 
-`scripts/build_aliases_material.py` builds `aliases/material_aliases.json` from the open textile-fiber database and FTC fiber names. It:
+`scripts/build_aliases_material.py` builds `aliases/material_aliases.json`
+from the open-source
+[`textile-fiber-database`](https://github.com/kobo-labs-open-source/textile-fiber-database)
+and FTC fiber names. It:
 
 1. maps fiber IDs, common names, FTC names, EU names, and common blends to evaluator materials;
 2. maps viscose, lyocell, modal, tencel, cupro, and bamboo-derived fiber wording to `rayon`;

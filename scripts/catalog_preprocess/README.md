@@ -49,36 +49,314 @@ For a smoke build, `extract_catalog_slots.py --limit N` stops after `N` valid pr
 
 ## Upstream preprocessing assets
 
+## Upstream preprocessing assets
+
 ### Color aliases
 
-`scripts/build_aliases_color.py` builds `aliases/color_aliases.json`
-from the Hugging Face
+`scripts/build_aliases_color.py` builds `aliases/color_aliases.json` from the Hugging Face
 [`NacerKr/colors-normalized`](https://huggingface.co/datasets/NacerKr/colors-normalized)
-dataset. It:
+dataset.
 
-1. normalizes every alias with Unicode NFKC, case folding, whitespace folding, and `colour → color` / `grey → gray`;
+#### Source dataset preview
+
+![colors-normalized dataset preview](../../docs/assets/colors-normalized-preview.png)
+
+*Example records from the upstream `colors-normalized` dataset used to construct
+the color alias mapping.*
+
+The upstream dataset provides a large vocabulary of color names together with
+normalized base-color labels. We use these names as the starting point for
+catalog and shopper-language normalization, then map them into the smaller
+closed color vocabulary used by the competition evaluator.
+
+This allows different surface forms to resolve to the same runtime value.
+
+For example:
+
+```text
+navy          → blue
+navy blue     → blue
+burgundy      → red
+ivory         → white
+charcoal      → gray
+lavender      → purple
+lilac         → purple
+coral         → orange
+```
+
+The preprocessing script:
+
+1. normalizes every alias with Unicode NFKC, case folding, whitespace folding,
+   and `colour → color` / `grey → gray`;
 2. maps the source dataset's 20 base colors to the evaluator's 11 closed buckets;
 3. prefers English aliases when the same spelling occurs in multiple languages;
-4. adds direct evaluator colors, `grey`, and common fashion names such as navy, burgundy, khaki, ivory, charcoal, olive, coral, lavender, and lilac; and
-5. writes a compact mapping from alias to `{base, eval}`.
+4. adds direct evaluator colors, `grey`, and common fashion names such as
+   navy, burgundy, khaki, ivory, charcoal, olive, coral, lavender, and lilac; and
+5. writes a compact mapping from each alias to:
 
-The closed runtime buckets are `black`, `white`, `blue`, `red`, `pink`, `green`, `brown`, `gray`, `purple`, `yellow`, and `orange`.
+   ```text
+   {
+     "base": <source normalized color>,
+     "eval": <competition evaluator color>
+   }
+   ```
+
+A simplified example is:
+
+```text
+"navy"       → {"base": "blue",   "eval": "blue"}
+"burgundy"   → {"base": "red",    "eval": "red"}
+"lavender"   → {"base": "purple", "eval": "purple"}
+```
+
+The closed runtime color buckets are:
+
+```text
+black
+white
+blue
+red
+pink
+green
+brown
+gray
+purple
+yellow
+orange
+```
+
+The goal of this normalization is not to replace the original catalog wording.
+Instead, the original surface value is retained while the canonical evaluator
+color provides a consistent value for exact matching, filtering, and structured
+scoring.
+
+Conceptually:
+
+```text
+Catalog / shopper wording
+        ↓
+Color alias normalization
+        ↓
+Canonical evaluator color
+```
+
+For example:
+
+```text
+"navy running shoes"
+        ↓
+navy → blue
+        ↓
+color = blue
+```
+
+This reduces lexical mismatch between shopper language and catalog metadata
+without requiring the runtime Agent to repeatedly interpret common color
+variants.
+
+
+---
 
 ### Material aliases
 
-`scripts/build_aliases_material.py` builds `aliases/material_aliases.json`
-from the open-source
+`scripts/build_aliases_material.py` builds `aliases/material_aliases.json` from the open-source
 [`textile-fiber-database`](https://github.com/kobo-labs-open-source/textile-fiber-database)
-and FTC fiber names. It:
+together with FTC fiber terminology.
 
-1. maps fiber IDs, common names, FTC names, EU names, and common blends to evaluator materials;
-2. maps viscose, lyocell, modal, tencel, cupro, and bamboo-derived fiber wording to `rayon`;
-3. maps polyamide to `nylon`, elastane/lycra to `spandex`, and wool-family fibers to `wool`;
-4. adds leather, cowhide, suede, faux/vegan/PU/patent/bonded leather aliases;
-5. adds common misspellings; and
-6. maps unmatched textile names and fabrics such as satin, chiffon, canvas, fleece, mesh, linen, hemp, acrylic, knit, jersey, and denim to generic `fabric`.
+#### Source dataset preview
 
-The nine evaluator buckets are `cotton`, `polyester`, `nylon`, `leather`, `wool`, `spandex`, `silk`, `rayon`, and `fabric`.
+![textile-fiber-database preview](../../docs/assets/textile-fiber-database-preview.png)
+
+*Example records from the upstream textile-fiber database used to construct
+the material alias mapping.*
+
+The upstream material resources provide standardized fiber names together with
+common names, industry terminology, alternative spellings, and related fiber
+descriptions.
+
+These names are consolidated into the smaller material vocabulary used by the
+competition evaluator.
+
+For example:
+
+```text
+polyamide        → nylon
+elastane         → spandex
+lycra            → spandex
+viscose          → rayon
+lyocell          → rayon
+tencel           → rayon
+modal            → rayon
+cowhide          → leather
+shell cordovan   → leather
+```
+
+The preprocessing script:
+
+1. maps fiber IDs, common names, FTC names, EU names, and common blends to
+   evaluator materials;
+2. maps viscose, lyocell, modal, tencel, cupro, and bamboo-derived fiber wording
+   to `rayon`;
+3. maps polyamide to `nylon`, elastane/lycra to `spandex`, and wool-family
+   fibers to `wool`;
+4. adds leather-related aliases including leather, cowhide, suede,
+   faux leather, vegan leather, PU leather, patent leather, and bonded leather;
+5. adds common misspellings and spelling variants; and
+6. maps unmatched textile names and fabric constructions such as satin,
+   chiffon, canvas, fleece, mesh, linen, hemp, acrylic, knit, jersey, and denim
+   to the generic evaluator bucket `fabric`.
+
+A simplified example is:
+
+```text
+"polyamide"       → nylon
+"lycra"           → spandex
+"tencel"          → rayon
+"cowhide leather" → leather
+"denim"           → fabric
+```
+
+The nine evaluator material buckets are:
+
+```text
+cotton
+polyester
+nylon
+leather
+wool
+spandex
+silk
+rayon
+fabric
+```
+
+As with color normalization, the original material wording is not discarded.
+The catalog keeps the source phrase for provenance while also storing a
+canonical material value for matching and scoring.
+
+Conceptually:
+
+```text
+Catalog / shopper wording
+        ↓
+Material alias normalization
+        ↓
+Canonical evaluator material
+```
+
+For example:
+
+```text
+"polyamide running shirt"
+        ↓
+polyamide → nylon
+        ↓
+material = nylon
+```
+
+or:
+
+```text
+"lycra blend leggings"
+        ↓
+lycra → spandex
+        ↓
+material = spandex
+```
+
+This normalization reduces mismatch between consumer terminology, manufacturer
+terminology, and the evaluator's closed material vocabulary.
+
+
+---
+
+### Why alias normalization is done offline
+
+Color and material normalization are built during catalog preprocessing rather
+than repeatedly inferred at runtime.
+
+This has several advantages:
+
+- **Deterministic behavior**  
+  The same alias always maps to the same canonical value.
+
+- **Lower runtime cost**  
+  Common color and material variants do not require an LLM call during every
+  shopping turn.
+
+- **Higher retrieval recall**  
+  Shopper wording and catalog wording can still match even when their surface
+  forms differ.
+
+- **Easier debugging**  
+  Every canonical value can be traced back to the original surface phrase and
+  alias source.
+
+- **Evaluator alignment**  
+  Runtime values are constrained to the same closed color and material
+  vocabularies expected by the competition evaluator.
+
+The preprocessing flow is therefore:
+
+```text
+Upstream alias resources
+        ↓
+Normalize aliases
+        ↓
+Map to evaluator buckets
+        ↓
+Write committed alias JSON
+        ↓
+Extract catalog slots
+        ↓
+Store both surface and canonical values
+```
+
+At runtime, the Agent reads the prebuilt alias mappings and catalog sidecar.
+It does not rebuild these resources.
+
+
+---
+
+### Resulting catalog representation
+
+A catalog product may therefore retain both its original wording and its
+normalized representation.
+
+For example:
+
+```json
+{
+  "attribute": "color",
+  "surface": "Navy Blue",
+  "canonical": "blue",
+  "source": "details:color"
+}
+```
+
+and:
+
+```json
+{
+  "attribute": "material",
+  "surface": "Polyamide Blend",
+  "canonical": "nylon",
+  "source": "details:material"
+}
+```
+
+This distinction is important:
+
+```text
+surface
+= what the product originally says
+
+canonical
+= the normalized value used for comparison
+```
+
+The normalization layer therefore improves consistency without removing the
+original catalog evidence.
 
 ### Category tree and parent index
 

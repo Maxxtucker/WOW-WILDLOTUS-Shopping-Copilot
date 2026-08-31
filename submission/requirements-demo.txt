@@ -1,0 +1,4 @@
+# Optional Chainlit UI. Not required for official scoring.
+# Additive to requirements.txt (core Agent has no third-party deps).
+# Pin 2.12: unpinned installs resolve literalai -> traceloop-sdk and hang pip.
+chainlit==2.12.0

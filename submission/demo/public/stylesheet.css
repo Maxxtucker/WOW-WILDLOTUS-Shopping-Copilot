@@ -1,0 +1,285 @@
+/* Fashion night theme: TikTok magenta + electric cyan over deep violet ink. */
+
+:root,
+.dark,
+html.dark,
+html[class*="dark"],
+body.dark {
+  --ink: #07040e;
+  --ink-2: #0c0816;
+  --surface: #1c122c;
+  --pink: #fe2c55;
+  --cyan: #25f4ee;
+  --violet: #c4b5fd;
+  --text: #f7f3ff;
+
+  /* Override Chainlit / shadcn HSL tokens (gray → violet night). */
+  --background: 268 45% 6% !important;
+  --foreground: 270 40% 96% !important;
+  --card: 268 38% 12% !important;
+  --card-foreground: 270 40% 96% !important;
+  --popover: 268 40% 10% !important;
+  --popover-foreground: 270 40% 96% !important;
+  --primary: 348 99% 58% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --secondary: 268 30% 16% !important;
+  --secondary-foreground: 270 40% 96% !important;
+  --muted: 268 22% 16% !important;
+  --muted-foreground: 270 18% 72% !important;
+  --accent: 268 28% 18% !important;
+  --accent-foreground: 270 40% 96% !important;
+  --destructive: 348 80% 48% !important;
+  --destructive-foreground: 0 0% 100% !important;
+  --border: 270 28% 28% !important;
+  --input: 268 30% 14% !important;
+  --ring: 178 90% 55% !important;
+  --sidebar-background: 268 42% 7% !important;
+  --sidebar-foreground: 270 40% 96% !important;
+  --sidebar-primary: 348 99% 58% !important;
+  --sidebar-primary-foreground: 0 0% 100% !important;
+  --sidebar-accent: 268 30% 14% !important;
+  --sidebar-accent-foreground: 270 40% 96% !important;
+  --sidebar-border: 270 24% 22% !important;
+  --sidebar-ring: 178 90% 55% !important;
+}
+
+html {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  color: var(--text) !important;
+  background-color: #07040e !important;
+  background-image:
+    radial-gradient(ellipse 95% 60% at 6% -10%, rgba(254, 44, 85, 0.38), transparent 55%),
+    radial-gradient(ellipse 85% 55% at 100% -5%, rgba(37, 244, 238, 0.22), transparent 52%),
+    radial-gradient(ellipse 75% 50% at 48% 108%, rgba(123, 60, 255, 0.22), transparent 58%),
+    linear-gradient(180deg, #160a22 0%, #07040e 38%, #0b0618 100%) !important;
+  background-attachment: fixed !important;
+}
+
+#root main,
+main,
+[class*="bg-background"] {
+  background-color: transparent !important;
+}
+
+/* Force chat / thread panes to show the page gradient. */
+#root [class*="overflow-y-auto"],
+#root [class*="overflow-auto"] {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+header,
+[class*="Header"],
+nav[class*="header" i] {
+  background: linear-gradient(
+    90deg,
+    rgba(22, 8, 32, 0.92) 0%,
+    rgba(36, 12, 48, 0.88) 45%,
+    rgba(10, 22, 36, 0.92) 100%
+  ) !important;
+  border-bottom: 1px solid rgba(37, 244, 238, 0.2) !important;
+  box-shadow:
+    0 10px 40px rgba(254, 44, 85, 0.12),
+    inset 0 -1px 0 rgba(254, 44, 85, 0.12) !important;
+  backdrop-filter: blur(18px) saturate(1.25);
+}
+
+aside,
+[class*="ElementSidebar"] {
+  background: linear-gradient(
+    180deg,
+    rgba(24, 10, 40, 0.95) 0%,
+    rgba(8, 4, 16, 0.96) 100%
+  ) !important;
+  border-color: rgba(196, 181, 253, 0.16) !important;
+}
+
+/* Composer / input dock */
+form,
+[class*="watermark"],
+textarea,
+[contenteditable="true"] {
+  color: var(--text) !important;
+}
+
+textarea,
+[contenteditable="true"] {
+  background: linear-gradient(180deg, rgba(28, 18, 44, 0.94), rgba(12, 8, 22, 0.97)) !important;
+  border-color: rgba(37, 244, 238, 0.2) !important;
+}
+
+#root [class*="message"],
+#root [class*="Message"] {
+  background: transparent !important;
+}
+
+/* Native selects: dark list so light text stays readable. */
+select,
+select option,
+select optgroup {
+  color-scheme: dark;
+  background-color: #1c122c !important;
+  color: #f7f3ff !important;
+}
+
+select {
+  border: 1px solid rgba(196, 181, 253, 0.28) !important;
+  border-radius: 10px !important;
+  color: #f7f3ff !important;
+  background: linear-gradient(180deg, #241634, #12081c) !important;
+}
+
+select:focus {
+  outline: 2px solid rgba(37, 244, 238, 0.45) !important;
+  outline-offset: 1px;
+}
+
+select option,
+select optgroup {
+  background-color: #1c122c !important;
+  color: #f7f3ff !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #fe2c55 !important;
+  color: #ffffff !important;
+}
+
+button[aria-label*="Copy" i],
+button[title*="Copy" i],
+button[aria-label*="copy" i],
+[data-testid="copy-message"],
+button:has(svg.lucide-copy),
+button:has(svg[class*="copy"]) {
+  display: none !important;
+}
+
+button[aria-label*="Thumbs" i],
+button[aria-label*="Feedback" i],
+button[aria-label*="Like" i],
+button[aria-label*="Dislike" i],
+button:has(svg.lucide-thumbs-up),
+button:has(svg.lucide-thumbs-down) {
+  display: none !important;
+}
+
+button[id^="actions/"],
+div[class*="action"] button {
+  border-radius: 999px !important;
+  border: 1px solid rgba(254, 44, 85, 0.38) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(254, 44, 85, 0.22) 0%,
+    rgba(37, 244, 238, 0.1) 100%
+  ) !important;
+  color: #ffe4ec !important;
+  padding: 0.4rem 0.9rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  gap: 0.4rem !important;
+  margin: 0.15rem 0.2rem !important;
+  box-shadow: 0 6px 18px rgba(254, 44, 85, 0.12) !important;
+}
+
+button[id^="actions/"]:hover,
+div[class*="action"] button:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(254, 44, 85, 0.38) 0%,
+    rgba(37, 244, 238, 0.2) 100%
+  ) !important;
+  border-color: #25f4ee !important;
+}
+
+html,
+body,
+#root {
+  scrollbar-width: thin;
+  scrollbar-color: #fe2c55 #120818;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+#root::-webkit-scrollbar-track {
+  background: #120818;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+#root::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #fe2c55, #7b3cff);
+  border-radius: 999px;
+  border: 2px solid #120818;
+}
+
+[class*="ElementSidebar"] {
+  align-self: stretch !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+[class*="ElementSidebar"]:has([data-inspector-collapsed="true"]) {
+  width: 72px !important;
+  min-width: 72px !important;
+  max-width: 72px !important;
+}
+
+[class*="ElementSidebar"]:has([data-inspector-collapsed="false"]) {
+  width: min(360px, 32vw) !important;
+  min-width: 280px !important;
+  max-width: 420px !important;
+}
+
+[data-inspector-collapsed] {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  box-sizing: border-box !important;
+  overflow: auto !important;
+}
+
+.max-w-4xl,
+.max-w-3xl,
+.max-w-2xl,
+.max-w-5xl {
+  max-width: min(1480px, calc(100vw - 300px)) !important;
+}
+
+#root main,
+#root [class*="overflow-y-auto"] {
+  min-width: 0;
+}
+
+[data-eval-dock] {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+div:has(> [data-eval-dock]),
+div:has(> * > [data-eval-dock]) {
+  min-height: 0 !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: visible !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}

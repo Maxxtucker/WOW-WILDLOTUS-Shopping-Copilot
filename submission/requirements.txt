@@ -1,0 +1,8 @@
+# Official Agent scoring dependencies.
+# No third-party runtime packages. Python 3.10+ with SQLite FTS5.
+# `pip install -r requirements.txt` is a no-op.
+#
+# Default observe/router NLU talks to local Ollama (see src/assets/nlu.env).
+# Retrieve and Decide stay stdlib SQLite. Optional extras live in this
+# package (requirements-demo.txt) or the kit checkout (reranker). They
+# are not required for official scoring.

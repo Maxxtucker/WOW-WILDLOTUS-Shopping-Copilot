@@ -1,0 +1,5 @@
+# Full local workstation: demo UI, optional reranker, and alias rebuilders.
+# Official scoring still uses requirements.txt only.
+-r requirements-demo.txt
+-r requirements-reranker.txt
+-r requirements-preprocess.txt

@@ -1,0 +1,5 @@
+# Only needed to rebuild committed alias JSON from upstream sources.
+# Runtime Agent and extract_catalog_slots.py do not import these packages.
+# Additive to requirements.txt (core Agent has no third-party deps).
+pandas>=2.0,<3
+pyarrow>=14

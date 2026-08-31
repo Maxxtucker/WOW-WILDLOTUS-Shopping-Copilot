@@ -4,7 +4,7 @@ This chat runs `agent.orchestrator.Agent` and the same production
 `TurnPipeline` used by the headless API:
 
 - full `data/catalog.jsonl`
-- default live NLU from `scripts/nlu.env`;
+- default live NLU from `scripts/nlu.env` (first clone: `scripts/setup.ps1` or `python scripts/bootstrap.py --extras demo --run demo`);
 - at most three complete NLU attempts, then deterministic regex extraction;
 - Understand stages `turn_delta`; Intent Router commits it and records its
   token usage;

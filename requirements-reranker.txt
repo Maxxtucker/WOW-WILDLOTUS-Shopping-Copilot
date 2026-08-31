@@ -1,5 +1,6 @@
-# Optional local semantic reranking dependencies.
-# The core Agent still runs with requirements.txt only.
+# Optional local semantic reranking. The core Agent still runs without this.
+# sentence-transformers pulls PyTorch; expect a large download on first install.
+# Additive to requirements.txt (core Agent has no third-party deps).
 sentence-transformers>=5.1.0,<6
 # Transformers 5 requires a newer PyTorch runtime and is not needed by Qwen3.
 transformers>=4.51.0,<5

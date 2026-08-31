@@ -1,3 +1,6 @@
+# Canonical Chainlit config for this repository. Launch with cwd=demo
+# (scripts/run_demo.* or python scripts/bootstrap.py --run demo).
+# Do not create or use a repository-root .chainlit/ directory.
 [project]
 # List of environment variables to be provided by each user to use the app.
 user_env = []
@@ -143,14 +146,14 @@ cot = "hidden"
 
 # Specify a CSS file that can be used to customize the user interface.
 # The CSS file can be served from the public directory or via an external link.
-custom_css = "/public/stylesheet.css"
+custom_css = "/public/stylesheet.css?v=copilot"
 
 # Specify additional attributes for a custom CSS file
 # custom_css_attributes = "media=\"print\""
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/eval-composer.js"
+custom_js = "/public/eval-composer.js?v=copilot"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"
@@ -172,10 +175,10 @@ alert_style = "classic"
 # custom_meta_image_url = "https://chainlit-cloud.s3.eu-west-3.amazonaws.com/logo/chainlit_banner.png"
 
 # Load assistant logo directly from URL.
-logo_file_url = "/public/logo_dark.png"
+logo_file_url = "/public/logo_dark.png?v=copilot"
 
 # Load assistant avatar image directly from URL.
-default_avatar_file_url = "/public/logo_dark.png"
+default_avatar_file_url = "/public/logo_dark.png?v=copilot"
 
 # Avatar size in pixels (default: 20).
 # avatar_size = 20

@@ -48,6 +48,97 @@ The legacy one-step `ScoreAwarePlanner` remains as a compatibility baseline and
 provides the candidate cap used by `Clarifier`. Production action selection uses
 `DynamicSlatePlanner`.
 
+## Dynamic Slate objective
+
+Dynamic Slate selects the clarification question and recommendation count as one
+joint action:
+
+```math
+u_t=(a_t,k_t), \qquad k_t\in\{0,1,\ldots,10\}.
+```
+
+For candidate `d_i`, the ranking belief is:
+
+```math
+p_i=P(X=d_i\mid S_t),
+```
+
+including probability mass outside the explicit planning head:
+
+```math
+\sum_{i=1}^{N}p_i+p_{\mathrm{tail}}=1.
+```
+
+If the hidden target is first found at turn `t` and recommendation rank `r`,
+the runtime utility is:
+
+```math
+U(t,r)=w_H+\frac{w_M}{r}+w_E\frac{11-t}{10},
+\qquad (w_H,w_M,w_E)=(0.50,0.30,0.20)\text{ by default}.
+```
+
+The immediate expected value of exposing the first `k_t` candidates is:
+
+```math
+I_t(S_t,k_t)
+=g_t\sum_{r=1}^{k_t}p_rU(t,r),
+```
+
+where `g_t` is the probability that the current intent is eligible to convert.
+For normalized answer `y`, the no-hit answer branch has joint probability:
+
+```math
+q_t(y\mid a_t,k_t)
+=\sum_{i=1}^{N}
+p_i\left[1-g_t\mathbf{1}(i\leq k_t)\right]\ell_i^t(y)
++p_{\mathrm{tail}}\ell_{\mathrm{tail}}^t(y),
+```
+
+with answer likelihood:
+
+```math
+\ell_i^t(y)=P(Y_{t+1}=y\mid X=d_i,a_t,S_t).
+```
+
+After a miss and answer, the transition adapter constructs the next planning
+state:
+
+```math
+S_{t+1}^{y,k_t}
+=\mathrm{UpdateAndRetrieve}(S_t,a_t,k_t,y).
+```
+
+The bounded finite-horizon recursion is:
+
+```math
+V_t^{(0)}(S_t)=\max_{a_t,k_t}I_t(S_t,k_t),
+```
+
+```math
+Q_t^{(h)}(S_t,a_t,k_t)
+=I_t(S_t,k_t)
++\sum_y q_t(y\mid a_t,k_t)
+V_{t+1}^{(h-1)}\left(S_{t+1}^{y,k_t}\right),
+```
+
+```math
+V_t^{(h)}(S_t)=\max_{a_t,k_t}Q_t^{(h)}(S_t,a_t,k_t).
+```
+
+Production expands two answer observations and selects:
+
+```math
+(a_t^*,k_t^*)
+=\underset{a_t,k_t}{\mathrm{arg\,max}}\;
+Q_t^{(2)}(S_t,a_t,k_t).
+```
+
+Thus `k_t` is not a fixed intent-to-size rule. It is the recommendation count
+with the greatest modeled immediate-plus-future value for the current turn,
+ranking belief, gate state, and possible clarification answers. The detailed
+transition approximation remains documented in
+[`clarification/README.md`](clarification/README.md).
+
 ## Strict flow
 
 <!-- workflow-schema:decide -->
@@ -117,9 +208,9 @@ When the configured cross-encoder is disabled, unavailable, or returns no
 weights, ranking falls back deterministically to a shifted softmax over
 retrieval scores:
 
-\[
+```math
 w_i=\exp\left(\frac{s_i-s_{max}}{\tau}\right).
-\]
+```
 
 Ordinary structured scores use temperature `0.12`. Weighted-RRF scores operate
 at a much smaller numeric scale, so `belief_temperature()` uses a clipped
@@ -231,27 +322,27 @@ The transition model plans over at most 80 ranked candidates even though Retriev
 
 Let raw head probability mass be:
 
-\[
+```math
 H_{raw}=\sum_{d\in first\ 80}P(d).
-\]
+```
 
 Natural mass outside the head is:
 
-\[
+```math
 T_{natural}=\max(0,1-H_{raw}).
-\]
+```
 
 With non-empty candidates, planning reserves at least `tail_floor=0.20`:
 
-\[
+```math
 T=\max(T_{natural},0.20).
-\]
+```
 
 With no candidates, `T=1`. Head probabilities are rescaled into the remaining budget:
 
-\[
+```math
 P_{head}'(d)=P(d)\cdot\frac{1-T}{H_{raw}},
-\]
+```
 
 or zero when `H_raw=0`. This prevents a bounded head from pretending that unmodeled catalog products have zero probability.
 
@@ -270,9 +361,9 @@ DynamicSlateAction(
 
 For every current question, the planner tests all:
 
-\[
+```math
 k\in\{0,1,\ldots,\min(10,top\_k,|head|)\}.
-\]
+```
 
 `allow_zero=True`, so a question-only turn is legal when expected information gain is worth more than exposing low-confidence products.
 
@@ -305,9 +396,9 @@ sessions and callers that do not set a preference use the balanced default.
 
 For turn `t`, rank `r`, and runtime weights `(w_H,w_M,w_E)`:
 
-\[
+```math
 u(t,r)=w_H+\frac{w_M}{r}+w_E\frac{11-t}{10}.
-\]
+```
 
 Defaults are:
 
@@ -321,9 +412,9 @@ w_E = 0.20
 
 For state gate probability `g` and slate size `k`, immediate expected value is:
 
-\[
+```math
 V_{now}(s,k)=g\sum_{r=1}^{k}P_s(d_r)\,u(t,r).
-\]
+```
 
 When the conversion gate is closed (`g=0`), the current slate has zero modeled immediate conversion value.
 
@@ -331,21 +422,21 @@ When the conversion gate is closed (`g=0`), the current slate has zero modeled i
 
 Only probability mass that continues after the current slate enters future branches. For candidate index `i`:
 
-\[
+```math
 m_i=
 \begin{cases}
 P_i(1-g), & i<k\\
 P_i, & i\ge k.
 \end{cases}
-\]
+```
 
 With an open gate, displayed candidates contribute no no-hit continuation mass. With a probabilistically/fully closed gate, some or all of their mass survives to future planning.
 
 The current-turn hit mass is:
 
-\[
+```math
 M_{hit}=g\sum_{i<k}P_i.
-\]
+```
 
 All branch mass must be at most `1-M_hit`; otherwise the planner raises a transition-model error.
 
@@ -353,9 +444,9 @@ All branch mass must be at most `1-M_hit`; otherwise the planner raises a transi
 
 For concrete attribute `a`, define:
 
-\[
+```math
 q_a=coverage_a\cdot reliability_a.
-\]
+```
 
 For each surviving candidate mass `m_i`:
 
@@ -367,9 +458,9 @@ If `ask_attribute=None`, every surviving candidate enters `__no_information__`.
 
 Candidates with the same signature share a branch. Each branch probability is the sum of its member masses, and its next candidate posterior is:
 
-\[
+```math
 P(d_i\mid branch)=\frac{m_i}{\sum_{j\in branch}m_j}.
-\]
+```
 
 Typed questions retain the largest 12 branch groups. `other` retains the largest 4. Excess groups are merged into `__other_answers__`, ordered by their accumulated mass.
 
@@ -379,9 +470,9 @@ For a non-empty posterior, the next state begins with `None` and may retain othe
 
 The approximate next gate probability is:
 
-\[
+```math
 g'=\min(1,g+0.5).
-\]
+```
 
 This models increasing likelihood of an open conversion gate over the two-step horizon without claiming an exact future Router result.
 
@@ -389,15 +480,15 @@ This models increasing likelihood of an open conversion gate over the two-step h
 
 Tail mass `T` is not attached to a specific product signature. For concrete attribute `a`:
 
-\[
+```math
 T_{useful}=Tq_a,\qquad T_{noinfo}=T-T_{useful}.
-\]
+```
 
 The useful tail branch represents successful future recovery and has terminal value:
 
-\[
+```math
 V_{tail}=0.55\cdot u(t+1,1).
-\]
+```
 
 The no-information tail branch has value zero. Both next states carry tail probability one and no explicit head candidates. If no attribute is asked, `q=0` and all tail mass becomes no-information.
 
@@ -415,15 +506,15 @@ force_full_final_slate = True
 
 For action `a` in state `s` with remaining depth `h`:
 
-\[
+```math
 Q_h(s,a)=V_{now}(s,k_a)+\sum_b P(b\mid s,a)V_{h-1}(s_b).
-\]
+```
 
 The state value is:
 
-\[
+```math
 V_h(s)=\max_a Q_h(s,a).
-\]
+```
 
 At depth zero, the terminal approximation is the best immediate slate among allowed actions. The default depth expands answers at turns `t` and `t+1`, then uses the best immediate slate at `t+2`.
 

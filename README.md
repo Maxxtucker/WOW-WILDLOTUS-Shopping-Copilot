@@ -4,6 +4,12 @@ We use both the [`main`](https://github.com/Maxxtucker/WOW-WILDLOTUS-Shopping-Co
 
 WOW-WILDLOTUS is a multi-turn shopping agent for the TechJam Conversational E-Commerce Search Challenge. It searches a frozen 50,000-product Amazon catalog for a hidden target product, returns up to ten ranked `parent_asin` values per turn, and decides which structured attribute to ask about next. A session ends at the first target hit or after ten turns. Official contest deliverables are in [Submission](#submission).
 
+## Demo video
+
+[![Watch the WOW-WILDLOTUS Shopping Copilot demo](docs/images/demo_video_thumbnail.png)](docs/videos/wow-wildlotus-demo.mp4)
+
+Click the image to watch the demo.
+
 ![Chainlit demo: Agent pipeline graph, product shelf, and Eval step-through on a public-set turn](docs/images/demo_pipeline.png)
 
 ## Contents

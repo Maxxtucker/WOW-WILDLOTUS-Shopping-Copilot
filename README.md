@@ -6,9 +6,9 @@ WOW-WILDLOTUS is a multi-turn shopping agent for the TechJam Conversational E-Co
 
 ## Fun video
 
-[![Watch our WOW-WILDLOTUS fun video](docs/images/fun_video_thumbnail.png)](https://raw.githubusercontent.com/Maxxtucker/WOW-WILDLOTUS-Shopping-Copilot/main/docs/videos/wow-wildlotus-fun-video.mp4)
+![WOW-WILDLOTUS fun video](docs/images/wow-wildlotus-fun-video.gif)
 
-Click the image to watch our short fun clip. The full product demo is shown below.
+This is a short fun clip, not the product demo. [Open the MP4 with audio](https://raw.githubusercontent.com/Maxxtucker/WOW-WILDLOTUS-Shopping-Copilot/main/docs/videos/wow-wildlotus-fun-video.mp4). The full product demo is shown below.
 
 ![Chainlit demo: Agent pipeline graph, product shelf, and Eval step-through on a public-set turn](docs/images/demo_pipeline.png)
 
